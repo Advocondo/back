@@ -203,6 +203,12 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Ignore uv's internal configuration and environment caches
+.uv/
+
+# Ignore environments automatically created by uv loop/run commands
+.uv-cache/
+
 # Ruff stuff:
 .ruff_cache/
 
