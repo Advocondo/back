@@ -1,0 +1,12 @@
+# Dev image: keeps uv + dev dependencies, source is bind-mounted for hot reload.
+FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# `uv run` syncs the environment against uv.lock automatically before each run,
+# so the source (and lockfile) is bind-mounted via docker-compose instead of copied here.
+CMD ["uv", "run", "--", "fastapi", "dev", "--host", "0.0.0.0", "src/advocondo/main.py"]
