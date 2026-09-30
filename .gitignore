@@ -148,7 +148,10 @@ activemq-data/
 *.sage.py
 
 # Environments
+# Nenhum arquivo .env é versionado, exceto o modelo .env.example
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
