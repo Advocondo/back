@@ -60,6 +60,18 @@ O projeto usa [ruff](https://docs.astral.sh/ruff/):
 uv run ruff check .
 ```
 
+## Testes
+
+Os testes usam [pytest](https://docs.pytest.org/):
+
+```bash
+uv run pytest
+```
+
+## CI
+
+Todo PR para `main` roda o workflow `.github/workflows/ci.yml`: lint e formatação (ruff), testes (pytest) e o build do `Dockerfile.prod`. O deploy (CD) é feito pelo Coolify quando o código chega na `main`.
+
 ## Build de produção
 
 O `Dockerfile.prod` faz um build multi-stage, compilando as dependências com `uv` e gerando uma imagem final enxuta, sem `uv`, rodando como usuário não-root:
