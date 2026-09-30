@@ -23,7 +23,7 @@ Staging ainda não existe (ver a issue de CD, #41). Quando existir, deve ser um 
 
 As variáveis são definidas no painel do Coolify, em cada recurso (**Environment Variables**):
 
-- **API**: `DATABASE_URL` e as demais variáveis do `.env.example` que se aplicam a produção.
+- **API**: `DATABASE_URL`, `SENTRY_DSN` e as demais variáveis do `.env.example` que se aplicam a produção (ver [Observabilidade](observabilidade.md)).
 - **PostgreSQL**: usuário, senha e banco são definidos pelo próprio Coolify ao criar o recurso. A `DATABASE_URL` da API usa a URL interna que o Coolify mostra na página do banco.
 
 Regras:
@@ -53,7 +53,7 @@ A imagem do Postgres só lê `POSTGRES_PASSWORD` na primeira inicialização. Po
 
 3. Atualize a senha nas variáveis do recurso PostgreSQL no Coolify, para que a configuração continue igual à do banco.
 4. Atualize a `DATABASE_URL` da API no Coolify com a nova senha e faça o redeploy da API.
-5. Confira se a API está no ar (`GET /health`) e se ela consegue falar com o banco (`GET /health/db`).
+5. Confira se a API consegue falar com o banco (`GET /health/ready`).
 
 Entre os passos 2 e 4, conexões novas da API falham. Por isso, faça os passos em sequência, em um horário de pouco uso.
 

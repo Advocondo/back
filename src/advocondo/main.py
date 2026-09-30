@@ -1,22 +1,21 @@
-from typing import Annotated
+from fastapi import FastAPI
 
-from fastapi import Depends, FastAPI
-from sqlalchemy import text
-from sqlalchemy.orm import Session
-
-from advocondo.db import get_session
-
-app = FastAPI(title="Advocondo API")
+from advocondo import health
+from advocondo.config import Settings, get_settings
+from advocondo.logging_config import configure_logging
+from advocondo.middleware import request_context_middleware
+from advocondo.sentry import init_sentry
 
 
-@app.get("/health")
-def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
+    configure_logging(settings.log_level, settings.log_format)
+    init_sentry(settings)
+
+    app = FastAPI(title="Advocondo API")
+    app.middleware("http")(request_context_middleware)
+    app.include_router(health.router)
+    return app
 
 
-@app.get("/health/db")
-def health_check_db(
-    session: Annotated[Session, Depends(get_session)],
-) -> dict[str, str]:
-    session.execute(text("SELECT 1"))
-    return {"status": "ok", "database": "ok"}
+app = create_app()

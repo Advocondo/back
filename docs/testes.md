@@ -65,7 +65,7 @@ tests/
 ## Exemplos de referência
 
 - **Teste parametrizado:** `tests/unit/test_test_database_guard.py`. Um mesmo teste roda com vários casos via `@pytest.mark.parametrize`, usando `pytest.param(..., id=...)` para dar nomes legíveis aos casos.
-- **Teste de integração:** `tests/integration/test_health_db.py`. Faz uma requisição à API, que usa o banco de teste de verdade.
+- **Teste de integração:** `tests/integration/test_health_ready.py`. Faz uma requisição à API, que usa o banco de teste de verdade.
 - **Parametrizado + integração:** `tests/integration/test_isolamento.py`.
 
 ## Fixtures de domínio

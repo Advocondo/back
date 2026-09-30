@@ -14,7 +14,10 @@ class Base(DeclarativeBase):
 @lru_cache
 def get_engine() -> Engine:
     # Criado sob demanda: importar o app não exige banco (ex.: GET /health).
-    return create_engine(get_settings().database_url, pool_pre_ping=True)
+    database_url = get_settings().database_url
+    if not database_url:
+        raise RuntimeError("DATABASE_URL não está definida.")
+    return create_engine(database_url, pool_pre_ping=True)
 
 
 @lru_cache

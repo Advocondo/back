@@ -43,15 +43,22 @@ src/advocondo/
 ├── __init__.py
 ├── config.py      # configurações lidas das variáveis de ambiente
 ├── db.py          # SQLAlchemy: Base dos modelos, engine e sessão
-└── main.py        # entrypoint da aplicação FastAPI
+├── health.py      # /health e /health/ready
+├── logging_config.py  # logs estruturados (JSON)
+├── middleware.py  # log por requisição e X-Request-ID
+├── sentry.py      # rastreamento de erros
+├── main.py        # criação da aplicação FastAPI
+└── __main__.py    # entrypoint de produção (python -m advocondo)
 tests/             # ver docs/testes.md
 ```
 
 ### Verificando o banco
 
 ```bash
-curl http://localhost:8000/health/db
+curl http://localhost:8000/health/ready
 ```
+
+`/health` só confirma que a API está no ar; `/health/ready` também verifica o banco e as dependências externas. Veja [Observabilidade](docs/observabilidade.md) para os health checks, os logs estruturados e o Sentry.
 
 ## Desenvolvimento sem Docker
 
@@ -102,7 +109,7 @@ A branch `main` é protegida: o PR só pode ser mergeado se os jobs **Lint e tes
 
 ## Build de produção
 
-O `Dockerfile.prod` faz um build multi-stage, compilando as dependências com `uv` e gerando uma imagem final enxuta, sem `uv`, rodando como usuário não-root:
+O `Dockerfile.prod` faz um build multi-stage, compilando as dependências com `uv` e gerando uma imagem final enxuta, sem `uv`, rodando como usuário não-root. A API sobe com `python -m advocondo`, para que todos os logs saiam em JSON:
 
 ```bash
 docker build -f Dockerfile.prod -t advocondo-backend .
@@ -115,6 +122,7 @@ Em produção, o back-end roda em uma instância da **Oracle Cloud**, gerenciada
 - O PostgreSQL de produção roda no mesmo Coolify, e a API se conecta a ele pela `DATABASE_URL`.
 - As variáveis de ambiente e segredos são configurados no painel do Coolify, nunca no repositório. Veja [Variáveis de ambiente e segredos](docs/segredos.md), que também traz a rotina de rotação de credenciais.
 - O `docker-compose.yml` é usado só em desenvolvimento.
-- Use `GET /health` para verificar se a API está no ar e `GET /health/db` para verificar a conexão com o banco.
+- `GET /health` é o health check do container; `GET /health/ready` verifica o banco e deve ser usado pelo monitoramento externo.
+- Logs saem em JSON no stdout, e os erros vão para o Sentry quando `SENTRY_DSN` está definida. Veja [Observabilidade](docs/observabilidade.md), que também explica os alertas.
 
 O front-end é publicado separadamente, na Vercel (repositório [`Advocondo/front`](https://github.com/Advocondo/front)).
