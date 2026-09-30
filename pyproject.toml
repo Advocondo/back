@@ -17,6 +17,20 @@ packages = ["src/advocondo"]
 
 [dependency-groups]
 dev = [
+    "mypy>=2.3.1",
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "ruff>=0.6.2",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=advocondo --cov-report=term-missing"
+
+[tool.coverage.run]
+branch = true
+source = ["advocondo"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]

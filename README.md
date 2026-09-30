@@ -62,15 +62,30 @@ uv run ruff check .
 
 ## Testes
 
-Os testes usam [pytest](https://docs.pytest.org/):
+Os testes usam [pytest](https://docs.pytest.org/). A cobertura (pytest-cov) é exibida ao final da execução:
 
 ```bash
 uv run pytest
 ```
 
+## Checagem de tipos
+
+O projeto usa [mypy](https://mypy.readthedocs.io/) em modo estrito:
+
+```bash
+uv run mypy
+```
+
 ## CI
 
-Todo PR para `main` roda o workflow `.github/workflows/ci.yml`: lint e formatação (ruff), testes (pytest) e o build do `Dockerfile.prod`. O deploy (CD) é feito pelo Coolify quando o código chega na `main`.
+O workflow `.github/workflows/ci.yml` roda em todo push e em todo PR para `main`:
+
+- lint e formatação (ruff);
+- checagem de tipos (mypy);
+- testes com relatório de cobertura (pytest-cov), com o resumo no próprio job e o `coverage.xml` como artefato;
+- build do `Dockerfile.prod`.
+
+A branch `main` é protegida: o PR só pode ser mergeado se os jobs **Lint e testes** e **Build da imagem de produção** passarem. O deploy (CD) é feito pelo Coolify quando o código chega na `main`.
 
 ## Build de produção
 

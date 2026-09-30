@@ -1,11 +1,12 @@
 name: CI
 
 on:
+  push:
   pull_request:
     branches: [main]
 
 concurrency:
-  group: ci-${{ github.head_ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -28,8 +29,23 @@ jobs:
       - name: Formatação (ruff)
         run: uv run ruff format --check .
 
-      - name: Testes (pytest)
-        run: uv run pytest
+      - name: Checagem de tipos (mypy)
+        run: uv run mypy
+
+      - name: Testes com cobertura (pytest)
+        run: uv run pytest --cov-report=xml
+
+      - name: Resumo da cobertura
+        if: always()
+        run: uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar relatório de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: ignore
 
   build:
     name: Build da imagem de produção
