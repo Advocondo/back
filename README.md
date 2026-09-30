@@ -16,7 +16,7 @@ Backend do Advocondo, sistema de gestão de contratos para escritórios de advoc
 
 ## Como rodar (desenvolvimento)
 
-1. Copie o arquivo de variáveis de ambiente:
+1. Copie o arquivo de variáveis de ambiente (o `.env` não é versionado; veja [Variáveis de ambiente e segredos](docs/segredos.md)):
 
    ```bash
    cp .env.example .env
@@ -80,6 +80,7 @@ uv run mypy
 
 O workflow `.github/workflows/ci.yml` roda em todo push e em todo PR para `main`:
 
+- busca de segredos commitados (gitleaks);
 - lint e formatação (ruff);
 - checagem de tipos (mypy);
 - testes com relatório de cobertura (pytest-cov), com o resumo no próprio job e o `coverage.xml` como artefato;
@@ -100,7 +101,7 @@ docker build -f Dockerfile.prod -t advocondo-backend .
 Em produção, o back-end roda em uma instância da **Oracle Cloud**, gerenciada pelo [Coolify](https://coolify.io). O Coolify faz o build com o `Dockerfile.prod` a partir deste repositório e expõe a API na porta `8000`.
 
 - O PostgreSQL de produção roda no mesmo Coolify, e a API se conecta a ele pela `DATABASE_URL`.
-- As variáveis de ambiente são configuradas no painel do Coolify (veja `.env.example`).
+- As variáveis de ambiente e segredos são configurados no painel do Coolify, nunca no repositório. Veja [Variáveis de ambiente e segredos](docs/segredos.md), que também traz a rotina de rotação de credenciais.
 - O `docker-compose.yml` é usado só em desenvolvimento.
 - Use `GET /health` para verificar se a API está no ar.
 
