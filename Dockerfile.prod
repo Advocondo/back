@@ -47,5 +47,5 @@ USER nonroot
 # Use `/app` as the working directory
 WORKDIR /app
 
-# Run the FastAPI application by default
-CMD ["fastapi", "run", "--host", "0.0.0.0", "src/advocondo/main.py"]
+# Run the FastAPI application by default (JSON logs; see src/advocondo/__main__.py)
+CMD ["python", "-m", "advocondo"]
