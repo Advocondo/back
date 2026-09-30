@@ -9,8 +9,8 @@ from sentry_sdk.envelope import Envelope
 from sentry_sdk.transport import Transport
 
 from advocondo import sentry
-from advocondo.config import Settings
 from advocondo.main import create_app
+from tests.support.settings import make_settings
 
 
 class CapturingTransport(Transport):
@@ -39,13 +39,13 @@ def sentry_events(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[dict[str, An
 
 
 def test_sentry_desligado_sem_dsn() -> None:
-    assert sentry.init_sentry(Settings(sentry_dsn=None)) is False
+    assert sentry.init_sentry(make_settings()) is False
 
 
 def test_erro_nao_tratado_vira_evento_no_sentry(
     sentry_events: list[dict[str, Any]],
 ) -> None:
-    settings = Settings(
+    settings = make_settings(
         sentry_dsn="https://chave@sentry.invalid/1",
         environment="producao",
         release="abc123",

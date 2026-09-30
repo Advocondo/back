@@ -46,6 +46,7 @@ src/advocondo/
 ├── health.py      # /health e /health/ready
 ├── logging_config.py  # logs estruturados (JSON)
 ├── middleware.py  # log por requisição e X-Request-ID
+├── security.py    # CORS e HSTS
 ├── sentry.py      # rastreamento de erros
 ├── main.py        # criação da aplicação FastAPI
 └── __main__.py    # entrypoint de produção (python -m advocondo)
@@ -123,6 +124,7 @@ Em produção, o back-end roda em uma instância da **Oracle Cloud**, gerenciada
 - As variáveis de ambiente e segredos são configurados no painel do Coolify, nunca no repositório. Veja [Variáveis de ambiente e segredos](docs/segredos.md), que também traz a rotina de rotação de credenciais.
 - O `docker-compose.yml` é usado só em desenvolvimento.
 - `GET /health` é o health check do container; `GET /health/ready` verifica o banco e deve ser usado pelo monitoramento externo.
+- HTTPS (certificado e redirecionamento de HTTP) fica no proxy do Coolify, e o CORS libera só o front na Vercel (produção e previews). Veja [HTTPS e CORS](docs/https-cors.md).
 - Logs saem em JSON no stdout, e os erros vão para o Sentry quando `SENTRY_DSN` está definida. Veja [Observabilidade](docs/observabilidade.md), que também explica os alertas.
 
 O front-end é publicado separadamente, na Vercel (repositório [`Advocondo/front`](https://github.com/Advocondo/front)).

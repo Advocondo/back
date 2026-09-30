@@ -23,7 +23,7 @@ Staging ainda não existe (ver a issue de CD, #41). Quando existir, deve ser um 
 
 As variáveis são definidas no painel do Coolify, em cada recurso (**Environment Variables**):
 
-- **API**: `DATABASE_URL`, `SENTRY_DSN` e as demais variáveis do `.env.example` que se aplicam a produção (ver [Observabilidade](observabilidade.md)).
+- **API**: `DATABASE_URL`, `SENTRY_DSN`, `CORS_ALLOW_ORIGINS` e as demais variáveis do `.env.example` que se aplicam a produção (ver [Observabilidade](observabilidade.md)).
 - **PostgreSQL**: usuário, senha e banco são definidos pelo próprio Coolify ao criar o recurso. A `DATABASE_URL` da API usa a URL interna que o Coolify mostra na página do banco.
 
 Regras:
