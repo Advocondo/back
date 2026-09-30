@@ -67,3 +67,14 @@ O `Dockerfile.prod` faz um build multi-stage, compilando as dependências com `u
 ```bash
 docker build -f Dockerfile.prod -t advocondo-backend .
 ```
+
+## Deploy
+
+Em produção, o back-end roda em uma instância da **Oracle Cloud**, gerenciada pelo [Coolify](https://coolify.io). O Coolify faz o build com o `Dockerfile.prod` a partir deste repositório e expõe a API na porta `8000`.
+
+- O PostgreSQL de produção roda no mesmo Coolify, e a API se conecta a ele pela `DATABASE_URL`.
+- As variáveis de ambiente são configuradas no painel do Coolify (veja `.env.example`).
+- O `docker-compose.yml` é usado só em desenvolvimento.
+- Use `GET /health` para verificar se a API está no ar.
+
+O front-end é publicado separadamente, na Vercel (repositório [`Advocondo/front`](https://github.com/Advocondo/front)).
