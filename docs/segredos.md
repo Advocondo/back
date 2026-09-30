@@ -53,7 +53,7 @@ A imagem do Postgres só lê `POSTGRES_PASSWORD` na primeira inicialização. Po
 
 3. Atualize a senha nas variáveis do recurso PostgreSQL no Coolify, para que a configuração continue igual à do banco.
 4. Atualize a `DATABASE_URL` da API no Coolify com a nova senha e faça o redeploy da API.
-5. Confira se a API está no ar (`GET /health`) e se as rotas que usam o banco respondem normalmente.
+5. Confira se a API está no ar (`GET /health`) e se ela consegue falar com o banco (`GET /health/db`).
 
 Entre os passos 2 e 4, conexões novas da API falham. Por isso, faça os passos em sequência, em um horário de pouco uso.
 

@@ -41,7 +41,16 @@ curl http://localhost:8000/health
 ```
 src/advocondo/
 ├── __init__.py
+├── config.py      # configurações lidas das variáveis de ambiente
+├── db.py          # SQLAlchemy: Base dos modelos, engine e sessão
 └── main.py        # entrypoint da aplicação FastAPI
+tests/             # ver docs/testes.md
+```
+
+### Verificando o banco
+
+```bash
+curl http://localhost:8000/health/db
 ```
 
 ## Desenvolvimento sem Docker
@@ -62,11 +71,14 @@ uv run ruff check .
 
 ## Testes
 
-Os testes usam [pytest](https://docs.pytest.org/). A cobertura (pytest-cov) é exibida ao final da execução:
+Os testes usam [pytest](https://docs.pytest.org/), com cobertura (pytest-cov) exibida ao final da execução. Os testes de integração usam um banco de teste separado (`advocondo_test`) no Postgres do docker-compose:
 
 ```bash
+docker compose up -d db
 uv run pytest
 ```
+
+Para rodar só os testes que não usam banco: `uv run pytest -m "not integration"`. Veja [Testes automatizados](docs/testes.md) para as fixtures disponíveis, o isolamento entre testes e os exemplos de referência.
 
 ## Checagem de tipos
 
@@ -83,7 +95,7 @@ O workflow `.github/workflows/ci.yml` roda em todo push e em todo PR para `main`
 - busca de segredos commitados (gitleaks);
 - lint e formatação (ruff);
 - checagem de tipos (mypy);
-- testes com relatório de cobertura (pytest-cov), com o resumo no próprio job e o `coverage.xml` como artefato;
+- testes unitários e de integração com relatório de cobertura (pytest-cov), usando um Postgres próprio do job, com o resumo da cobertura no próprio job e o `coverage.xml` como artefato;
 - build do `Dockerfile.prod`.
 
 A branch `main` é protegida: o PR só pode ser mergeado se os jobs **Lint e testes** e **Build da imagem de produção** passarem. O deploy (CD) é feito pelo Coolify quando o código chega na `main`.
@@ -103,6 +115,6 @@ Em produção, o back-end roda em uma instância da **Oracle Cloud**, gerenciada
 - O PostgreSQL de produção roda no mesmo Coolify, e a API se conecta a ele pela `DATABASE_URL`.
 - As variáveis de ambiente e segredos são configurados no painel do Coolify, nunca no repositório. Veja [Variáveis de ambiente e segredos](docs/segredos.md), que também traz a rotina de rotação de credenciais.
 - O `docker-compose.yml` é usado só em desenvolvimento.
-- Use `GET /health` para verificar se a API está no ar.
+- Use `GET /health` para verificar se a API está no ar e `GET /health/db` para verificar a conexão com o banco.
 
 O front-end é publicado separadamente, na Vercel (repositório [`Advocondo/front`](https://github.com/Advocondo/front)).

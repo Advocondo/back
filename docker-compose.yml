@@ -10,6 +10,7 @@ services:
       - uv-cache:/root/.cache/uv
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-advocondo}:${POSTGRES_PASSWORD:-advocondo}@db:5432/${POSTGRES_DB:-advocondo}
+      TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-advocondo}:${POSTGRES_PASSWORD:-advocondo}@db:5432/${POSTGRES_DB:-advocondo}_test
     env_file:
       - .env
     depends_on:

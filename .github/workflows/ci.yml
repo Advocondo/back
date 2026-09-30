@@ -13,6 +13,23 @@ jobs:
   lint-test:
     name: Lint e testes
     runs-on: ubuntu-latest
+    # Banco usado só pelos testes de integração; descartado ao fim do job.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: advocondo
+          POSTGRES_PASSWORD: advocondo
+          POSTGRES_DB: advocondo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U advocondo -d advocondo_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://advocondo:advocondo@localhost:5432/advocondo_test
     steps:
       - uses: actions/checkout@v4
         with:
