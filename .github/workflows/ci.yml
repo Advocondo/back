@@ -55,6 +55,10 @@ jobs:
       - name: Checagem de tipos (mypy)
         run: uv run mypy
 
+      # Arquitetura MVC + Camadas: falha se uma camada importar outra proibida.
+      - name: Camadas da arquitetura (import-linter)
+        run: uv run lint-imports
+
       - name: Testes com cobertura (pytest)
         run: uv run pytest --cov-report=xml
 
