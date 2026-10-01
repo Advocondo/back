@@ -13,6 +13,8 @@ from pydantic import (
     field_validator,
 )
 
+from advocondo.condominios.domain import is_valid_cnpj
+
 _NON_DIGITS = re.compile(r"\D")
 
 
@@ -24,17 +26,7 @@ def _digits(value: object) -> object:
 
 
 def _valid_cnpj(cnpj: str) -> str:
-    def check_digit(base: str, weights: list[int]) -> int:
-        remainder = sum(int(d) * w for d, w in zip(base, weights, strict=True)) % 11
-        return 0 if remainder < 2 else 11 - remainder
-
-    w1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
-    w2 = [6, *w1]
-    if (
-        len(set(cnpj)) == 1
-        or check_digit(cnpj[:12], w1) != int(cnpj[12])
-        or check_digit(cnpj[:13], w2) != int(cnpj[13])
-    ):
+    if not is_valid_cnpj(cnpj):
         raise ValueError("CNPJ inválido.")
     return cnpj
 
