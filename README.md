@@ -42,7 +42,10 @@ curl http://localhost:8000/health
 src/advocondo/
 ├── __init__.py
 ├── config.py      # configurações lidas das variáveis de ambiente
+├── auth.py        # require_user (no-op até o login, US02)
+├── condominios/   # US12: models, schemas, service e router
 ├── db.py          # SQLAlchemy: Base dos modelos, engine e sessão
+├── models.py      # registra todos os modelos (Alembic e testes)
 ├── health.py      # /health e /health/ready
 ├── logging_config.py  # logs estruturados (JSON)
 ├── middleware.py  # log por requisição e X-Request-ID
@@ -50,6 +53,7 @@ src/advocondo/
 ├── sentry.py      # rastreamento de erros
 ├── main.py        # criação da aplicação FastAPI
 └── __main__.py    # entrypoint de produção (python -m advocondo)
+migrations/        # Alembic (ver docs/migrations.md)
 tests/             # ver docs/testes.md
 ```
 
@@ -60,6 +64,10 @@ curl http://localhost:8000/health/ready
 ```
 
 `/health` só confirma que a API está no ar; `/health/ready` também verifica o banco e as dependências externas. Veja [Observabilidade](docs/observabilidade.md) para os health checks, os logs estruturados e o Sentry.
+
+## Banco de dados
+
+O schema é versionado com Alembic. Para criar/atualizar as tabelas do banco de dev: `uv run alembic upgrade head`. Veja [Migrations](docs/migrations.md).
 
 ## Desenvolvimento sem Docker
 
