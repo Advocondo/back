@@ -5,6 +5,8 @@ description = "Backend do Advocondo, sistema de gestão de contratos para escrit
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.20.0",
+    "email-validator>=2.3.0",
     "fastapi[standard]>=0.141.1",
     "psycopg[binary]>=3.2",
     "pydantic-settings>=2.15.0",

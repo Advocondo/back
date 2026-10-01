@@ -27,7 +27,7 @@ uv run pytest -m "not integration"
 
 - Os testes usam um banco **separado**, definido por `TEST_DATABASE_URL`. Por padrão é `advocondo_test` no Postgres local; no docker-compose o host já vem como `db`.
 - O nome do banco **precisa terminar em `_test`**. Os testes apagam e recriam o schema, então se a URL apontar para outro banco a suíte para com erro antes de tocar em qualquer dado.
-- O banco é criado automaticamente na primeira execução. O schema é recriado a partir dos modelos (`Base.metadata`) a cada execução da suíte.
+- O banco é criado automaticamente na primeira execução. O schema é recriado pelas migrations (`alembic upgrade head`, ver [Migrations](migrations.md)) a cada execução da suíte.
 - No CI, o job sobe um Postgres próprio, descartado ao final.
 
 ## Isolamento entre testes

@@ -6,25 +6,16 @@ anterior foram descartados.
 """
 
 import pytest
-from sqlalchemy import String, func, select
-from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
-from advocondo.db import Base
-
-
-class Rascunho(Base):
-    """Tabela usada só nos testes, até existirem os modelos do domínio (#42)."""
-
-    __tablename__ = "rascunho_teste"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    texto: Mapped[str] = mapped_column(String(100))
+from advocondo.condominios.models import Condominio
 
 
-@pytest.mark.parametrize("texto", ["primeiro", "segundo", "terceiro"])
-def test_cada_teste_comeca_com_banco_limpo(db_session: Session, texto: str) -> None:
-    db_session.add(Rascunho(texto=texto))
+@pytest.mark.parametrize("nome", ["primeiro", "segundo", "terceiro"])
+def test_cada_teste_comeca_com_banco_limpo(db_session: Session, nome: str) -> None:
+    db_session.add(Condominio(nome=nome))
     db_session.commit()
 
-    assert db_session.scalar(select(func.count()).select_from(Rascunho)) == 1
-    assert db_session.scalar(select(Rascunho.texto)) == texto
+    assert db_session.scalar(select(func.count()).select_from(Condominio)) == 1
+    assert db_session.scalar(select(Condominio.nome)) == nome
