@@ -36,6 +36,22 @@ A API ficará disponível em `http://localhost:8000`, com hot reload habilitado 
 curl http://localhost:8000/health
 ```
 
+## Arquitetura
+
+O back-end segue **MVC + Camadas**. Cada domínio é uma pasta em `src/advocondo/<dominio>/` com sempre os mesmos arquivos, e cada camada só importa as de baixo:
+
+```
+router.py      Controller: rotas HTTP, converte exceções de negócio em respostas
+schemas.py     View: DTOs Pydantic de entrada e saída (forma: tipo, tamanho, máscara)
+service.py     Regras de negócio; único lugar que faz commit
+repository.py  Persistência: consultas e escrita com SQLAlchemy, sem regra
+models.py      Entidades (tabelas)
+domain.py      Regras puras do domínio, sem banco e sem HTTP
+exceptions.py  Exceções de negócio
+```
+
+O módulo `condominios` é a referência para novos domínios. As regras de import são verificadas no CI (`uv run lint-imports`, contratos em `pyproject.toml`). A explicação completa, com o passo a passo para criar um módulo, está na [página de Arquitetura](https://advocondo.github.io/docs/arquitetura/).
+
 ## Estrutura do projeto
 
 ```
@@ -43,7 +59,7 @@ src/advocondo/
 ├── __init__.py
 ├── config.py      # configurações lidas das variáveis de ambiente
 ├── auth.py        # require_user (no-op até o login, US02)
-├── condominios/   # US12: models, schemas, service e router
+├── condominios/   # US12: módulo de referência da arquitetura (ver abaixo)
 ├── db.py          # SQLAlchemy: Base dos modelos, engine e sessão
 ├── models.py      # registra todos os modelos (Alembic e testes)
 ├── health.py      # /health e /health/ready
@@ -96,6 +112,14 @@ uv run pytest
 
 Para rodar só os testes que não usam banco: `uv run pytest -m "not integration"`. Veja [Testes automatizados](docs/testes.md) para as fixtures disponíveis, o isolamento entre testes e os exemplos de referência.
 
+## Camadas da arquitetura
+
+O [import-linter](https://import-linter.readthedocs.io/) falha se uma camada importar outra que não pode (ex.: router acessando o repository direto):
+
+```bash
+uv run lint-imports
+```
+
 ## Checagem de tipos
 
 O projeto usa [mypy](https://mypy.readthedocs.io/) em modo estrito:
@@ -111,6 +135,7 @@ O workflow `.github/workflows/ci.yml` roda em todo push e em todo PR para `main`
 - busca de segredos commitados (gitleaks);
 - lint e formatação (ruff);
 - checagem de tipos (mypy);
+- camadas da arquitetura (import-linter);
 - testes unitários e de integração com relatório de cobertura (pytest-cov), usando um Postgres próprio do job, com o resumo da cobertura no próprio job e o `coverage.xml` como artefato;
 - build do `Dockerfile.prod`.
 
