@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from advocondo import health
+from advocondo.condominios.router import router as condominios_router
 from advocondo.config import Settings, get_settings
 from advocondo.logging_config import configure_logging
 from advocondo.middleware import request_context_middleware
@@ -20,6 +21,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Adicionado por último para ficar por fora: responde os preflights (OPTIONS).
     configure_cors(app, settings)
     app.include_router(health.router)
+    app.include_router(condominios_router)
     return app
 
 
