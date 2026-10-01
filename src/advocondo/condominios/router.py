@@ -6,6 +6,10 @@ from sqlalchemy.orm import Session
 
 from advocondo.auth import require_user
 from advocondo.condominios import service
+from advocondo.condominios.exceptions import (
+    CnpjAlreadyRegisteredError,
+    CondominioNotFoundError,
+)
 from advocondo.condominios.models import Condominio
 from advocondo.condominios.schemas import (
     CondominioCreate,
@@ -32,7 +36,7 @@ _CNPJ_TAKEN = HTTPException(
 def create_condominio(data: CondominioCreate, session: SessionDep) -> Condominio:
     try:
         return service.create(session, data)
-    except service.CnpjAlreadyRegisteredError:
+    except CnpjAlreadyRegisteredError:
         raise _CNPJ_TAKEN from None
 
 
@@ -52,7 +56,7 @@ def list_condominios(
 def get_condominio(condominio_id: int, session: SessionDep) -> Condominio:
     try:
         return service.get(session, condominio_id)
-    except service.CondominioNotFoundError:
+    except CondominioNotFoundError:
         raise _NOT_FOUND from None
 
 
@@ -62,7 +66,7 @@ def update_condominio(
 ) -> Condominio:
     try:
         return service.update(session, condominio_id, data)
-    except service.CondominioNotFoundError:
+    except CondominioNotFoundError:
         raise _NOT_FOUND from None
-    except service.CnpjAlreadyRegisteredError:
+    except CnpjAlreadyRegisteredError:
         raise _CNPJ_TAKEN from None
