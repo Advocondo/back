@@ -38,15 +38,6 @@ def test_campos_com_mascara_sao_normalizados() -> None:
     )
 
 
-def test_renovacao_nao_pode_ser_anterior_ao_inicio() -> None:
-    with pytest.raises(ValidationError, match="renovação"):
-        CondominioCreate(
-            nome="Mirante",
-            contrato_inicio="2026-01-01",  # type: ignore[arg-type]
-            contrato_renovacao="2025-12-31",  # type: ignore[arg-type]
-        )
-
-
 def test_update_nao_aceita_nome_nulo_mas_aceita_ausente() -> None:
     assert CondominioUpdate().nome is None
     with pytest.raises(ValidationError):

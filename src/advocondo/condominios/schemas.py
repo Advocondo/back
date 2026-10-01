@@ -1,6 +1,6 @@
 import re
 from datetime import date, datetime
-from typing import Annotated, Self
+from typing import Annotated
 
 from pydantic import (
     AfterValidator,
@@ -11,7 +11,6 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
-    model_validator,
 )
 
 _NON_DIGITS = re.compile(r"\D")
@@ -78,18 +77,6 @@ class CondominioFields(BaseModel):
 
     contrato_inicio: date | None = None
     contrato_renovacao: date | None = None
-
-    @model_validator(mode="after")
-    def _renovacao_depois_do_inicio(self) -> Self:
-        if (
-            self.contrato_inicio
-            and self.contrato_renovacao
-            and self.contrato_renovacao < self.contrato_inicio
-        ):
-            raise ValueError(
-                "A data de renovação não pode ser anterior ao início do contrato."
-            )
-        return self
 
 
 class CondominioCreate(CondominioFields):

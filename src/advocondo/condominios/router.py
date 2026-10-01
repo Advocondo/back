@@ -9,6 +9,7 @@ from advocondo.condominios import service
 from advocondo.condominios.exceptions import (
     CnpjAlreadyRegisteredError,
     CondominioNotFoundError,
+    InvalidContractDatesError,
 )
 from advocondo.condominios.models import Condominio
 from advocondo.condominios.schemas import (
@@ -30,6 +31,17 @@ _NOT_FOUND = HTTPException(status.HTTP_404_NOT_FOUND, "Condomínio não encontra
 _CNPJ_TAKEN = HTTPException(
     status.HTTP_409_CONFLICT, "Já existe um condomínio com este CNPJ."
 )
+# Mesmo formato dos erros de validação do FastAPI, para o front apontar o campo.
+_INVALID_DATES = HTTPException(
+    status.HTTP_422_UNPROCESSABLE_CONTENT,
+    [
+        {
+            "type": "value_error",
+            "loc": ["body", "contrato_renovacao"],
+            "msg": "A data de renovação não pode ser anterior ao início do contrato.",
+        }
+    ],
+)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=CondominioRead)
@@ -38,6 +50,8 @@ def create_condominio(data: CondominioCreate, session: SessionDep) -> Condominio
         return service.create(session, data)
     except CnpjAlreadyRegisteredError:
         raise _CNPJ_TAKEN from None
+    except InvalidContractDatesError:
+        raise _INVALID_DATES from None
 
 
 @router.get("", response_model=list[CondominioRead])
@@ -70,3 +84,5 @@ def update_condominio(
         raise _NOT_FOUND from None
     except CnpjAlreadyRegisteredError:
         raise _CNPJ_TAKEN from None
+    except InvalidContractDatesError:
+        raise _INVALID_DATES from None

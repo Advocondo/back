@@ -7,3 +7,7 @@ class CondominioNotFoundError(Exception):
 
 class CnpjAlreadyRegisteredError(Exception):
     pass
+
+
+class InvalidContractDatesError(Exception):
+    """Renovação do contrato anterior ao início."""

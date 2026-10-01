@@ -117,6 +117,28 @@ def test_edicao_pode_reenviar_o_proprio_cnpj(db_client: TestClient) -> None:
     assert response.status_code == 200
 
 
+def _assert_erro_de_renovacao(response: Any) -> None:
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "contrato_renovacao"]
+
+
+def test_renovacao_nao_pode_ser_anterior_ao_inicio(db_client: TestClient) -> None:
+    response = db_client.post(
+        "/condominios", json={**BASE, "contrato_renovacao": "2025-12-31"}
+    )
+    _assert_erro_de_renovacao(response)
+
+
+def test_edicao_compara_renovacao_com_o_inicio_gravado(db_client: TestClient) -> None:
+    """Regressão: um PATCH só com a renovação também respeita o início já salvo."""
+    created = _create(db_client)  # início em 2026-01-01
+    response = db_client.patch(
+        f"/condominios/{created['id']}", json={"contrato_renovacao": "2025-06-01"}
+    )
+    _assert_erro_de_renovacao(response)
+    assert db_client.get(f"/condominios/{created['id']}").json() == created
+
+
 @pytest.mark.parametrize("method", ["get", "patch"])
 def test_condominio_inexistente_retorna_404(db_client: TestClient, method: str) -> None:
     kwargs = {"json": {"nome": "X"}} if method == "patch" else {}
