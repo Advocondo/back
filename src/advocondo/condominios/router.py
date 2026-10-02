@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, FastAPI, Query, status
 from sqlalchemy.orm import Session
 
 from advocondo.auth import require_user
@@ -18,6 +18,7 @@ from advocondo.condominios.schemas import (
     CondominioUpdate,
 )
 from advocondo.db import get_session
+from advocondo.errors import register_error
 
 router = APIRouter(
     prefix="/condominios",
@@ -27,31 +28,38 @@ router = APIRouter(
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
-_NOT_FOUND = HTTPException(status.HTTP_404_NOT_FOUND, "Condomínio não encontrado.")
-_CNPJ_TAKEN = HTTPException(
-    status.HTTP_409_CONFLICT, "Já existe um condomínio com este CNPJ."
-)
-# Mesmo formato dos erros de validação do FastAPI, para o front apontar o campo.
-_INVALID_DATES = HTTPException(
-    status.HTTP_422_UNPROCESSABLE_CONTENT,
-    [
-        {
-            "type": "value_error",
-            "loc": ["body", "contrato_renovacao"],
-            "msg": "A data de renovação não pode ser anterior ao início do contrato.",
-        }
-    ],
-)
+
+def register_errors(app: FastAPI) -> None:
+    """Exceções de negócio do módulo -> respostas HTTP (chamado em `create_app`)."""
+    register_error(
+        app,
+        CondominioNotFoundError,
+        status.HTTP_404_NOT_FOUND,
+        "Condomínio não encontrado.",
+    )
+    register_error(
+        app,
+        CnpjAlreadyRegisteredError,
+        status.HTTP_409_CONFLICT,
+        "Já existe um condomínio com este CNPJ.",
+    )
+    register_error(
+        app,
+        InvalidContractDatesError,
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        [
+            {
+                "type": "value_error",
+                "loc": ["body", "contrato_renovacao"],
+                "msg": "A data de renovação não pode ser anterior ao início do contrato.",
+            }
+        ],
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=CondominioRead)
 def create_condominio(data: CondominioCreate, session: SessionDep) -> Condominio:
-    try:
-        return service.create(session, data)
-    except CnpjAlreadyRegisteredError:
-        raise _CNPJ_TAKEN from None
-    except InvalidContractDatesError:
-        raise _INVALID_DATES from None
+    return service.create(session, data)
 
 
 @router.get("", response_model=list[CondominioRead])
@@ -68,21 +76,11 @@ def list_condominios(
 
 @router.get("/{condominio_id}", response_model=CondominioRead)
 def get_condominio(condominio_id: int, session: SessionDep) -> Condominio:
-    try:
-        return service.get(session, condominio_id)
-    except CondominioNotFoundError:
-        raise _NOT_FOUND from None
+    return service.get(session, condominio_id)
 
 
 @router.patch("/{condominio_id}", response_model=CondominioRead)
 def update_condominio(
     condominio_id: int, data: CondominioUpdate, session: SessionDep
 ) -> Condominio:
-    try:
-        return service.update(session, condominio_id, data)
-    except CondominioNotFoundError:
-        raise _NOT_FOUND from None
-    except CnpjAlreadyRegisteredError:
-        raise _CNPJ_TAKEN from None
-    except InvalidContractDatesError:
-        raise _INVALID_DATES from None
+    return service.update(session, condominio_id, data)

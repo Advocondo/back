@@ -41,7 +41,7 @@ curl http://localhost:8000/health
 O back-end segue **MVC + Camadas**. Cada domínio é uma pasta em `src/advocondo/<dominio>/` com sempre os mesmos arquivos, e cada camada só importa as de baixo:
 
 ```
-router.py      Controller: rotas HTTP, converte exceções de negócio em respostas
+router.py      Controller: rotas HTTP; `register_errors(app)` converte exceções de negócio em respostas (uma vez por módulo, via `advocondo/errors.py`)
 schemas.py     View: DTOs Pydantic de entrada e saída (forma: tipo, tamanho, máscara)
 service.py     Regras de negócio; único lugar que faz commit
 repository.py  Persistência: consultas e escrita com SQLAlchemy, sem regra
@@ -59,6 +59,7 @@ src/advocondo/
 ├── __init__.py
 ├── config.py      # configurações lidas das variáveis de ambiente
 ├── auth.py        # require_user (no-op até o login, US02)
+├── errors.py      # register_error: exceção de negócio -> resposta HTTP
 ├── condominios/   # US12: módulo de referência da arquitetura (ver abaixo)
 ├── db.py          # SQLAlchemy: Base dos modelos, engine e sessão
 ├── models.py      # registra todos os modelos (Alembic e testes)
