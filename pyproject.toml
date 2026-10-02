@@ -5,6 +5,8 @@ description = "Backend do Advocondo, sistema de gestão de contratos para escrit
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.20.0",
+    "email-validator>=2.3.0",
     "fastapi[standard]>=0.141.1",
     "psycopg[binary]>=3.2",
     "pydantic-settings>=2.15.0",
@@ -21,6 +23,7 @@ packages = ["src/advocondo"]
 
 [dependency-groups]
 dev = [
+    "import-linter>=2.15",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
@@ -41,3 +44,48 @@ source = ["advocondo"]
 [tool.mypy]
 strict = true
 files = ["src", "tests"]
+
+# Arquitetura MVC + Camadas: cada camada só importa as de baixo.
+# Ver https://advocondo.github.io/docs/arquitetura/ . Todo novo domínio entra
+# em `containers` (e na lista do contrato de independência do HTTP).
+[tool.importlinter]
+root_package = "advocondo"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Camadas de cada domínio"
+type = "layers"
+containers = ["advocondo.condominios"]
+layers = [
+    "router",
+    "service",
+    "repository | schemas",
+    "models",
+    "domain | exceptions",
+]
+
+[[tool.importlinter.contracts]]
+name = "O router não pula o service (sem acesso direto ao repository)"
+type = "forbidden"
+source_modules = ["advocondo.condominios.router"]
+forbidden_modules = ["advocondo.condominios.repository"]
+allow_indirect_imports = true  # via service é o caminho certo
+
+[[tool.importlinter.contracts]]
+name = "Só o router conhece HTTP (FastAPI)"
+type = "forbidden"
+source_modules = [
+    "advocondo.condominios.service",
+    "advocondo.condominios.repository",
+    "advocondo.condominios.schemas",
+    "advocondo.condominios.models",
+    "advocondo.condominios.domain",
+    "advocondo.condominios.exceptions",
+]
+forbidden_modules = ["fastapi", "starlette"]
+
+[[tool.importlinter.contracts]]
+name = "Regras de domínio são puras (sem banco, sem HTTP, sem Pydantic)"
+type = "forbidden"
+source_modules = ["advocondo.condominios.domain"]
+forbidden_modules = ["sqlalchemy", "fastapi", "starlette", "pydantic"]

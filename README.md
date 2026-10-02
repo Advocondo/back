@@ -36,13 +36,33 @@ A API ficará disponível em `http://localhost:8000`, com hot reload habilitado 
 curl http://localhost:8000/health
 ```
 
+## Arquitetura
+
+O back-end segue **MVC + Camadas**. Cada domínio é uma pasta em `src/advocondo/<dominio>/` com sempre os mesmos arquivos, e cada camada só importa as de baixo:
+
+```
+router.py      Controller: rotas HTTP; `register_errors(app)` converte exceções de negócio em respostas (uma vez por módulo, via `advocondo/errors.py`)
+schemas.py     View: DTOs Pydantic de entrada e saída (forma: tipo, tamanho, máscara)
+service.py     Regras de negócio; único lugar que faz commit
+repository.py  Persistência: consultas e escrita com SQLAlchemy, sem regra
+models.py      Entidades (tabelas)
+domain.py      Regras puras do domínio, sem banco e sem HTTP
+exceptions.py  Exceções de negócio
+```
+
+O módulo `condominios` é a referência para novos domínios. As regras de import são verificadas no CI (`uv run lint-imports`, contratos em `pyproject.toml`). A explicação completa, com o passo a passo para criar um módulo, está na [página de Arquitetura](https://advocondo.github.io/docs/arquitetura/).
+
 ## Estrutura do projeto
 
 ```
 src/advocondo/
 ├── __init__.py
 ├── config.py      # configurações lidas das variáveis de ambiente
+├── auth.py        # require_user (no-op até o login, US02)
+├── errors.py      # register_error: exceção de negócio -> resposta HTTP
+├── condominios/   # US12: módulo de referência da arquitetura (ver abaixo)
 ├── db.py          # SQLAlchemy: Base dos modelos, engine e sessão
+├── models.py      # registra todos os modelos (Alembic e testes)
 ├── health.py      # /health e /health/ready
 ├── logging_config.py  # logs estruturados (JSON)
 ├── middleware.py  # log por requisição e X-Request-ID
@@ -50,6 +70,7 @@ src/advocondo/
 ├── sentry.py      # rastreamento de erros
 ├── main.py        # criação da aplicação FastAPI
 └── __main__.py    # entrypoint de produção (python -m advocondo)
+migrations/        # Alembic (ver docs/migrations.md)
 tests/             # ver docs/testes.md
 ```
 
@@ -60,6 +81,10 @@ curl http://localhost:8000/health/ready
 ```
 
 `/health` só confirma que a API está no ar; `/health/ready` também verifica o banco e as dependências externas. Veja [Observabilidade](docs/observabilidade.md) para os health checks, os logs estruturados e o Sentry.
+
+## Banco de dados
+
+O schema é versionado com Alembic. Para criar/atualizar as tabelas do banco de dev: `uv run alembic upgrade head`. Veja [Migrations](docs/migrations.md).
 
 ## Desenvolvimento sem Docker
 
@@ -88,6 +113,14 @@ uv run pytest
 
 Para rodar só os testes que não usam banco: `uv run pytest -m "not integration"`. Veja [Testes automatizados](docs/testes.md) para as fixtures disponíveis, o isolamento entre testes e os exemplos de referência.
 
+## Camadas da arquitetura
+
+O [import-linter](https://import-linter.readthedocs.io/) falha se uma camada importar outra que não pode (ex.: router acessando o repository direto):
+
+```bash
+uv run lint-imports
+```
+
 ## Checagem de tipos
 
 O projeto usa [mypy](https://mypy.readthedocs.io/) em modo estrito:
@@ -103,6 +136,7 @@ O workflow `.github/workflows/ci.yml` roda em todo push e em todo PR para `main`
 - busca de segredos commitados (gitleaks);
 - lint e formatação (ruff);
 - checagem de tipos (mypy);
+- camadas da arquitetura (import-linter);
 - testes unitários e de integração com relatório de cobertura (pytest-cov), usando um Postgres próprio do job, com o resumo da cobertura no próprio job e o `coverage.xml` como artefato;
 - build do `Dockerfile.prod`.
 
