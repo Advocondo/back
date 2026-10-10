@@ -4,10 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from advocondo.common.passwords import MAX_PASSWORD_LENGTH
 from advocondo.users.models import MAX_EMAIL_LENGTH, Role
-
-# Long enough for any passphrase; the cap keeps hashing cost bounded.
-MAX_PASSWORD_LENGTH = 128
 
 
 class LoginRequest(BaseModel):

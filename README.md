@@ -138,6 +138,7 @@ Em produção, o back-end roda em uma instância da **Oracle Cloud**, gerenciada
 - As variáveis de ambiente e segredos são configurados no painel do Coolify, nunca no repositório. Veja [Variáveis de ambiente e segredos](docs/segredos.md), que também traz a rotina de rotação de credenciais.
 - O `docker-compose.yml` é usado só em desenvolvimento.
 - As migrations rodam pelo *Pre-deployment command* do Coolify (`alembic upgrade head`). Veja [Migrations do banco de dados](docs/migracoes.md).
+- Depois do primeiro deploy, crie o primeiro Administrador no terminal do container: `python -m advocondo.users.create_admin --email … --name "…"`. Veja [Autenticação](docs/auth.md#primeiro-administrador).
 - `GET /health` é o health check do container; `GET /health/ready` verifica o banco e deve ser usado pelo monitoramento externo.
 - HTTPS (certificado e redirecionamento de HTTP) fica no proxy do Coolify, e o CORS libera só o front na Vercel (produção e previews). Veja [HTTPS e CORS](docs/https-cors.md).
 - Logs saem em JSON no stdout, e os erros vão para o Sentry quando `SENTRY_DSN` está definida. Veja [Observabilidade](docs/observabilidade.md), que também explica os alertas.

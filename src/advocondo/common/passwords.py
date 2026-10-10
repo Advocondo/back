@@ -1,5 +1,9 @@
 import argon2
 
+MIN_PASSWORD_LENGTH = 8
+# Long enough for any passphrase; the cap keeps hashing cost bounded.
+MAX_PASSWORD_LENGTH = 128
+
 
 class PasswordHasher:
     def __init__(self) -> None:

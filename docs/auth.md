@@ -65,9 +65,31 @@ As respostas `401` trazem o cabeçalho `WWW-Authenticate: Bearer`.
 | `SESSION_DURATION_HOURS` | `12` | Duração da sessão sem "Manter conectado" |
 | `REMEMBERED_SESSION_DURATION_DAYS` | `30` | Duração da sessão com "Manter conectado" |
 
+## Primeiro Administrador
+
+Os usuários entram por convite (US07), e só um Administrador logado pode convidar. O primeiro usuário, portanto, é criado por um comando, uma única vez, depois do primeiro deploy. Ele já nasce como Administrador ativo.
+
+Em produção, no terminal do container da API (Coolify → back-end → *Terminal*):
+
+```bash
+python -m advocondo.users.create_admin --email ana@example.com --name "Ana Souza"
+```
+
+Localmente, prefixe com `uv run`. A senha é digitada no terminal, duas vezes, e não aparece no histórico do shell.
+
+O comando recusa:
+
+| Situação | Mensagem |
+| --- | --- |
+| Já existe algum usuário no banco | `O primeiro usuário já foi criado. Os demais entram por convite.` |
+| E-mail em formato inválido | `E-mail inválido: …` |
+| Senha com menos de 8 caracteres | `A senha precisa ter pelo menos 8 caracteres.` |
+| Confirmação diferente da senha | `As senhas não conferem.` |
+
+Por recusar quando já há usuário, o comando não serve de porta dos fundos para criar outros administradores. Se o e-mail sair com erro de digitação, corrija direto no banco (`UPDATE users SET email = … WHERE role = 'admin'`) e faça login com o e-mail corrigido.
+
 ## Pendências
 
-- **Criar o primeiro usuário.** O cadastro de usuários é a US07 (convite). Até lá, usuários só existem nos testes.
 - **Limite de tentativas de login** (proteção contra força bruta). Não está em nenhuma história; precisa ser priorizado.
 - **Logout** (`POST /auth/logout`) e **limpeza de sessões expiradas**: entram com a US06.
 - **Checagem por perfil** (`require_role`): entra com a US09, a primeira história que restringe rotas por perfil.

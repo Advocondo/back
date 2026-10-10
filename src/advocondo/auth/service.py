@@ -11,6 +11,7 @@ from advocondo.common.passwords import PasswordHasher
 from advocondo.common.tokens import generate_opaque_token, hash_token
 from advocondo.users.models import User
 from advocondo.users.repository import UserRepository
+from advocondo.users.service import normalize_email
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,3 @@ class AuthService:
         if remember_me:
             return self._session_durations.remembered
         return self._session_durations.default
-
-
-def normalize_email(email: str) -> str:
-    return email.strip().lower()
