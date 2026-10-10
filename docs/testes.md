@@ -41,13 +41,16 @@ Cada teste que usa o banco roda dentro de uma transação que sofre **rollback**
 
 ## Fixtures disponíveis
 
-Ficam em `tests/conftest.py`:
+Ficam em `tests/conftest.py` e, as de domínio, em `tests/fixtures/`:
 
 | Fixture | O que entrega | Usa banco? |
 | --- | --- | --- |
 | `client` | `TestClient` da API | Não |
 | `db_session` | Sessão SQLAlchemy no banco de teste, com rollback ao final | Sim |
-| `db_client` | `TestClient` da API usando a `db_session` no lugar da sessão real | Sim |
+| `db_client` | `TestClient` da API usando a `db_session` e o relógio `clock` | Sim |
+| `clock` | Relógio congelado (`FrozenClock`) injetado na API; `clock.advance(timedelta(...))` avança o tempo | Não |
+| `create_user(...)` | Fábrica de usuários ativos, com a senha `DEFAULT_PASSWORD`; aceita `email`, `role`, `status`, `password` | Sim |
+| `authenticate_as(user)` | Cria uma sessão para o usuário e devolve os cabeçalhos `Authorization` | Sim |
 | `db_engine` | Engine do banco de teste (escopo da suíte inteira) | Sim |
 
 Testes que usam `db_session` ou `db_client` recebem automaticamente o marcador `integration`.
@@ -70,7 +73,7 @@ tests/
 
 ## Fixtures de domínio
 
-Os modelos de domínio (acordo, devedor, condomínio, usuário, parcela) ainda não existem. Quando forem criados, as fixtures de cada domínio devem seguir este padrão:
+Usuários já têm fixtures (`tests/fixtures/users.py` e `tests/fixtures/auth.py`). Para os próximos domínios (acordo, devedor, condomínio, parcela), siga este padrão:
 
 - uma fixture por entidade, que recebe `db_session`, cria o objeto com valores padrão válidos e o devolve (ex.: `condominio`, `devedor`, `acordo`);
 - fixtures que dependem de outras as recebem como parâmetro (ex.: `acordo` recebe `condominio` e `devedor`);

@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from advocondo import health
+from advocondo.auth import router as auth
 from advocondo.common.error_handlers import register_error_handlers
 from advocondo.config import Settings, get_settings
 from advocondo.logging_config import configure_logging
@@ -22,6 +23,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     configure_cors(app, settings)
     register_error_handlers(app)
     app.include_router(health.router)
+    app.include_router(auth.router)
     return app
 
 

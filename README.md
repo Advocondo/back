@@ -63,6 +63,8 @@ curl http://localhost:8000/health/ready
 
 `/health` só confirma que a API está no ar; `/health/ready` também verifica o banco e as dependências externas. Veja [Observabilidade](docs/observabilidade.md) para os health checks, os logs estruturados e o Sentry.
 
+O login é feito em `POST /auth/login` e as demais rotas recebem o token no cabeçalho `Authorization: Bearer <token>`. Veja [Autenticação](docs/auth.md).
+
 ### Migrations
 
 O schema do banco é versionado com Alembic. Depois de subir os containers (e sempre que alguém adicionar uma migration), aplique as pendentes:

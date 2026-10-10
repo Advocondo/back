@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 from functools import lru_cache
 from typing import Annotated, Literal
 
@@ -28,6 +29,18 @@ class Settings(BaseSettings):
     cors_allow_origin_regex: str | None = None
     cors_allow_credentials: bool = False
     hsts_max_age: int = 0
+
+    # Login (ver docs/auth.md)
+    session_duration_hours: int = 12
+    remembered_session_duration_days: int = 30
+
+    @property
+    def session_duration(self) -> timedelta:
+        return timedelta(hours=self.session_duration_hours)
+
+    @property
+    def remembered_session_duration(self) -> timedelta:
+        return timedelta(days=self.remembered_session_duration_days)
 
     @field_validator("cors_allow_origins", mode="before")
     @classmethod
