@@ -43,6 +43,7 @@ src/advocondo/
 ├── __init__.py
 ├── config.py      # configurações lidas das variáveis de ambiente
 ├── db.py          # SQLAlchemy: Base dos modelos, engine e sessão
+├── models.py      # importa todos os modelos (Alembic e testes)
 ├── health.py      # /health e /health/ready
 ├── logging_config.py  # logs estruturados (JSON)
 ├── middleware.py  # log por requisição e X-Request-ID
@@ -50,6 +51,7 @@ src/advocondo/
 ├── sentry.py      # rastreamento de erros
 ├── main.py        # criação da aplicação FastAPI
 └── __main__.py    # entrypoint de produção (python -m advocondo)
+migrations/        # migrations do Alembic (ver docs/migracoes.md)
 tests/             # ver docs/testes.md
 ```
 
@@ -60,6 +62,16 @@ curl http://localhost:8000/health/ready
 ```
 
 `/health` só confirma que a API está no ar; `/health/ready` também verifica o banco e as dependências externas. Veja [Observabilidade](docs/observabilidade.md) para os health checks, os logs estruturados e o Sentry.
+
+### Migrations
+
+O schema do banco é versionado com Alembic. Depois de subir os containers (e sempre que alguém adicionar uma migration), aplique as pendentes:
+
+```bash
+docker compose run --rm api uv run alembic upgrade head
+```
+
+Sem Docker: `uv run alembic upgrade head`. Veja [Migrations do banco de dados](docs/migracoes.md) para criar uma migration nova e para o deploy.
 
 ## Desenvolvimento sem Docker
 
@@ -123,6 +135,7 @@ Em produção, o back-end roda em uma instância da **Oracle Cloud**, gerenciada
 - O PostgreSQL de produção roda no mesmo Coolify, e a API se conecta a ele pela `DATABASE_URL`.
 - As variáveis de ambiente e segredos são configurados no painel do Coolify, nunca no repositório. Veja [Variáveis de ambiente e segredos](docs/segredos.md), que também traz a rotina de rotação de credenciais.
 - O `docker-compose.yml` é usado só em desenvolvimento.
+- As migrations rodam pelo *Pre-deployment command* do Coolify (`alembic upgrade head`). Veja [Migrations do banco de dados](docs/migracoes.md).
 - `GET /health` é o health check do container; `GET /health/ready` verifica o banco e deve ser usado pelo monitoramento externo.
 - HTTPS (certificado e redirecionamento de HTTP) fica no proxy do Coolify, e o CORS libera só o front na Vercel (produção e previews). Veja [HTTPS e CORS](docs/https-cors.md).
 - Logs saem em JSON no stdout, e os erros vão para o Sentry quando `SENTRY_DSN` está definida. Veja [Observabilidade](docs/observabilidade.md), que também explica os alertas.

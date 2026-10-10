@@ -5,20 +5,31 @@ linha e confere que ela é a única, o que só é verdade se os dados do caso
 anterior foram descartados.
 """
 
+from collections.abc import Iterator
+
 import pytest
-from sqlalchemy import String, func, select
-from sqlalchemy.orm import Mapped, Session, mapped_column
-
-from advocondo.db import Base
+from sqlalchemy import Engine, String, func, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 
-class Rascunho(Base):
+class RascunhoBase(DeclarativeBase):
+    """Fora do Base da aplicação: não é modelo do domínio e não tem migration."""
+
+
+class Rascunho(RascunhoBase):
     """Tabela usada só nos testes, até existirem os modelos do domínio (#42)."""
 
     __tablename__ = "rascunho_teste"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     texto: Mapped[str] = mapped_column(String(100))
+
+
+@pytest.fixture(scope="module", autouse=True)
+def tabela_rascunho(db_engine: Engine) -> Iterator[None]:
+    RascunhoBase.metadata.create_all(db_engine)
+    yield
+    RascunhoBase.metadata.drop_all(db_engine)
 
 
 @pytest.mark.parametrize("texto", ["primeiro", "segundo", "terceiro"])
