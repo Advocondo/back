@@ -1,0 +1,22 @@
+[
+ {
+  "RuleID": "generic-api-key",
+  "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+  "StartLine": 9,
+  "EndLine": 9,
+  "StartColumn": 2,
+  "EndColumn": 39,
+  "Match": "DEFAULT_PASSWORD = \"REDACTED\"",
+  "Secret": "REDACTED",
+  "File": "tests/fixtures/users.py",
+  "SymlinkFile": "",
+  "Commit": "286da457beb19c222fcc0ac100765724993e0c96",
+  "Entropy": 3.6168747,
+  "Author": "Gabriela Tiago",
+  "Email": "gabrielatiagodearaujo@outlook.com",
+  "Date": "2026-10-10T18:09:53Z",
+  "Message": "feat(auth): log in with email and password\n\nPOST /auth/login checks the credentials and returns an opaque bearer\ntoken plus the user's role, which the front uses to open the right\npanel. Every failure, including inactive users and pending invites,\ngets the same message so the response does not reveal which e-mails\nexist. Sessions live in the database instead of a JWT so they can be\nended right away, as password reset, session management and user\ninactivation will need. GET /auth/me and the CurrentUser dependency\nlet other routes require login.\n\nRefs: US02-CA01, US02-CA02, US02-CA03",
+  "Tags": [],
+  "Fingerprint": "286da457beb19c222fcc0ac100765724993e0c96:tests/fixtures/users.py:generic-api-key:9"
+ }
+]
