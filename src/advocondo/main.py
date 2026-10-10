@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from advocondo import health
+from advocondo.common.error_handlers import register_error_handlers
 from advocondo.config import Settings, get_settings
 from advocondo.logging_config import configure_logging
 from advocondo.middleware import request_context_middleware
@@ -19,6 +20,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.middleware("http")(hsts_middleware(settings.hsts_max_age))
     # Adicionado por último para ficar por fora: responde os preflights (OPTIONS).
     configure_cors(app, settings)
+    register_error_handlers(app)
     app.include_router(health.router)
     return app
 
