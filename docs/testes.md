@@ -53,6 +53,7 @@ Ficam em `conftest.py` (raiz do projeto) e, as de domínio, em `tests/fixtures/`
 | `clock` | Relógio congelado (`FrozenClock`) injetado na API; `clock.advance(timedelta(...))` avança o tempo | Não |
 | `create_user(...)` | Fábrica de usuários ativos, com a senha `DEFAULT_PASSWORD`; aceita `email`, `role`, `status`, `password` | Sim |
 | `authenticate_as(user)` | Cria uma sessão para o usuário e devolve os cabeçalhos `Authorization` | Sim |
+| `outbox` | Captura os e-mails que a API envia (`outbox.messages`), em vez de entregá-los; o `db_client` já usa | Não |
 | `db_engine` | Engine do banco de teste (escopo da suíte inteira) | Sim |
 
 Testes que usam `db_session` ou `db_client` recebem automaticamente o marcador `integration`.

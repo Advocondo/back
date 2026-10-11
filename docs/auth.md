@@ -1,6 +1,6 @@
 # Autenticação
 
-Login com e-mail e senha ([US02](https://advocondo.github.io/docs/historias/ep01-portal-autenticacao/#us02)). O código fica em `src/advocondo/auth/`.
+Login com e-mail e senha ([US02](https://advocondo.github.io/docs/historias/ep01-portal-autenticacao/#us02)) e redefinição de senha por e-mail ([US03](https://advocondo.github.io/docs/historias/ep01-portal-autenticacao/#us03)). O código fica em `src/advocondo/auth/`.
 
 ## Como funciona
 
@@ -42,12 +42,43 @@ Resposta `200`:
 
 Devolve o usuário do token (mesmo formato de `user` acima). Serve para o front recuperar o perfil ao recarregar a página.
 
+### `POST /auth/password-reset`
+
+Pede um link de redefinição de senha (US03-CA01). Corpo: `{ "email": "ana@example.com" }`.
+
+Resposta `202`, sempre a mesma, com ou sem e-mail cadastrado:
+
+```json
+{ "detail": "Se o e-mail estiver cadastrado, você receberá um link para redefinir a senha." }
+```
+
+Se o e-mail for de um usuário ativo, ele recebe o link `{FRONTEND_URL}/redefinir-senha?token=…`, válido por 60 minutos. Usuários inativos, convites pendentes e e-mails desconhecidos não recebem nada. Um pedido novo invalida o link anterior.
+
+Cada usuário pode fazer até 5 pedidos por hora. A partir do sexto, a resposta é a mesma, mas nenhum e-mail é enviado, e o caso fica registrado no log como aviso.
+
+### `POST /auth/password-reset/confirm`
+
+Define a nova senha. Corpo:
+
+```json
+{ "token": "…", "new_password": "…" }
+```
+
+O `token` é o parâmetro `token` do link. A página `/redefinir-senha` do front lê esse parâmetro e envia junto com a nova senha.
+
+Resposta `204`. A partir daí:
+
+- o link deixa de valer (uso único, US03-CA02);
+- todas as sessões abertas do usuário são encerradas, em todos os dispositivos, e a senha antiga para de funcionar (US03-CA03).
+
 ## Respostas de erro
 
 | Situação | Status | `detail` |
 | --- | --- | --- |
 | E-mail não cadastrado, senha errada, usuário inativo ou com convite pendente | `401` | `E-mail ou senha inválidos.` |
 | Sem token, token desconhecido ou expirado, usuário inativado depois do login | `401` | `Sua sessão expirou. Faça login novamente.` |
+| Link de redefinição desconhecido, já usado, substituído por um pedido novo, expirado, ou de usuário inativado depois do pedido | `422` | `Este link de redefinição é inválido ou expirou. Solicite um novo.` |
+| Nova senha com menos de 8 caracteres | `422` | `A senha precisa ter pelo menos 8 caracteres.` |
 | Corpo inválido (campo ausente, senha com mais de 128 caracteres) | `422` | erros de validação do FastAPI |
 
 As respostas `401` trazem o cabeçalho `WWW-Authenticate: Bearer`.
@@ -57,15 +88,39 @@ As respostas `401` trazem o cabeçalho `WWW-Authenticate: Bearer`.
 - **Mensagem única para qualquer falha de login** (US02-CA02). Inclui o usuário inativo (US02-CA03), para não revelar quais e-mails estão cadastrados nem a situação da conta. Quando o e-mail não existe, a API verifica a senha contra um hash fixo, para a resposta levar o mesmo tempo.
 - **Token opaco guardado no banco, em vez de JWT.** Um JWT continua válido até expirar; com a sessão no banco dá para encerrá-la na hora, como pedem a US03-CA03, a US06 e a US08 (o usuário inativado perde o acesso já na próxima requisição).
 - **Primeiro Administrador por rota protegida por token, não por comando de terminal.** Quem faz o deploy não precisa de acesso ao terminal do container; o `SETUP_TOKEN` fecha a janela entre o deploy e o primeiro acesso, e a rota só cria usuário com o banco vazio.
+- **Resposta igual para qualquer pedido de redefinição.** `POST /auth/password-reset` responde a mesma coisa para e-mail cadastrado, desconhecido ou de usuário inativo, e também quando o envio do e-mail falha (a falha vai para o log e o Sentry). Assim, a rota não serve para descobrir quais e-mails estão cadastrados.
+- **Link de redefinição guardado como hash, de uso único.** Como o token de sessão, só o hash SHA-256 fica na tabela `password_reset_links`.
+- **Limite de 5 pedidos por hora, contado pelos próprios links.** Um pedido novo não apaga os links anteriores: marca-os como expirados, para que continuem entrando na contagem. Quando o usuário conclui a redefinição, todos os links dele são apagados. Os links de quem pede e nunca conclui serão apagados por uma rotina periódica ([#55](https://github.com/Advocondo/back/issues/55)).
 - **Token no cabeçalho `Authorization`, não em cookie**, como já previsto na configuração de CORS (`CORS_ALLOW_CREDENTIALS=false`, ver [HTTPS e CORS](https-cors.md)).
 
 ## Configuração
 
-| Variável | Padrão | O que faz |
+Todas as variáveis são obrigatórias no ambiente (ver [Variáveis de ambiente e segredos](segredos.md)). A coluna do meio mostra o valor de desenvolvimento do `.env.example`.
+
+| Variável | Valor no `.env.example` | O que faz |
 | --- | --- | --- |
 | `SESSION_DURATION_HOURS` | `12` | Duração da sessão sem "Manter conectado" |
 | `REMEMBERED_SESSION_DURATION_DAYS` | `30` | Duração da sessão com "Manter conectado" |
 | `SETUP_TOKEN` | vazio | Token exigido por `POST /setup`; vazio desliga a rota (ver [Primeiro Administrador](#primeiro-administrador)) |
+| `FRONTEND_URL` | `http://localhost:3000` | Endereço do front, usado no link de redefinição |
+| `PASSWORD_RESET_LINK_MINUTES` | `60` | Validade do link de redefinição |
+| `PASSWORD_RESET_MAX_REQUESTS` | `5` | Pedidos de redefinição aceitos por usuário dentro da janela |
+| `PASSWORD_RESET_REQUEST_WINDOW_MINUTES` | `60` | Janela, em minutos, do limite de pedidos |
+| `SMTP_HOST` | vazio | Servidor SMTP. Vazio só é aceito com `ENVIRONMENT=local`: o e-mail, com o link, é escrito no log da API |
+| `SMTP_PORT` | `587` | Porta do servidor SMTP |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | vazio | Credenciais do SMTP, se o servidor exigir |
+| `SMTP_USE_TLS` | `true` | Usa STARTTLS na conexão |
+| `EMAIL_FROM` | vazio | Remetente dos e-mails (ex.: `Advocondo <nao-responda@dominio>`). Obrigatório quando `SMTP_HOST` está definido |
+
+### E-mail em desenvolvimento
+
+Sem `SMTP_HOST`, a API não envia e-mail: ela escreve o conteúdo no log. Para pegar o link de redefinição:
+
+```bash
+docker compose logs api | grep -A12 "E-mail não enviado"
+```
+
+Fora do ambiente local, a API recusa funcionar sem SMTP, para que links de redefinição nunca acabem nos logs de produção.
 
 ## Primeiro Administrador
 
@@ -100,5 +155,8 @@ O token é conferido antes de qualquer outra coisa, então quem não o tem não 
 ## Pendências
 
 - **Limite de tentativas de login** (proteção contra força bruta). Não está em nenhuma história; precisa ser priorizado.
-- **Logout** (`POST /auth/logout`) e **limpeza de sessões expiradas**: entram com a US06.
+- **Logout** (`POST /auth/logout`): entra com a US06.
+- **Limpeza de sessões e links de redefinição expirados**: [#55](https://github.com/Advocondo/back/issues/55).
+- **Tempo de resposta do pedido de redefinição**: para e-mail cadastrado, a resposta demora mais, porque grava o link e envia o e-mail. Mover o envio para segundo plano resolve; hoje a mensagem é sempre igual, mas o tempo não.
+- **Provedor de e-mail de produção**: ainda não foi escolhido. Qualquer um com SMTP serve.
 - **Checagem por perfil** (`require_role`): entra com a US09, a primeira história que restringe rotas por perfil.

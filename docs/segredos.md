@@ -14,7 +14,7 @@ Staging ainda não existe (ver a issue de CD, #41). Quando existir, deve ser um 
 
 ## O que está no repositório
 
-- **`.env.example`**: lista todas as variáveis que o back-end usa, com comentários e apenas valores de desenvolvimento local. Toda variável nova entra aqui no mesmo PR que passa a usá-la; um teste (`tests/unit/test_config.py`) falha se faltar alguma.
+- **`.env.example`**: lista todas as variáveis que o back-end usa, com comentários e apenas valores de desenvolvimento local. Toda variável nova entra aqui no mesmo PR que passa a usá-la; um teste (`TestConfig`, em `src/advocondo/test_app_unit.py`) falha se faltar alguma.
 - **Sem valores padrão no código**: o `config.py` não define valor para nenhuma variável. Todas precisam existir no ambiente, mesmo as que podem ficar vazias (ex.: `SENTRY_DSN=`, que desliga o Sentry). Se faltar alguma, a API não sobe e o erro lista quais faltam.
 - **`.gitignore`**: ignora `.env` e `.env.*`, exceto o `.env.example`.
 - **`.dockerignore`**: ignora os mesmos arquivos, então nenhum `.env` vai parar dentro da imagem Docker.

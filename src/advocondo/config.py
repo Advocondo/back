@@ -39,11 +39,27 @@ class Settings(BaseSettings):
     # Vazio = rota desligada.
     setup_token: str | None
 
+    # Redefinição de senha e e-mail (ver docs/auth.md)
+    frontend_url: str
+    password_reset_link_minutes: int
+    password_reset_max_requests: int
+    password_reset_request_window_minutes: int
+    smtp_host: str | None
+    smtp_port: int
+    smtp_username: str | None
+    smtp_password: str | None
+    smtp_use_tls: bool
+    email_from: str | None
+
     @field_validator(
         "release",
         "sentry_dsn",
         "cors_allow_origin_regex",
         "setup_token",
+        "smtp_host",
+        "smtp_username",
+        "smtp_password",
+        "email_from",
         mode="before",
     )
     @classmethod
@@ -60,6 +76,14 @@ class Settings(BaseSettings):
     @property
     def remembered_session_duration(self) -> timedelta:
         return timedelta(days=self.remembered_session_duration_days)
+
+    @property
+    def password_reset_link_duration(self) -> timedelta:
+        return timedelta(minutes=self.password_reset_link_minutes)
+
+    @property
+    def password_reset_request_window(self) -> timedelta:
+        return timedelta(minutes=self.password_reset_request_window_minutes)
 
     @field_validator("setup_token")
     @classmethod
