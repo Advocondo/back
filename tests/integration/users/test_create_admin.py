@@ -1,10 +1,15 @@
+import getpass
+import runpy
+import sys
 from collections.abc import Iterator
+from contextlib import nullcontext
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+import advocondo.db
 from advocondo.users.create_admin import (
     EXIT_FAILURE,
     EXIT_SUCCESS,
@@ -104,3 +109,24 @@ def test_admin_is_not_created_with_invalid_input(
     assert exit_code == EXIT_FAILURE
     assert count_users(db_session) == 0
     assert message in capsys.readouterr().err
+
+
+def test_command_line_creates_the_admin_and_exits_successfully(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Runs the module as `python -m advocondo.users.create_admin` does."""
+    monkeypatch.setattr(
+        sys, "argv", ["create_admin", "--email", "ana@example.com", "--name", "Ana"]
+    )
+    monkeypatch.setattr(getpass, "getpass", typed_passwords(PASSWORD, PASSWORD))
+    monkeypatch.setattr(
+        advocondo.db, "get_sessionmaker", lambda: lambda: nullcontext(db_session)
+    )
+    # A fresh import, as the interpreter does when running the module as a script.
+    monkeypatch.delitem(sys.modules, "advocondo.users.create_admin")
+
+    with pytest.raises(SystemExit) as exit_info:
+        runpy.run_module("advocondo.users.create_admin", run_name="__main__")
+
+    assert exit_info.value.code == EXIT_SUCCESS
+    assert count_users(db_session) == 1
