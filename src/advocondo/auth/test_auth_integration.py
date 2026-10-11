@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from advocondo.config import Settings
 from advocondo.users.models import Role, UserStatus
 from tests.fixtures.auth import AuthenticateAs
 from tests.fixtures.users import DEFAULT_PASSWORD, CreateUser
@@ -78,18 +79,19 @@ class TestLogin:
         assert response.status_code == 200
 
     @pytest.mark.parametrize(
-        ("remember_me", "duration"),
+        ("remember_me", "duration_setting"),
         [
-            pytest.param(False, timedelta(hours=12), id="default-session"),
-            pytest.param(True, timedelta(days=30), id="keep-me-logged-in"),
+            pytest.param(False, "session_duration", id="default-session"),
+            pytest.param(True, "remembered_session_duration", id="keep-me-logged-in"),
         ],
     )
     def test_session_lasts_longer_when_the_user_asks_to_stay_logged_in(
         self,
         db_client: TestClient,
         create_user: CreateUser,
+        settings: Settings,
         remember_me: bool,
-        duration: timedelta,
+        duration_setting: str,
     ) -> None:
         create_user(email="ana@example.com")
 
@@ -97,6 +99,7 @@ class TestLogin:
             db_client, "ana@example.com", DEFAULT_PASSWORD, remember_me=remember_me
         )
 
+        duration: timedelta = getattr(settings, duration_setting)
         expires_at = response.json()["expires_at"]
         assert expires_at == (DEFAULT_NOW + duration).isoformat().replace("+00:00", "Z")
 
@@ -181,9 +184,10 @@ class TestCurrentUser:
         create_user: CreateUser,
         authenticate_as: AuthenticateAs,
         clock: FrozenClock,
+        settings: Settings,
     ) -> None:
         headers = authenticate_as(create_user())
-        clock.advance(timedelta(hours=12))
+        clock.advance(settings.session_duration)
 
         response = db_client.get("/auth/me", headers=headers)
 
