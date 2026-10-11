@@ -14,9 +14,10 @@ from advocondo.db import Base, get_session
 from advocondo.main import app
 from tests.support.clock import FrozenClock
 from tests.support.database import ensure_database_exists, get_test_database_url
+from tests.support.email import Outbox
 from tests.support.settings import make_settings
 
-pytest_plugins = ["tests.fixtures.users", "tests.fixtures.auth"]
+pytest_plugins = ["tests.fixtures.users", "tests.fixtures.auth", "tests.fixtures.email"]
 
 # Fixtures que precisam do Postgres de teste; quem as usa vira teste de integração.
 DB_FIXTURES = {"db_session", "db_client"}
@@ -71,9 +72,10 @@ def settings() -> Settings:
 
 @pytest.fixture
 def db_client(
-    db_session: Session, clock: FrozenClock, settings: Settings
+    db_session: Session, clock: FrozenClock, outbox: Outbox, settings: Settings
 ) -> Iterator[TestClient]:
-    """Cliente HTTP da API usando a sessão do banco de testes, o relógio `clock` e a
+    """Cliente HTTP da API usando a sessão do banco de testes, o relógio `clock`, a
+    caixa de saída `outbox`, que captura os e-mails em vez de enviá-los, e a
     configuração `settings`."""
     app.dependency_overrides[get_session] = lambda: db_session
     app.dependency_overrides[get_settings] = lambda: settings

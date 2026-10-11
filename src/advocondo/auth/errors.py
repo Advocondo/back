@@ -1,4 +1,4 @@
-from advocondo.common.errors import AuthenticationError
+from advocondo.common.errors import AuthenticationError, BusinessRuleError
 
 
 class InvalidCredentialsError(AuthenticationError):
@@ -8,3 +8,8 @@ class InvalidCredentialsError(AuthenticationError):
 
 class InvalidSessionError(AuthenticationError):
     message = "Sua sessão expirou. Faça login novamente."
+
+
+class InvalidPasswordResetLinkError(BusinessRuleError):
+    # Same message for unknown, used and expired links (US03-CA02).
+    message = "Este link de redefinição é inválido ou expirou. Solicite um novo."

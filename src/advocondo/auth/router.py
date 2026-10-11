@@ -1,10 +1,21 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 
-from advocondo.auth.dependencies import CurrentUser, get_auth_service
-from advocondo.auth.schemas import AuthenticatedUser, LoginRequest, LoginResponse
-from advocondo.auth.service import AuthService
+from advocondo.auth.dependencies import (
+    CurrentUser,
+    get_auth_service,
+    get_password_reset_service,
+)
+from advocondo.auth.schemas import (
+    AuthenticatedUser,
+    LoginRequest,
+    LoginResponse,
+    PasswordResetConfirmation,
+    PasswordResetRequest,
+    PasswordResetRequestResponse,
+)
+from advocondo.auth.service import AuthService, PasswordResetService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -27,3 +38,24 @@ def log_in(
 @router.get("/me")
 def get_me(current_user: CurrentUser) -> AuthenticatedUser:
     return AuthenticatedUser.model_validate(current_user)
+
+
+@router.post("/password-reset", status_code=status.HTTP_202_ACCEPTED)
+def request_password_reset(
+    request: PasswordResetRequest,
+    password_reset_service: Annotated[
+        PasswordResetService, Depends(get_password_reset_service)
+    ],
+) -> PasswordResetRequestResponse:
+    password_reset_service.request_reset(request.email)
+    return PasswordResetRequestResponse()
+
+
+@router.post("/password-reset/confirm", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(
+    request: PasswordResetConfirmation,
+    password_reset_service: Annotated[
+        PasswordResetService, Depends(get_password_reset_service)
+    ],
+) -> None:
+    password_reset_service.reset_password(request.token, request.new_password)
