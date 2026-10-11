@@ -1,4 +1,3 @@
-from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -9,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from advocondo.common.passwords import MAX_PASSWORD_LENGTH
-from advocondo.config import get_settings
+from advocondo.config import Settings, get_settings
 from advocondo.main import app
 from advocondo.users.models import Role, User, UserStatus
 from tests.fixtures.users import CreateUser
@@ -47,13 +46,9 @@ def build_user(**overrides: Any) -> User:
 
 
 class TestFirstAdminSetup:
-    @pytest.fixture(autouse=True)
-    def enable_setup(self) -> Iterator[None]:
-        app.dependency_overrides[get_settings] = lambda: make_settings(
-            setup_token=SETUP_TOKEN
-        )
-        yield
-        app.dependency_overrides.pop(get_settings, None)
+    @pytest.fixture
+    def settings(self) -> Settings:
+        return make_settings(setup_token=SETUP_TOKEN)
 
     def test_first_admin_is_created_and_can_log_in(self, db_client: TestClient) -> None:
         response = set_up(db_client)

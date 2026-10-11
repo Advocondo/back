@@ -13,13 +13,13 @@ from sentry_sdk.transport import Transport
 from sqlalchemy.engine import make_url
 
 from advocondo import sentry
-from advocondo.config import MIN_SETUP_TOKEN_LENGTH
+from advocondo.config import MIN_SETUP_TOKEN_LENGTH, Settings
 from advocondo.health import HealthCheck, get_health_checks
 from advocondo.logging_config import JsonFormatter, RequestIdFilter, request_id_var
 from advocondo.main import app, create_app
 from advocondo.middleware import resolve_request_id
 from tests.support.database import assert_is_test_database
-from tests.support.settings import make_settings
+from tests.support.settings import env_example_values, make_settings
 
 
 def _ok() -> None:
@@ -268,8 +268,10 @@ class TestSecurity:
         response = cors_client.get("/health", headers={"Origin": origin})
         assert "access-control-allow-origin" not in response.headers
 
-    def test_cors_fechado_por_padrao(self) -> None:
-        client = TestClient(create_app(make_settings()))
+    def test_cors_fechado_sem_origens_configuradas(self) -> None:
+        client = TestClient(
+            create_app(make_settings(cors_allow_origins="", cors_allow_origin_regex=""))
+        )
 
         assert _preflight(client, PRODUCAO) is None
 
@@ -286,7 +288,7 @@ class TestSecurity:
             "https://a.com, https://b.com/ ,,http://localhost:3000",
         )
 
-        settings = make_settings()
+        settings = make_settings(read_from_environment=("cors_allow_origins",))
 
         assert settings.cors_allow_origins == [
             "https://a.com",
@@ -310,7 +312,7 @@ class TestSecurity:
         monkeypatch.setenv(variavel, valor)
 
         with pytest.raises(ValidationError):
-            make_settings()
+            make_settings(read_from_environment=(variavel.lower(),))
 
     def test_hsts_quando_configurado(self) -> None:
         client = TestClient(create_app(make_settings(hsts_max_age=31536000)))
@@ -327,21 +329,37 @@ class TestSecurity:
 
 
 class TestConfig:
+    def test_env_example_lists_every_setting(self) -> None:
+        assert set(env_example_values()) == set(Settings.model_fields)
+
+    def test_missing_variable_stops_the_settings_from_loading(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("SESSION_DURATION_HOURS", raising=False)
+
+        with pytest.raises(ValidationError, match="session_duration_hours"):
+            make_settings(read_from_environment=("session_duration_hours",))
+
     @pytest.mark.parametrize(
-        ("setup_token", "expected"),
+        "field_name",
         [
-            pytest.param("", None, id="empty-disables-setup"),
-            pytest.param(
-                "a" * MIN_SETUP_TOKEN_LENGTH,
-                "a" * MIN_SETUP_TOKEN_LENGTH,
-                id="minimum-length",
-            ),
+            pytest.param("sentry_dsn", id="sentry-off"),
+            pytest.param("cors_allow_origin_regex", id="no-preview-origins"),
+            pytest.param("release", id="no-release"),
+            pytest.param("setup_token", id="setup-off"),
         ],
     )
-    def test_setup_token_accepts_empty_or_long_enough_values(
-        self, setup_token: str, expected: str | None
-    ) -> None:
-        assert make_settings(setup_token=setup_token).setup_token == expected
+    def test_empty_optional_variable_means_turned_off(self, field_name: str) -> None:
+        overrides: dict[str, Any] = {field_name: ""}
+
+        settings = make_settings(**overrides)
+
+        assert getattr(settings, field_name) is None
+
+    def test_setup_token_with_the_minimum_length_is_accepted(self) -> None:
+        token = "a" * MIN_SETUP_TOKEN_LENGTH
+
+        assert make_settings(setup_token=token).setup_token == token
 
     def test_setup_token_shorter_than_the_minimum_is_refused(self) -> None:
         with pytest.raises(ValidationError, match="SETUP_TOKEN"):

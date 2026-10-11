@@ -5,14 +5,16 @@ import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, make_url
 
-# Mesmo Postgres do docker-compose, mas em um banco separado.
-DEFAULT_TEST_DATABASE_URL = (
-    "postgresql+psycopg://advocondo:advocondo@localhost:5432/advocondo_test"
-)
-
 
 def get_test_database_url() -> URL:
-    url = make_url(os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL))
+    """Lida de TEST_DATABASE_URL, que o docker-compose e o CI definem."""
+    raw_url = os.environ.get("TEST_DATABASE_URL")
+    if not raw_url:
+        raise RuntimeError(
+            "TEST_DATABASE_URL não está definida. Rode os testes pelo container: "
+            "docker compose exec api uv run pytest"
+        )
+    url = make_url(raw_url)
     assert_is_test_database(url)
     return url
 
