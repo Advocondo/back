@@ -20,6 +20,10 @@ class UserSessionRepository:
             select(UserSession).where(UserSession.token_hash == token_hash)
         )
 
+    def delete(self, user_session: UserSession) -> None:
+        self._session.delete(user_session)
+        self._session.flush()
+
     def delete_all_of_user(self, user_id: uuid.UUID) -> None:
         self._session.execute(delete(UserSession).where(UserSession.user_id == user_id))
 

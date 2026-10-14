@@ -533,3 +533,37 @@ class TestPasswordReset:
         assert (
             db_session.scalar(select(func.count()).select_from(PasswordResetLink)) == 0
         )
+
+
+class TestLogout:
+    def test_logout_ends_the_current_session(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers = authenticate_as(create_user())
+
+        response = db_client.post("/auth/logout", headers=headers)
+
+        assert response.status_code == 204
+        assert db_client.get("/auth/me", headers=headers).status_code == 401
+
+    def test_logout_keeps_the_sessions_on_other_devices(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        user = create_user()
+        this_device = authenticate_as(user)
+        other_device = authenticate_as(user)
+
+        db_client.post("/auth/logout", headers=this_device)
+
+        assert db_client.get("/auth/me", headers=other_device).status_code == 200
+
+    def test_logout_requires_a_valid_session(self, db_client: TestClient) -> None:
+        response = db_client.post("/auth/logout")
+
+        assert response.status_code == 401

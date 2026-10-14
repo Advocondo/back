@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 
 from advocondo.auth.dependencies import (
+    CurrentSession,
     CurrentUser,
     get_auth_service,
     get_password_reset_service,
@@ -38,6 +39,14 @@ def log_in(
 @router.get("/me")
 def get_me(current_user: CurrentUser) -> AuthenticatedUser:
     return AuthenticatedUser.model_validate(current_user)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def log_out(
+    current_session: CurrentSession,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+) -> None:
+    auth_service.log_out(current_session)
 
 
 @router.post("/password-reset", status_code=status.HTTP_202_ACCEPTED)
