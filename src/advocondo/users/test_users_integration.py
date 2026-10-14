@@ -458,6 +458,57 @@ class TestEditProfile:
             "detail": "A senha precisa ter pelo menos 8 caracteres."
         }
 
+    @pytest.mark.parametrize(
+        "role",
+        [
+            pytest.param(Role.OPERATOR, id="operator"),
+            pytest.param(Role.CLIENT, id="client"),
+        ],
+    )
+    def test_user_cannot_make_themselves_an_administrator(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        role: Role,
+    ) -> None:
+        user = create_user(role=role)
+        headers = authenticate_as(user)
+
+        response = update_profile(
+            db_client,
+            headers,
+            {"name": "Ana Lima", "role": "admin", "current_password": DEFAULT_PASSWORD},
+        )
+
+        db_session.refresh(user)
+        assert response.status_code == 422
+        assert (user.role, user.name) == (role, "Ana Souza")
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            pytest.param({"role": "client"}, id="role"),
+            pytest.param({"status": "inactive"}, id="status"),
+            pytest.param({"id": "00000000-0000-0000-0000-000000000000"}, id="id"),
+            pytest.param({"password_hash": "hash"}, id="password-hash"),
+        ],
+    )
+    def test_fields_outside_the_profile_are_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        field: dict[str, str],
+    ) -> None:
+        headers = authenticate_as(create_user(role=Role.ADMIN))
+
+        response = update_profile(db_client, headers, {"name": "Ana Lima"} | field)
+
+        assert response.status_code == 422
+        assert db_client.get("/auth/me", headers=headers).json()["name"] == "Ana Souza"
+
     def test_editing_the_profile_requires_a_valid_session(
         self, db_client: TestClient
     ) -> None:

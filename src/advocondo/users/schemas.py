@@ -28,6 +28,10 @@ class FirstAdminRequest(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     """Only the fields sent are changed."""
 
+    # Unknown fields are refused, not ignored: the role and the status are changed
+    # only by an Administrator (US08, US09), never by the user themselves.
+    model_config = ConfigDict(extra="forbid")
+
     name: UserName | None = None
     email: EmailStr | None = Field(default=None, max_length=MAX_EMAIL_LENGTH)
     new_password: str | None = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
