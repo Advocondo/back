@@ -83,6 +83,11 @@ class AuthService:
         self._user_sessions.delete(user_session)
         self._session.commit()
 
+    def end_all_sessions(self, user: User) -> None:
+        """Logs the user out of every device, including the one making the request."""
+        self._user_sessions.delete_all_of_user(user.id)
+        self._session.commit()
+
     def _find_user_by_credentials(self, email: str, password: str) -> User:
         user = self._users.get_by_email(normalize_email(email))
         if user is None or user.password_hash is None:

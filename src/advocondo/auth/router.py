@@ -49,6 +49,14 @@ def log_out(
     auth_service.log_out(current_session)
 
 
+@router.delete("/sessions", status_code=status.HTTP_204_NO_CONTENT)
+def end_all_sessions(
+    current_user: CurrentUser,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+) -> None:
+    auth_service.end_all_sessions(current_user)
+
+
 @router.post("/password-reset", status_code=status.HTTP_202_ACCEPTED)
 def request_password_reset(
     request: PasswordResetRequest,
