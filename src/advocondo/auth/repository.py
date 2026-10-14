@@ -27,6 +27,14 @@ class UserSessionRepository:
     def delete_all_of_user(self, user_id: uuid.UUID) -> None:
         self._session.execute(delete(UserSession).where(UserSession.user_id == user_id))
 
+    def delete_all_of_user_except(self, user_session: UserSession) -> None:
+        self._session.execute(
+            delete(UserSession).where(
+                UserSession.user_id == user_session.user_id,
+                UserSession.id != user_session.id,
+            )
+        )
+
 
 class PasswordResetLinkRepository:
     def __init__(self, session: Session) -> None:

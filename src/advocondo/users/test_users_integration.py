@@ -11,7 +11,8 @@ from advocondo.common.passwords import MAX_PASSWORD_LENGTH
 from advocondo.config import Settings, get_settings
 from advocondo.main import app
 from advocondo.users.models import Role, User, UserStatus
-from tests.fixtures.users import CreateUser
+from tests.fixtures.auth import AuthenticateAs
+from tests.fixtures.users import DEFAULT_PASSWORD, CreateUser
 from tests.support.settings import make_settings
 
 PASSWORD = "senha-do-admin"
@@ -32,6 +33,23 @@ def set_up(
 
 def count_users(session: Session) -> int:
     return session.scalar(select(func.count()).select_from(User)) or 0
+
+
+NEW_PASSWORD = "nova-senha-segura"  # gitleaks:allow (test-only password)
+
+
+def update_profile(
+    client: TestClient, headers: dict[str, str], payload: dict[str, Any]
+) -> httpx.Response:
+    response: httpx.Response = client.patch("/users/me", json=payload, headers=headers)
+    return response
+
+
+def log_in(client: TestClient, email: str, password: str) -> int:
+    response: httpx.Response = client.post(
+        "/auth/login", json={"email": email, "password": password}
+    )
+    return response.status_code
 
 
 def build_user(**overrides: Any) -> User:
@@ -202,3 +220,247 @@ class TestUserModel:
         db_session.flush()
 
         assert db_session.scalar(select(User.status)) == status
+
+
+class TestEditProfile:
+    def test_name_is_changed_without_the_current_password(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US05-CA01"""
+        headers = authenticate_as(create_user(name="Ana Souza"))
+
+        response = update_profile(db_client, headers, {"name": "  Ana Lima  "})
+
+        assert response.status_code == 200
+        assert response.json()["name"] == "Ana Lima"
+        assert db_client.get("/auth/me", headers=headers).json()["name"] == "Ana Lima"
+
+    def test_email_is_changed_with_the_current_password(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US05-CA01"""
+        headers = authenticate_as(create_user(email="ana@example.com"))
+
+        response = update_profile(
+            db_client,
+            headers,
+            {"email": " Ana.Lima@Example.com ", "current_password": DEFAULT_PASSWORD},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["email"] == "ana.lima@example.com"
+        assert log_in(db_client, "ana.lima@example.com", DEFAULT_PASSWORD) == 200
+        assert log_in(db_client, "ana@example.com", DEFAULT_PASSWORD) == 401
+
+    def test_password_is_changed_with_the_current_password(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US05-CA01"""
+        headers = authenticate_as(create_user(email="ana@example.com"))
+
+        response = update_profile(
+            db_client,
+            headers,
+            {"new_password": NEW_PASSWORD, "current_password": DEFAULT_PASSWORD},
+        )
+
+        assert response.status_code == 200
+        assert log_in(db_client, "ana@example.com", NEW_PASSWORD) == 200
+        assert log_in(db_client, "ana@example.com", DEFAULT_PASSWORD) == 401
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            pytest.param({"email": "ana.lima@example.com"}, id="email"),
+            pytest.param({"new_password": NEW_PASSWORD}, id="password"),
+        ],
+    )
+    def test_email_or_password_change_requires_the_current_password(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        change: dict[str, str],
+    ) -> None:
+        """US05-CA02"""
+        headers = authenticate_as(create_user(email="ana@example.com"))
+
+        response = update_profile(db_client, headers, change)
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Informe a senha atual para alterar o e-mail ou a senha."
+        }
+        assert log_in(db_client, "ana@example.com", DEFAULT_PASSWORD) == 200
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            pytest.param({"email": "ana.lima@example.com"}, id="email"),
+            pytest.param({"new_password": NEW_PASSWORD}, id="password"),
+        ],
+    )
+    def test_email_or_password_change_with_a_wrong_current_password_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        change: dict[str, str],
+    ) -> None:
+        """US05-CA02"""
+        headers = authenticate_as(create_user(email="ana@example.com"))
+
+        response = update_profile(
+            db_client, headers, change | {"current_password": "senha-errada"}
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "A senha atual está incorreta."}
+        assert log_in(db_client, "ana@example.com", DEFAULT_PASSWORD) == 200
+
+    def test_same_email_in_another_case_does_not_require_the_current_password(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers = authenticate_as(create_user(email="ana@example.com"))
+
+        response = update_profile(
+            db_client, headers, {"name": "Ana Lima", "email": "ANA@example.com"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["email"] == "ana@example.com"
+
+    def test_email_of_another_user_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers = authenticate_as(create_user(email="ana@example.com"))
+        create_user(email="bruno@example.com")
+
+        response = update_profile(
+            db_client,
+            headers,
+            {"email": "bruno@example.com", "current_password": DEFAULT_PASSWORD},
+        )
+
+        assert response.status_code == 409
+        assert response.json() == {
+            "detail": "Este e-mail já está em uso por outro usuário."
+        }
+
+    def test_wrong_current_password_is_checked_before_the_email_is_looked_up(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers = authenticate_as(create_user(email="ana@example.com"))
+        create_user(email="bruno@example.com")
+
+        response = update_profile(
+            db_client,
+            headers,
+            {"email": "bruno@example.com", "current_password": "senha-errada"},
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "A senha atual está incorreta."}
+
+    def test_password_change_ends_the_sessions_on_other_devices(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        user = create_user()
+        this_device = authenticate_as(user)
+        other_device = authenticate_as(user)
+
+        update_profile(
+            db_client,
+            this_device,
+            {"new_password": NEW_PASSWORD, "current_password": DEFAULT_PASSWORD},
+        )
+
+        assert db_client.get("/auth/me", headers=this_device).status_code == 200
+        assert db_client.get("/auth/me", headers=other_device).status_code == 401
+
+    def test_name_change_keeps_the_sessions_on_other_devices(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        user = create_user()
+        this_device = authenticate_as(user)
+        other_device = authenticate_as(user)
+
+        update_profile(db_client, this_device, {"name": "Ana Lima"})
+
+        assert db_client.get("/auth/me", headers=other_device).status_code == 200
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param({}, id="nothing-to-change"),
+            pytest.param({"current_password": DEFAULT_PASSWORD}, id="only-password"),
+            pytest.param({"name": "   "}, id="blank-name"),
+            pytest.param({"email": "ana-sem-arroba"}, id="bad-email"),
+            pytest.param(
+                {"new_password": "a" * (MAX_PASSWORD_LENGTH + 1)},
+                id="password-too-long",
+            ),
+        ],
+    )
+    def test_invalid_request_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        payload: dict[str, str],
+    ) -> None:
+        headers = authenticate_as(create_user())
+
+        response = update_profile(db_client, headers, payload)
+
+        assert response.status_code == 422
+
+    def test_new_password_must_have_the_minimum_length(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers = authenticate_as(create_user())
+
+        response = update_profile(
+            db_client,
+            headers,
+            {"new_password": "curta", "current_password": DEFAULT_PASSWORD},
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "A senha precisa ter pelo menos 8 caracteres."
+        }
+
+    def test_editing_the_profile_requires_a_valid_session(
+        self, db_client: TestClient
+    ) -> None:
+        response = db_client.patch("/users/me", json={"name": "Ana Lima"})
+
+        assert response.status_code == 401
