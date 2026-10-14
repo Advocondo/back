@@ -27,7 +27,7 @@ uv run pytest -m "not integration"
 
 - Os testes usam um banco **separado**, definido por `TEST_DATABASE_URL`. Por padrão é `advocondo_test` no Postgres local; no docker-compose o host já vem como `db`.
 - O nome do banco **precisa terminar em `_test`**. Os testes apagam e recriam o schema, então se a URL apontar para outro banco a suíte para com erro antes de tocar em qualquer dado.
-- O banco é criado automaticamente na primeira execução. O schema é recriado a partir dos modelos (`Base.metadata`) a cada execução da suíte.
+- O banco é criado automaticamente na primeira execução. O schema é recriado a partir dos modelos (`Base.metadata`) a cada execução da suíte. As migrations são testadas à parte, em `test_migrations.py` (ver [Migrations](migracoes.md#testes)).
 - No CI, o job sobe um Postgres próprio, descartado ao final.
 
 ## Isolamento entre testes
@@ -70,11 +70,11 @@ tests/
 
 ## Fixtures de domínio
 
-Os modelos de domínio (acordo, devedor, condomínio, usuário, parcela) ainda não existem; eles vêm com o modelo físico do banco (#42). Quando forem criados, as fixtures de cada domínio devem seguir este padrão:
+Os modelos de domínio (acordo, devedor, condomínio, usuário, parcela) ainda não existem. Quando forem criados, as fixtures de cada domínio devem seguir este padrão:
 
 - uma fixture por entidade, que recebe `db_session`, cria o objeto com valores padrão válidos e o devolve (ex.: `condominio`, `devedor`, `acordo`);
 - fixtures que dependem de outras as recebem como parâmetro (ex.: `acordo` recebe `condominio` e `devedor`);
 - quando um teste precisar de variações, use uma fixture "fábrica" que recebe os campos a sobrescrever (ex.: `criar_acordo(valor_total=...)`);
 - fixtures usadas por mais de um arquivo ficam em `tests/conftest.py`, ou em `tests/fixtures/<dominio>.py` registrado como plugin no `conftest.py`, se o arquivo crescer.
 
-A tabela `rascunho_teste` de `test_isolamento.py` existe só até lá, e pode ser trocada por um modelo real quando houver.
+A tabela `rascunho_teste` de `test_isolamento.py` usa um `metadata` próprio, fora do `Base` da aplicação: não é modelo do domínio e por isso não tem migration. O próprio teste a cria e a remove.
