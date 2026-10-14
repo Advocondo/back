@@ -13,6 +13,7 @@ from sentry_sdk.transport import Transport
 from sqlalchemy.engine import make_url
 
 from advocondo import sentry
+from advocondo.config import MIN_SETUP_TOKEN_LENGTH
 from advocondo.health import HealthCheck, get_health_checks
 from advocondo.logging_config import JsonFormatter, RequestIdFilter, request_id_var
 from advocondo.main import app, create_app
@@ -323,6 +324,28 @@ class TestSecurity:
 
     def test_hsts_desligado_por_padrao(self, client: TestClient) -> None:
         assert "strict-transport-security" not in client.get("/health").headers
+
+
+class TestConfig:
+    @pytest.mark.parametrize(
+        ("setup_token", "expected"),
+        [
+            pytest.param("", None, id="empty-disables-setup"),
+            pytest.param(
+                "a" * MIN_SETUP_TOKEN_LENGTH,
+                "a" * MIN_SETUP_TOKEN_LENGTH,
+                id="minimum-length",
+            ),
+        ],
+    )
+    def test_setup_token_accepts_empty_or_long_enough_values(
+        self, setup_token: str, expected: str | None
+    ) -> None:
+        assert make_settings(setup_token=setup_token).setup_token == expected
+
+    def test_setup_token_shorter_than_the_minimum_is_refused(self) -> None:
+        with pytest.raises(ValidationError, match="SETUP_TOKEN"):
+            make_settings(setup_token="a" * (MIN_SETUP_TOKEN_LENGTH - 1))
 
 
 class TestSentry:

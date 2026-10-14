@@ -8,6 +8,7 @@ from advocondo.logging_config import configure_logging
 from advocondo.middleware import request_context_middleware
 from advocondo.security import configure_cors, hsts_middleware
 from advocondo.sentry import init_sentry
+from advocondo.users import router as users
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -24,6 +25,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_error_handlers(app)
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(users.router)
     return app
 
 

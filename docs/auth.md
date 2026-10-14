@@ -56,6 +56,7 @@ As respostas `401` trazem o cabeçalho `WWW-Authenticate: Bearer`.
 
 - **Mensagem única para qualquer falha de login** (US02-CA02). Inclui o usuário inativo (US02-CA03), para não revelar quais e-mails estão cadastrados nem a situação da conta. Quando o e-mail não existe, a API verifica a senha contra um hash fixo, para a resposta levar o mesmo tempo.
 - **Token opaco guardado no banco, em vez de JWT.** Um JWT continua válido até expirar; com a sessão no banco dá para encerrá-la na hora, como pedem a US03-CA03, a US06 e a US08 (o usuário inativado perde o acesso já na próxima requisição).
+- **Primeiro Administrador por rota protegida por token, não por comando de terminal.** Quem faz o deploy não precisa de acesso ao terminal do container; o `SETUP_TOKEN` fecha a janela entre o deploy e o primeiro acesso, e a rota só cria usuário com o banco vazio.
 - **Token no cabeçalho `Authorization`, não em cookie**, como já previsto na configuração de CORS (`CORS_ALLOW_CREDENTIALS=false`, ver [HTTPS e CORS](https-cors.md)).
 
 ## Configuração
@@ -64,29 +65,37 @@ As respostas `401` trazem o cabeçalho `WWW-Authenticate: Bearer`.
 | --- | --- | --- |
 | `SESSION_DURATION_HOURS` | `12` | Duração da sessão sem "Manter conectado" |
 | `REMEMBERED_SESSION_DURATION_DAYS` | `30` | Duração da sessão com "Manter conectado" |
+| `SETUP_TOKEN` | vazio | Token exigido por `POST /setup`; vazio desliga a rota (ver [Primeiro Administrador](#primeiro-administrador)) |
 
 ## Primeiro Administrador
 
-Os usuários entram por convite (US07), e só um Administrador logado pode convidar. O primeiro usuário, portanto, é criado por um comando, uma única vez, depois do primeiro deploy. Ele já nasce como Administrador ativo.
+Os usuários entram por convite (US07), e só um Administrador logado pode convidar. O primeiro usuário, portanto, é criado uma única vez, depois do primeiro deploy, pela rota `POST /setup`. Ele já nasce como Administrador ativo.
 
-Em produção, no terminal do container da API (Coolify → back-end → *Terminal*):
+A rota exige o cabeçalho `X-Setup-Token` com o valor da variável `SETUP_TOKEN`. Sem o token, qualquer pessoa que achasse a URL entre o deploy e o primeiro acesso do escritório poderia se tornar Administrador.
 
-```bash
-python -m advocondo.users.create_admin --email ana@example.com --name "Ana Souza"
-```
+1. Gere um token e configure no ambiente (Coolify → back-end → variáveis): `openssl rand -hex 32`. O mínimo é de 32 caracteres; com menos, a API não sobe.
+2. Crie o Administrador:
 
-Localmente, prefixe com `uv run`. A senha é digitada no terminal, duas vezes, e não aparece no histórico do shell.
+   ```bash
+   curl -X POST https://<api>/setup \
+     -H "Content-Type: application/json" \
+     -H "X-Setup-Token: <token>" \
+     -d '{"email": "ana@example.com", "name": "Ana Souza", "password": "<senha>"}'
+   ```
 
-O comando recusa:
+3. Esvazie `SETUP_TOKEN` (`SETUP_TOKEN=`). Com o token vazio, a rota responde `404`.
 
-| Situação | Mensagem |
-| --- | --- |
-| Já existe algum usuário no banco | `O primeiro usuário já foi criado. Os demais entram por convite.` |
-| E-mail em formato inválido | `E-mail inválido: …` |
-| Senha com menos de 8 caracteres | `A senha precisa ter pelo menos 8 caracteres.` |
-| Confirmação diferente da senha | `As senhas não conferem.` |
+Resposta `201`, com `id`, `name`, `email` e `role` do usuário criado. O e-mail é gravado em minúsculas.
 
-Por recusar quando já há usuário, o comando não serve de porta dos fundos para criar outros administradores. Se o e-mail sair com erro de digitação, corrija direto no banco (`UPDATE users SET email = … WHERE role = 'admin'`) e faça login com o e-mail corrigido.
+| Situação | Status | Mensagem |
+| --- | --- | --- |
+| `SETUP_TOKEN` vazio (rota desligada) | `404` | `Registro não encontrado.` |
+| Cabeçalho ausente ou token diferente | `403` | `Token de configuração inválido.` |
+| Já existe algum usuário no banco | `422` | `O primeiro usuário já foi criado. Os demais entram por convite.` |
+| Senha com menos de 8 caracteres | `422` | `A senha precisa ter pelo menos 8 caracteres.` |
+| E-mail inválido, nome vazio ou senha com mais de 128 caracteres | `422` | Erro de validação da requisição |
+
+O token é conferido antes de qualquer outra coisa, então quem não o tem não descobre se o banco já tem usuários. Por recusar quando já há usuário, a rota não serve de porta dos fundos para criar outros administradores, mesmo que o token vaze depois. Se o e-mail sair com erro de digitação, corrija direto no banco (`UPDATE users SET email = … WHERE role = 'admin'`) e faça login com o e-mail corrigido.
 
 ## Pendências
 

@@ -6,6 +6,9 @@ from typing import Annotated, Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+# Long enough that guessing it is not practical; `openssl rand -hex 32` gives 64.
+MIN_SETUP_TOKEN_LENGTH = 32
+
 
 class Settings(BaseSettings):
     """Configuração lida das variáveis de ambiente (e do .env, em dev)."""
@@ -34,6 +37,10 @@ class Settings(BaseSettings):
     session_duration_hours: int = 12
     remembered_session_duration_days: int = 30
 
+    # Criação do primeiro Administrador por POST /setup (ver docs/auth.md).
+    # Vazio = rota desligada.
+    setup_token: str | None = None
+
     @property
     def session_duration(self) -> timedelta:
         return timedelta(hours=self.session_duration_hours)
@@ -41,6 +48,15 @@ class Settings(BaseSettings):
     @property
     def remembered_session_duration(self) -> timedelta:
         return timedelta(days=self.remembered_session_duration_days)
+
+    @field_validator("setup_token")
+    @classmethod
+    def _strong_setup_token(cls, token: str | None) -> str | None:
+        if token and len(token) < MIN_SETUP_TOKEN_LENGTH:
+            raise ValueError(
+                f"SETUP_TOKEN precisa ter pelo menos {MIN_SETUP_TOKEN_LENGTH} caracteres."
+            )
+        return token or None
 
     @field_validator("cors_allow_origins", mode="before")
     @classmethod

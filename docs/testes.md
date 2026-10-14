@@ -76,7 +76,7 @@ tests/
 └── support/                             # utilitários dos testes (banco, relógio, settings)
 ```
 
-Dentro de cada arquivo, os testes ficam agrupados em uma classe por assunto ou história (`class TestLogin`, `class TestCreateAdmin`), e cada teste é um método que recebe `self` antes das fixtures. Constantes e funções auxiliares ficam no nível do módulo, acima das classes; fixtures de um só assunto ficam dentro da classe. Para rodar um assunto: `pytest src/advocondo/users -k TestCreateAdmin`. Se um arquivo passar de umas 500 linhas, o domínio provavelmente deveria ser dividido em dois módulos.
+Dentro de cada arquivo, os testes ficam agrupados em uma classe por assunto ou história (`class TestLogin`, `class TestFirstAdminSetup`), e cada teste é um método que recebe `self` antes das fixtures. Constantes e funções auxiliares ficam no nível do módulo, acima das classes; fixtures de um só assunto ficam dentro da classe. Para rodar um assunto: `pytest src/advocondo/users -k TestFirstAdminSetup`. Se um arquivo passar de umas 500 linhas, o domínio provavelmente deveria ser dividido em dois módulos.
 
 O marcador `integration` é aplicado automaticamente a quem usa `db_session` ou `db_client`. O `pytest` varre `src` e `tests` (`testpaths`), e a cobertura ignora os arquivos `test_*.py`.
 

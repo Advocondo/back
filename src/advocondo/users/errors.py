@@ -1,4 +1,8 @@
-from advocondo.common.errors import BusinessRuleError
+from advocondo.common.errors import (
+    BusinessRuleError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 
 
 class FirstUserAlreadyCreatedError(BusinessRuleError):
@@ -8,3 +12,11 @@ class FirstUserAlreadyCreatedError(BusinessRuleError):
 class PasswordTooShortError(BusinessRuleError):
     def __init__(self, min_length: int) -> None:
         super().__init__(f"A senha precisa ter pelo menos {min_length} caracteres.")
+
+
+class SetupDisabledError(NotFoundError):
+    pass
+
+
+class InvalidSetupTokenError(PermissionDeniedError):
+    message = "Token de configuração inválido."
