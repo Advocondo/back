@@ -65,6 +65,8 @@ curl http://localhost:8000/health/ready
 
 O login é feito em `POST /auth/login` e as demais rotas recebem o token no cabeçalho `Authorization: Bearer <token>`. Veja [Autenticação](docs/auth.md).
 
+O usuário logado edita o próprio nome, e-mail e senha em `PATCH /users/me`. Veja [Usuários](docs/users.md).
+
 ### Migrations
 
 O schema do banco é versionado com Alembic. Depois de subir os containers (e sempre que alguém adicionar uma migration), aplique as pendentes:
