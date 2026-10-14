@@ -41,7 +41,7 @@ Cada teste que usa o banco roda dentro de uma transação que sofre **rollback**
 
 ## Fixtures disponíveis
 
-Ficam em `tests/conftest.py` e, as de domínio, em `tests/fixtures/`:
+Ficam em `conftest.py` (raiz do projeto) e, as de domínio, em `tests/fixtures/`:
 
 | Fixture | O que entrega | Usa banco? |
 | --- | --- | --- |
@@ -57,13 +57,23 @@ Testes que usam `db_session` ou `db_client` recebem automaticamente o marcador `
 
 ## Organização
 
+Os testes de cada módulo ficam dentro dele, na pasta `tests/`, seguindo a arquitetura em camadas:
+
 ```
+conftest.py                  # fixtures compartilhadas
+src/advocondo/
+├── auth/tests/              # testes do módulo auth
+├── users/tests/             # testes do módulo users
+├── common/tests/            # testes do módulo common
+└── ...
 tests/
-├── conftest.py          # fixtures compartilhadas
-├── support/             # utilitários dos testes (banco de teste)
-├── unit/                # testes sem banco
-└── integration/         # testes com banco (API + Postgres)
+├── fixtures/                # fábricas de entidades usadas por vários módulos
+├── support/                 # utilitários dos testes (banco de teste)
+├── unit/                    # testes sem banco, de arquivos fora dos módulos (health, logging, security, sentry)
+└── integration/             # testes transversais com banco (migrations, isolamento, readiness)
 ```
+
+Dentro de `<módulo>/tests/`, testes de integração (com `db_client`) e unitários ficam lado a lado; o marcador `integration` é aplicado automaticamente. O `pytest` varre `src` e `tests` (`testpaths`), e a cobertura ignora as pastas `tests/`.
 
 ## Exemplos de referência
 
@@ -78,6 +88,6 @@ Usuários já têm fixtures (`tests/fixtures/users.py` e `tests/fixtures/auth.py
 - uma fixture por entidade, que recebe `db_session`, cria o objeto com valores padrão válidos e o devolve (ex.: `condominio`, `devedor`, `acordo`);
 - fixtures que dependem de outras as recebem como parâmetro (ex.: `acordo` recebe `condominio` e `devedor`);
 - quando um teste precisar de variações, use uma fixture "fábrica" que recebe os campos a sobrescrever (ex.: `criar_acordo(valor_total=...)`);
-- fixtures usadas por mais de um arquivo ficam em `tests/conftest.py`, ou em `tests/fixtures/<dominio>.py` registrado como plugin no `conftest.py`, se o arquivo crescer.
+- fixtures usadas por mais de um arquivo ficam em `conftest.py`, ou em `tests/fixtures/<dominio>.py` registrado como plugin no `conftest.py`, se o arquivo crescer.
 
 A tabela `rascunho_teste` de `test_isolamento.py` usa um `metadata` próprio, fora do `Base` da aplicação: não é modelo do domínio e por isso não tem migration. O próprio teste a cria e a remove.
