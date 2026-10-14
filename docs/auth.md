@@ -42,6 +42,10 @@ Resposta `200`:
 
 Devolve o usuário do token (mesmo formato de `user` acima). Serve para o front recuperar o perfil ao recarregar a página.
 
+### `POST /auth/logout`
+
+Encerra a sessão do token enviado. Resposta `204`. As sessões do mesmo usuário em outros dispositivos continuam valendo.
+
 ### `POST /auth/password-reset`
 
 Pede um link de redefinição de senha (US03-CA01). Corpo: `{ "email": "ana@example.com" }`.
@@ -76,7 +80,7 @@ Resposta `204`. A partir daí:
 | Situação | Status | `detail` |
 | --- | --- | --- |
 | E-mail não cadastrado, senha errada, usuário inativo ou com convite pendente | `401` | `E-mail ou senha inválidos.` |
-| Sem token, token desconhecido ou expirado, usuário inativado depois do login | `401` | `Sua sessão expirou. Faça login novamente.` |
+| Sem token, token desconhecido ou expirado, sessão encerrada (logout ou redefinição de senha), usuário inativado depois do login | `401` | `Sua sessão expirou. Faça login novamente.` |
 | Link de redefinição desconhecido, já usado, substituído por um pedido novo, expirado, ou de usuário inativado depois do pedido | `422` | `Este link de redefinição é inválido ou expirou. Solicite um novo.` |
 | Nova senha com menos de 8 caracteres | `422` | `A senha precisa ter pelo menos 8 caracteres.` |
 | Corpo inválido (campo ausente, senha com mais de 128 caracteres) | `422` | erros de validação do FastAPI |
@@ -155,7 +159,6 @@ O token é conferido antes de qualquer outra coisa, então quem não o tem não 
 ## Pendências
 
 - **Limite de tentativas de login** (proteção contra força bruta). Não está em nenhuma história; precisa ser priorizado.
-- **Logout** (`POST /auth/logout`): entra com a US06.
 - **Limpeza de sessões e links de redefinição expirados**: [#55](https://github.com/Advocondo/back/issues/55).
 - **Tempo de resposta do pedido de redefinição**: para e-mail cadastrado, a resposta demora mais, porque grava o link e envia o e-mail. Mover o envio para segundo plano resolve; hoje a mensagem é sempre igual, mas o tempo não.
 - **Provedor de e-mail de produção**: ainda não foi escolhido. Qualquer um com SMTP serve.

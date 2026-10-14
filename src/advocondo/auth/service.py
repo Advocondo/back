@@ -71,13 +71,17 @@ class AuthService:
         self._session.commit()
         return LoginResult(token=token, user_session=user_session)
 
-    def authenticate(self, token: str) -> User:
+    def authenticate(self, token: str) -> UserSession:
         user_session = self._user_sessions.get_by_token_hash(hash_token(token))
         if user_session is None or user_session.is_expired(self._clock.now()):
             raise InvalidSessionError()
         if not user_session.user.can_log_in:
             raise InvalidSessionError()
-        return user_session.user
+        return user_session
+
+    def log_out(self, user_session: UserSession) -> None:
+        self._user_sessions.delete(user_session)
+        self._session.commit()
 
     def _find_user_by_credentials(self, email: str, password: str) -> User:
         user = self._users.get_by_email(normalize_email(email))
