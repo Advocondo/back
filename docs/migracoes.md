@@ -40,7 +40,7 @@ Os arquivos são formatados com ruff automaticamente ao serem gerados, e o nome 
 ## Testes
 
 - A suíte de testes cria o schema direto dos modelos (`create_all`), por ser mais rápido.
-- `tests/integration/test_migrations.py` garante que os dois caminhos chegam ao mesmo lugar: aplica todas as migrations num banco próprio (`advocondo_migrations_test`), compara o resultado com os modelos e confere que o `downgrade` remove tudo. Se alguém mudar um modelo e esquecer a migration, esse teste falha no CI.
+- `src/advocondo/test_app_integration.py` garante que os dois caminhos chegam ao mesmo lugar: aplica todas as migrations num banco próprio (`advocondo_migrations_test`), compara o resultado com os modelos e confere que o `downgrade` remove tudo. Se alguém mudar um modelo e esquecer a migration, esse teste falha no CI.
 
 ## Deploy
 

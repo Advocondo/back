@@ -39,7 +39,7 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["advocondo"]
-omit = ["*/tests/*"]
+omit = ["*/test_*.py"]
 
 [tool.mypy]
 strict = true
