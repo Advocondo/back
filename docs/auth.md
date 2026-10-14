@@ -1,6 +1,6 @@
 # Autenticação
 
-Login com e-mail e senha ([US02](https://advocondo.github.io/docs/historias/ep01-portal-autenticacao/#us02)) e redefinição de senha por e-mail ([US03](https://advocondo.github.io/docs/historias/ep01-portal-autenticacao/#us03)). O código fica em `src/advocondo/auth/`.
+Login com e-mail e senha ([US02](https://advocondo.github.io/docs/historias/ep01-portal-autenticacao/#us02)), redefinição de senha por e-mail ([US03](https://advocondo.github.io/docs/historias/ep01-portal-autenticacao/#us03)), logout e encerramento das sessões em todos os dispositivos ([US06](https://advocondo.github.io/docs/historias/ep01-portal-autenticacao/#us06)). O código fica em `src/advocondo/auth/`.
 
 ## Como funciona
 
@@ -8,7 +8,7 @@ Login com e-mail e senha ([US02](https://advocondo.github.io/docs/historias/ep01
 2. A API devolve um token de acesso e os dados do usuário, incluindo o `role`. O front usa o `role` para abrir o painel do perfil (US02-CA01).
 3. Nas próximas requisições, o front envia o token no cabeçalho `Authorization: Bearer <token>`.
 
-Cada login cria uma linha em `user_sessions`. A tabela guarda só o hash SHA-256 do token, então um vazamento do banco não entrega tokens válidos. Apagar a linha encerra a sessão: é o que a US03 (redefinir a senha) e a US06 (encerrar sessões em outros dispositivos) vão usar.
+Cada login cria uma linha em `user_sessions`. A tabela guarda só o hash SHA-256 do token, então um vazamento do banco não entrega tokens válidos. Apagar a linha encerra a sessão: é o que fazem o logout, a US03 (redefinir a senha encerra todas as sessões) e a US06 (encerrar as sessões em todos os dispositivos).
 
 As senhas são guardadas com Argon2 (`PasswordHasher`, em `common/passwords.py`).
 
@@ -46,6 +46,10 @@ Devolve o usuário do token (mesmo formato de `user` acima). Serve para o front 
 
 Encerra a sessão do token enviado. Resposta `204`. As sessões do mesmo usuário em outros dispositivos continuam valendo.
 
+### `DELETE /auth/sessions`
+
+Encerra todas as sessões do usuário, inclusive a do token enviado (US06-CA01). Resposta `204`. A partir daí, todos os dispositivos, inclusive o que pediu, recebem `401` na próxima requisição e precisam fazer login de novo.
+
 ### `POST /auth/password-reset`
 
 Pede um link de redefinição de senha (US03-CA01). Corpo: `{ "email": "ana@example.com" }`.
@@ -80,7 +84,7 @@ Resposta `204`. A partir daí:
 | Situação | Status | `detail` |
 | --- | --- | --- |
 | E-mail não cadastrado, senha errada, usuário inativo ou com convite pendente | `401` | `E-mail ou senha inválidos.` |
-| Sem token, token desconhecido ou expirado, sessão encerrada (logout ou redefinição de senha), usuário inativado depois do login | `401` | `Sua sessão expirou. Faça login novamente.` |
+| Sem token, token desconhecido ou expirado, sessão encerrada (logout, redefinição de senha ou encerramento de todas as sessões), usuário inativado depois do login | `401` | `Sua sessão expirou. Faça login novamente.` |
 | Link de redefinição desconhecido, já usado, substituído por um pedido novo, expirado, ou de usuário inativado depois do pedido | `422` | `Este link de redefinição é inválido ou expirou. Solicite um novo.` |
 | Nova senha com menos de 8 caracteres | `422` | `A senha precisa ter pelo menos 8 caracteres.` |
 | Corpo inválido (campo ausente, senha com mais de 128 caracteres) | `422` | erros de validação do FastAPI |
@@ -95,6 +99,7 @@ As respostas `401` trazem o cabeçalho `WWW-Authenticate: Bearer`.
 - **Resposta igual para qualquer pedido de redefinição.** `POST /auth/password-reset` responde a mesma coisa para e-mail cadastrado, desconhecido ou de usuário inativo, e também quando o envio do e-mail falha (a falha vai para o log e o Sentry). Assim, a rota não serve para descobrir quais e-mails estão cadastrados.
 - **Link de redefinição guardado como hash, de uso único.** Como o token de sessão, só o hash SHA-256 fica na tabela `password_reset_links`.
 - **Limite de 5 pedidos por hora, contado pelos próprios links.** Um pedido novo não apaga os links anteriores: marca-os como expirados, para que continuem entrando na contagem. Quando o usuário conclui a redefinição, todos os links dele são apagados. Os links de quem pede e nunca conclui serão apagados por uma rotina periódica ([#55](https://github.com/Advocondo/back/issues/55)).
+- **Encerrar todas as sessões de uma vez, inclusive a atual, sem lista de dispositivos** (US06). Funciona como um *sair de todos os dispositivos*: quem desconfia de um acesso indevido sai de tudo e faz login de novo. Listar cada dispositivo exigiria guardar o navegador e o último acesso de cada sessão; se a lista for pedida, entra numa história própria.
 - **Token no cabeçalho `Authorization`, não em cookie**, como já previsto na configuração de CORS (`CORS_ALLOW_CREDENTIALS=false`, ver [HTTPS e CORS](https-cors.md)).
 
 ## Configuração

@@ -567,3 +567,55 @@ class TestLogout:
         response = db_client.post("/auth/logout")
 
         assert response.status_code == 401
+
+
+class TestEndAllSessions:
+    def test_sessions_on_other_devices_stop_working(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US06-CA01"""
+        user = create_user()
+        this_device = authenticate_as(user)
+        phone = authenticate_as(user)
+        laptop = authenticate_as(user)
+
+        response = db_client.delete("/auth/sessions", headers=this_device)
+
+        assert response.status_code == 204
+        assert db_client.get("/auth/me", headers=phone).status_code == 401
+        assert db_client.get("/auth/me", headers=laptop).status_code == 401
+
+    def test_current_session_also_stops_working(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        this_device = authenticate_as(create_user())
+
+        db_client.delete("/auth/sessions", headers=this_device)
+
+        assert db_client.get("/auth/me", headers=this_device).status_code == 401
+
+    def test_sessions_of_other_users_are_not_affected(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        this_device = authenticate_as(create_user(email="ana@example.com"))
+        someone_else = authenticate_as(create_user(email="bruno@example.com"))
+
+        db_client.delete("/auth/sessions", headers=this_device)
+
+        assert db_client.get("/auth/me", headers=someone_else).status_code == 200
+
+    def test_ending_all_sessions_requires_a_valid_session(
+        self, db_client: TestClient
+    ) -> None:
+        response = db_client.delete("/auth/sessions")
+
+        assert response.status_code == 401
