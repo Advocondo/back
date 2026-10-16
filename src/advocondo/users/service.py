@@ -215,9 +215,7 @@ class InviteService:
             # requisição. Vai para o log e para o Sentry (US07 não define retry).
             import logging
 
-            logging.getLogger(__name__).exception(
-                "Falha ao enviar o e-mail de convite"
-            )
+            logging.getLogger(__name__).exception("Falha ao enviar o e-mail de convite")
 
     def _invite_url(self, token: str) -> str:
         base_url = self._frontend_url.rstrip("/")

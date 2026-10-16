@@ -76,9 +76,7 @@ def invite_user(
         "role": Role.OPERATOR.value,
     }
     body.update(overrides)
-    response: httpx.Response = client.post(
-        "/users/invites", json=body, headers=headers
-    )
+    response: httpx.Response = client.post("/users/invites", json=body, headers=headers)
     return response
 
 

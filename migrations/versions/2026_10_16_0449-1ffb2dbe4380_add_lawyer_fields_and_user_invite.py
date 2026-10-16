@@ -20,13 +20,9 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.add_column(
         "users",
-        sa.Column(
-            "is_lawyer", sa.Boolean(), nullable=False, server_default=sa.false()
-        ),
+        sa.Column("is_lawyer", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
-    op.add_column(
-        "users", sa.Column("oab_number", sa.String(length=20), nullable=True)
-    )
+    op.add_column("users", sa.Column("oab_number", sa.String(length=20), nullable=True))
     op.create_check_constraint(
         op.f("ck_users_lawyer_has_oab_number"),
         "users",
@@ -65,9 +61,7 @@ def upgrade() -> None:
             ondelete="SET NULL",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_user_invites")),
-        sa.UniqueConstraint(
-            "token_hash", name=op.f("uq_user_invites_token_hash")
-        ),
+        sa.UniqueConstraint("token_hash", name=op.f("uq_user_invites_token_hash")),
     )
     op.create_index(
         op.f("ix_user_invites_user_id"),
@@ -84,13 +78,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        op.f("ix_user_invites_invited_by_id"), table_name="user_invites"
-    )
+    op.drop_index(op.f("ix_user_invites_invited_by_id"), table_name="user_invites")
     op.drop_index(op.f("ix_user_invites_user_id"), table_name="user_invites")
     op.drop_table("user_invites")
-    op.drop_constraint(
-        op.f("ck_users_lawyer_has_oab_number"), "users", type_="check"
-    )
+    op.drop_constraint(op.f("ck_users_lawyer_has_oab_number"), "users", type_="check")
     op.drop_column("users", "oab_number")
     op.drop_column("users", "is_lawyer")
