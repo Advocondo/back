@@ -30,3 +30,21 @@ class TestIsNearRenewal:
         renewal_date = TODAY + timedelta(days=days_until_renewal)
 
         assert is_near_renewal(renewal_date, today=TODAY) is expected
+    @pytest.mark.parametrize(
+        ("warning_days", "days_until_renewal", "expected"),
+        [
+            pytest.param(30, 30, True, id="30-day-window-last-day"),
+            pytest.param(30, 31, False, id="30-day-window-one-day-outside"),
+            pytest.param(0, 0, True, id="no-notice-renewal-today"),
+            pytest.param(0, 1, False, id="no-notice-renewal-tomorrow"),
+        ],
+    )
+    def test_warning_window_can_be_changed(
+        self, warning_days: int, days_until_renewal: int, expected: bool
+    ) -> None:
+        """US23-CA01"""
+        renewal_date = TODAY + timedelta(days=days_until_renewal)
+
+        result = is_near_renewal(renewal_date, today=TODAY, warning_days=warning_days)
+
+        assert result is expected
