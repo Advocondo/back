@@ -1,19 +1,30 @@
 from dataclasses import dataclass
+from datetime import timedelta
+from urllib.parse import urlencode
 
 from sqlalchemy.orm import Session
 
 from advocondo.auth.models import UserSession
 from advocondo.auth.repository import UserSessionRepository
+from advocondo.common.clock import Clock
+from advocondo.common.email import EmailMessage, EmailSender
 from advocondo.common.passwords import MIN_PASSWORD_LENGTH, PasswordHasher
+from advocondo.common.tokens import generate_opaque_token, hash_token
 from advocondo.users.errors import (
+    AdminRoleNotAllowedError,
     CurrentPasswordRequiredError,
     EmailAlreadyInUseError,
     FirstUserAlreadyCreatedError,
+    InvalidInviteTokenError,
+    OabNumberNotAllowedError,
+    OabNumberRequiredError,
     PasswordTooShortError,
     WrongCurrentPasswordError,
 )
-from advocondo.users.models import Role, User, UserStatus
-from advocondo.users.repository import UserRepository
+from advocondo.users.models import Role, User, UserInvite, UserStatus
+from advocondo.users.repository import UserInviteRepository, UserRepository
+
+INVITE_PAGE = "/convite"
 
 
 class UserService:
@@ -25,7 +36,6 @@ class UserService:
         self._password_hasher = password_hasher
 
     def create_first_admin(self, email: str, name: str, password: str) -> User:
-        """Bootstraps the system: invites (US07) need an Administrator to log in."""
         if self._users.is_any_registered():
             raise FirstUserAlreadyCreatedError()
         if len(password) < MIN_PASSWORD_LENGTH:
@@ -45,8 +55,6 @@ class UserService:
 
 @dataclass(frozen=True)
 class ProfileChanges:
-    """Fields left as None are not changed."""
-
     name: str | None = None
     email: str | None = None
     new_password: str | None = None
@@ -54,8 +62,6 @@ class ProfileChanges:
 
 
 class ProfileService:
-    """The logged-in user editing their own data (US05)."""
-
     def __init__(
         self,
         session: Session,
@@ -74,8 +80,6 @@ class ProfileService:
         user = user_session.user
         new_email = self._new_email(user, changes.email)
         if new_email is not None or changes.new_password is not None:
-            # Checked first, so the route cannot be used to find out which e-mails
-            # are registered (US05-CA02).
             self._confirm_current_password(user, changes.current_password)
         if new_email is not None and self._users.get_by_email(new_email) is not None:
             raise EmailAlreadyInUseError()
@@ -90,7 +94,6 @@ class ProfileService:
         return user
 
     def _new_email(self, user: User, email: str | None) -> str | None:
-        """The normalized e-mail, or None when it is missing or the same as now."""
         if email is None:
             return None
         normalized_email = normalize_email(email)
@@ -110,10 +113,126 @@ class ProfileService:
         if len(new_password) < MIN_PASSWORD_LENGTH:
             raise PasswordTooShortError(MIN_PASSWORD_LENGTH)
         user_session.user.password_hash = self._password_hasher.hash(new_password)
-        # Like a password reset (US03-CA03), other devices must log in again with
-        # the new password; the device that changed it stays logged in.
         self._user_sessions.delete_all_of_user_except(user_session)
 
 
 def normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+@dataclass(frozen=True)
+class InviteDetails:
+    email: str
+    name: str
+    role: Role
+    is_lawyer: bool
+    oab_number: str | None
+
+
+class InviteService:
+    def __init__(
+        self,
+        session: Session,
+        users: UserRepository,
+        invites: UserInviteRepository,
+        password_hasher: PasswordHasher,
+        email_sender: EmailSender,
+        clock: Clock,
+        invite_link_duration: timedelta,
+        frontend_url: str,
+    ) -> None:
+        self._session = session
+        self._users = users
+        self._invites = invites
+        self._password_hasher = password_hasher
+        self._email_sender = email_sender
+        self._clock = clock
+        self._invite_link_duration = invite_link_duration
+        self._frontend_url = frontend_url
+
+    def invite(self, invited_by: User, details: InviteDetails) -> User:
+        if details.role == Role.ADMIN:
+            raise AdminRoleNotAllowedError()
+        self._check_oab(details.is_lawyer, details.oab_number)
+
+        email = normalize_email(details.email)
+        if self._users.get_by_email(email) is not None:
+            raise EmailAlreadyInUseError()
+
+        invited = User(
+            email=email,
+            name=details.name.strip(),
+            role=details.role,
+            status=UserStatus.PENDING,
+            is_lawyer=details.is_lawyer,
+            oab_number=details.oab_number if details.is_lawyer else None,
+        )
+        self._users.add(invited)
+
+        token = generate_opaque_token()
+        invite = UserInvite(
+            user=invited,
+            invited_by=invited_by,
+            token_hash=hash_token(token),
+            expires_at=self._clock.now() + self._invite_link_duration,
+        )
+        self._invites.add(invite)
+        self._session.commit()
+
+        self._send_invite_email(invited, token)
+        return invited
+
+    def accept_invite(self, token: str, password: str) -> User:
+        invite = self._invites.get_by_token_hash(hash_token(token))
+        if invite is None or invite.is_expired(self._clock.now()):
+            raise InvalidInviteTokenError()
+        user = invite.user
+        if user.status != UserStatus.PENDING:
+            raise InvalidInviteTokenError()
+        if len(password) < MIN_PASSWORD_LENGTH:
+            raise PasswordTooShortError(MIN_PASSWORD_LENGTH)
+
+        user.password_hash = self._password_hasher.hash(password)
+        user.status = UserStatus.ACTIVE
+        self._invites.delete(invite)
+        self._session.commit()
+        return user
+
+    def _check_oab(self, is_lawyer: bool, oab_number: str | None) -> None:
+        if is_lawyer and oab_number is None:
+            raise OabNumberRequiredError()
+        if not is_lawyer and oab_number is not None:
+            raise OabNumberNotAllowedError()
+
+    def _send_invite_email(self, user: User, token: str) -> None:
+        message = build_invite_email(
+            user, self._invite_url(token), self._invite_link_duration
+        )
+        try:
+            self._email_sender.send(message)
+        except Exception:
+            # O convite já está no banco; a falha de e-mail não pode derrubar a
+            # requisição. Vai para o log e para o Sentry (US07 não define retry).
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "Falha ao enviar o e-mail de convite"
+            )
+
+    def _invite_url(self, token: str) -> str:
+        base_url = self._frontend_url.rstrip("/")
+        return f"{base_url}{INVITE_PAGE}?{urlencode({'token': token})}"
+
+
+def build_invite_email(
+    user: User, invite_url: str, link_duration: timedelta
+) -> EmailMessage:
+    minutes = int(link_duration.total_seconds() // 60)
+    body = (
+        f"Olá, {user.name}.\n\n"
+        "Você foi convidado para acessar o Advocondo. "
+        f"Para definir sua senha, acesse o link abaixo em até {minutes} minutos:\n\n"
+        f"{invite_url}\n\n"
+        "Se você não esperava este convite, ignore este e-mail.\n"
+    )
+    return EmailMessage(to=user.email, subject="Convite de acesso", body=body)
