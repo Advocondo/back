@@ -4,6 +4,7 @@ from datetime import date
 
 DEFAULT_RENEWAL_WARNING_DAYS = 60
 
+
 def is_near_renewal(
     renewal_date: date,
     today: date,

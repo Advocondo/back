@@ -30,6 +30,7 @@ class TestIsNearRenewal:
         renewal_date = TODAY + timedelta(days=days_until_renewal)
 
         assert is_near_renewal(renewal_date, today=TODAY) is expected
+
     @pytest.mark.parametrize(
         ("warning_days", "days_until_renewal", "expected"),
         [
