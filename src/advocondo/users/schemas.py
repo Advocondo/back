@@ -7,11 +7,20 @@ from pydantic import (
     EmailStr,
     Field,
     StringConstraints,
+    field_validator,
     model_validator,
 )
 
 from advocondo.common.passwords import MAX_PASSWORD_LENGTH
-from advocondo.users.models import MAX_EMAIL_LENGTH, MAX_NAME_LENGTH, Role
+from advocondo.users.models import (
+    MAX_EMAIL_LENGTH,
+    MAX_NAME_LENGTH,
+    MAX_OAB_LENGTH,
+    Role,
+    UserStatus,
+)
+
+MAX_TOKEN_LENGTH = 128
 
 UserName = Annotated[
     str,
@@ -26,10 +35,6 @@ class FirstAdminRequest(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
-    """Only the fields sent are changed."""
-
-    # Unknown fields are refused, not ignored: the role and the status are changed
-    # only by an Administrator (US08, US09), never by the user themselves.
     model_config = ConfigDict(extra="forbid")
 
     name: UserName | None = None
@@ -44,6 +49,31 @@ class ProfileUpdateRequest(BaseModel):
         return self
 
 
+class InviteUserRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr = Field(max_length=MAX_EMAIL_LENGTH)
+    name: UserName
+    role: Role
+    is_lawyer: bool = False
+    oab_number: str | None = Field(default=None, max_length=MAX_OAB_LENGTH)
+
+    @field_validator("oab_number", mode="before")
+    @classmethod
+    def _blank_as_none(cls, value: object) -> object:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
+
+class AcceptInviteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=MAX_TOKEN_LENGTH)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -51,3 +81,6 @@ class UserResponse(BaseModel):
     name: str
     email: str
     role: Role
+    status: UserStatus
+    is_lawyer: bool
+    oab_number: str | None

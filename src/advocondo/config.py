@@ -6,7 +6,6 @@ from typing import Annotated, Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-# Long enough that guessing it is not practical; `openssl rand -hex 32` gives 64.
 MIN_SETUP_TOKEN_LENGTH = 32
 
 
@@ -17,7 +16,6 @@ class Settings(BaseSettings):
 
     database_url: str
 
-    # Observabilidade (ver docs/observabilidade.md)
     environment: str
     release: str | None
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -25,25 +23,23 @@ class Settings(BaseSettings):
     sentry_dsn: str | None
     sentry_traces_sample_rate: float
 
-    # CORS e HTTPS (ver docs/https-cors.md). Lista vazia: nenhuma origem externa.
     cors_allow_origins: Annotated[list[str], NoDecode]
     cors_allow_origin_regex: str | None
     cors_allow_credentials: bool
     hsts_max_age: int
 
-    # Login (ver docs/auth.md)
     session_duration_hours: int
     remembered_session_duration_days: int
 
-    # Criação do primeiro Administrador por POST /setup (ver docs/auth.md).
-    # Vazio = rota desligada.
     setup_token: str | None
 
-    # Redefinição de senha e e-mail (ver docs/auth.md)
     frontend_url: str
     password_reset_link_minutes: int
     password_reset_max_requests: int
     password_reset_request_window_minutes: int
+
+    invite_link_minutes: int
+
     smtp_host: str | None
     smtp_port: int
     smtp_username: str | None
@@ -64,7 +60,6 @@ class Settings(BaseSettings):
     )
     @classmethod
     def _empty_as_none(cls, value: object) -> object:
-        # "SENTRY_DSN=" no ambiente quer dizer "desligado", não um DSN vazio.
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -85,6 +80,10 @@ class Settings(BaseSettings):
     def password_reset_request_window(self) -> timedelta:
         return timedelta(minutes=self.password_reset_request_window_minutes)
 
+    @property
+    def invite_link_duration(self) -> timedelta:
+        return timedelta(minutes=self.invite_link_minutes)
+
     @field_validator("setup_token")
     @classmethod
     def _strong_setup_token(cls, token: str | None) -> str | None:
@@ -97,7 +96,6 @@ class Settings(BaseSettings):
     @field_validator("cors_allow_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
-        # Aceita "https://a.com,https://b.com" na variável de ambiente.
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
@@ -122,5 +120,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    # The fields come from the environment, which mypy cannot see.
     return Settings()  # type: ignore[call-arg]
