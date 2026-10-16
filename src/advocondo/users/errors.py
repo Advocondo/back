@@ -49,3 +49,15 @@ class InvalidInviteTokenError(BusinessRuleError):
 
 class AdminRoleNotAllowedError(BusinessRuleError):
     message = "Não é possível convidar outro Administrador."
+
+
+class UserNotFoundError(NotFoundError):
+    message = "Usuário não encontrado."
+
+
+class CannotDeactivateSelfError(BusinessRuleError):
+    message = "Você não pode inativar o seu próprio acesso."
+
+
+class UserIsPendingError(BusinessRuleError):
+    message = "Usuário com convite pendente precisa aceitar o convite antes."
