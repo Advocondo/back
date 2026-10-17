@@ -54,6 +54,7 @@ def register_agreement(
                 "total_amount": total_amount,
                 "installment_count": installment_count,
                 "first_due_date": first_due_date,
+                "fee_percentage": "10",
             },
             headers=operator_headers,
         )

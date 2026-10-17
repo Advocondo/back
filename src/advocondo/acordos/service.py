@@ -1,12 +1,15 @@
 import uuid
 from collections.abc import Sequence
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
 from advocondo.acordos.errors import (
     AgreementNotFoundError,
     DebtorFromAnotherCondominiumError,
+    FeeAboveTotalError,
 )
+from advocondo.acordos.fees import fee_from_percentage
 from advocondo.acordos.models import Agreement
 from advocondo.acordos.repository import AgreementFilters, AgreementRepository
 from advocondo.acordos.schemas import AgreementCreateRequest
@@ -46,6 +49,8 @@ class AgreementService:
             condominium=condominium,
             debtor=debtor,
             total_amount=request.total_amount,
+            fee_amount=fee_in_reais(request),
+            fee_percentage=request.fee_percentage,
             installments=build_installments(request),
         )
         self._agreements.save(agreement)
@@ -62,6 +67,18 @@ class AgreementService:
         self, filters: AgreementFilters, limit: int, offset: int
     ) -> Sequence[Agreement]:
         return self._agreements.search(filters, limit, offset)
+
+
+def fee_in_reais(request: AgreementCreateRequest) -> Decimal:
+    """The fee typed in reais, or calculated from the percentage (US16-CA01)."""
+    if request.fee_amount is not None:
+        fee = request.fee_amount
+    else:
+        assert request.fee_percentage is not None  # ensured by the request schema
+        fee = fee_from_percentage(request.total_amount, request.fee_percentage)
+    if fee > request.total_amount:
+        raise FeeAboveTotalError()
+    return fee
 
 
 def build_installments(request: AgreementCreateRequest) -> list[Installment]:

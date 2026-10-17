@@ -41,6 +41,7 @@ def new_agreement(
         "total_amount": "5500.00",
         "installment_count": 10,
         "first_due_date": "2026-01-31",
+        "fee_percentage": "10",
         **fields,
     }
 
@@ -118,6 +119,54 @@ class TestRegisterAgreement:
 
         assert response.status_code == 422
         assert response.json()["detail"].startswith("Cada parcela precisa ter")
+
+    @pytest.mark.parametrize(
+        ("fee", "expected_amount", "expected_percentage"),
+        [
+            pytest.param({"fee_percentage": "10"}, "550.00", "10.00", id="percentage"),
+            pytest.param(
+                {"fee_percentage": None, "fee_amount": "600"},
+                "600.00",
+                None,
+                id="amount",
+            ),
+        ],
+    )
+    def test_fee_is_given_as_percentage_or_amount(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+        fee: dict[str, str | None],
+        expected_amount: str,
+        expected_percentage: str | None,
+    ) -> None:
+        """US16-CA01"""
+        payload = new_agreement(mirante.id, jose.id, **fee)
+
+        body = register(db_client, operator_headers, payload).json()
+
+        assert body["fee_amount"] == expected_amount
+        assert body["fee_percentage"] == expected_percentage
+
+    def test_fee_above_the_total_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        payload = new_agreement(
+            mirante.id, jose.id, fee_percentage=None, fee_amount="5500.01"
+        )
+
+        response = register(db_client, operator_headers, payload)
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Os honorários não podem ser maiores que o valor total do acordo."
+        )
 
     def test_debtor_of_another_condominium_is_refused(
         self,
