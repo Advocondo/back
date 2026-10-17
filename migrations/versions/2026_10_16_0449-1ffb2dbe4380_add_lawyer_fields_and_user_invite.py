@@ -22,12 +22,13 @@ def upgrade() -> None:
         "users",
         sa.Column("is_lawyer", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
-    op.add_column("users", sa.Column("oab_number", sa.String(length=20), nullable=True))
+    op.add_column("users", sa.Column("oab_number", sa.String(length=12), nullable=True))
     op.create_check_constraint(
-        op.f("ck_users_lawyer_has_oab_number"),
+        op.f("ck_users_lawyer_has_valid_oab_number"),
         "users",
         "(NOT is_lawyer AND oab_number IS NULL) "
-        "OR (is_lawyer AND oab_number IS NOT NULL)",
+        "OR (is_lawyer AND oab_number IS NOT NULL "
+        "AND char_length(oab_number) BETWEEN 8 AND 12)",
     )
 
     op.create_table(
@@ -64,10 +65,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("token_hash", name=op.f("uq_user_invites_token_hash")),
     )
     op.create_index(
-        op.f("ix_user_invites_user_id"),
-        "user_invites",
-        ["user_id"],
-        unique=True,
+        op.f("ix_user_invites_user_id"), "user_invites", ["user_id"], unique=True
     )
     op.create_index(
         op.f("ix_user_invites_invited_by_id"),
@@ -81,6 +79,8 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_user_invites_invited_by_id"), table_name="user_invites")
     op.drop_index(op.f("ix_user_invites_user_id"), table_name="user_invites")
     op.drop_table("user_invites")
-    op.drop_constraint(op.f("ck_users_lawyer_has_oab_number"), "users", type_="check")
+    op.drop_constraint(
+        op.f("ck_users_lawyer_has_valid_oab_number"), "users", type_="check"
+    )
     op.drop_column("users", "oab_number")
     op.drop_column("users", "is_lawyer")

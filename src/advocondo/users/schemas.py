@@ -16,6 +16,7 @@ from advocondo.users.models import (
     MAX_EMAIL_LENGTH,
     MAX_NAME_LENGTH,
     MAX_OAB_LENGTH,
+    MIN_OAB_LENGTH,
     Role,
     UserStatus,
 )
@@ -56,7 +57,9 @@ class InviteUserRequest(BaseModel):
     name: UserName
     role: Role
     is_lawyer: bool = False
-    oab_number: str | None = Field(default=None, max_length=MAX_OAB_LENGTH)
+    oab_number: str | None = Field(
+        default=None, min_length=MIN_OAB_LENGTH, max_length=MAX_OAB_LENGTH
+    )
 
     @field_validator("oab_number", mode="before")
     @classmethod

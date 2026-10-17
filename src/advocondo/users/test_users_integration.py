@@ -265,13 +265,17 @@ class TestUserModel:
     def test_lawyer_must_have_an_oab_number(self, db_session: Session) -> None:
         db_session.add(build_user(is_lawyer=True, oab_number=None))
 
-        with pytest.raises(IntegrityError, match="ck_users_lawyer_has_oab_number"):
+        with pytest.raises(
+            IntegrityError, match="ck_users_lawyer_has_valid_oab_number"
+        ):
             db_session.flush()
 
     def test_non_lawyer_cannot_have_an_oab_number(self, db_session: Session) -> None:
         db_session.add(build_user(is_lawyer=False, oab_number="123456/SP"))
 
-        with pytest.raises(IntegrityError, match="ck_users_lawyer_has_oab_number"):
+        with pytest.raises(
+            IntegrityError, match="ck_users_lawyer_has_valid_oab_number"
+        ):
             db_session.flush()
 
 
@@ -797,6 +801,31 @@ class TestInviteUser:
         assert response.json() == {
             "detail": "Informe o número da OAB para marcar o usuário como advogado."
         }
+
+    @pytest.mark.parametrize(
+        ("oab_number", "error_type"),
+        [
+            pytest.param("1234567", "string_too_short", id="too-short"),
+            pytest.param("1234567890123", "string_too_long", id="too-long"),
+        ],
+    )
+    def test_lawyer_with_invalid_oab_number_length_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        oab_number: str,
+        error_type: str,
+    ) -> None:
+        """US07-CA04"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = invite_user(
+            db_client, headers, is_lawyer=True, oab_number=oab_number
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["type"] == error_type
 
     def test_non_lawyer_with_the_oab_number_is_refused(
         self,

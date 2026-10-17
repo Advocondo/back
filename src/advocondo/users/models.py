@@ -15,7 +15,8 @@ from advocondo.db import Base
 
 MAX_EMAIL_LENGTH = 254
 MAX_NAME_LENGTH = 200
-MAX_OAB_LENGTH = 20
+MIN_OAB_LENGTH = 8
+MAX_OAB_LENGTH = 12
 TOKEN_HASH_LENGTH = 64
 
 
@@ -41,8 +42,9 @@ class User(UuidPrimaryKeyMixin, TimestampsMixin, Base):
         ),
         CheckConstraint(
             "(NOT is_lawyer AND oab_number IS NULL) "
-            "OR (is_lawyer AND oab_number IS NOT NULL)",
-            name="lawyer_has_oab_number",
+            "OR (is_lawyer AND oab_number IS NOT NULL "
+            "AND char_length(oab_number) BETWEEN 8 AND 12)",
+            name="lawyer_has_valid_oab_number",
         ),
     )
 
