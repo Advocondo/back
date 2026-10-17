@@ -1,8 +1,14 @@
+import uuid
+from collections.abc import Sequence
+
 from sqlalchemy.orm import Session
 
-from advocondo.acordos.errors import DebtorFromAnotherCondominiumError
+from advocondo.acordos.errors import (
+    AgreementNotFoundError,
+    DebtorFromAnotherCondominiumError,
+)
 from advocondo.acordos.models import Agreement
-from advocondo.acordos.repository import AgreementRepository
+from advocondo.acordos.repository import AgreementFilters, AgreementRepository
 from advocondo.acordos.schemas import AgreementCreateRequest
 from advocondo.condominios.errors import CondominiumNotFoundError
 from advocondo.condominios.repository import CondominiumRepository
@@ -40,3 +46,14 @@ class AgreementService:
         self._agreements.save(agreement)
         self._session.commit()
         return agreement
+
+    def get(self, agreement_id: uuid.UUID) -> Agreement:
+        agreement = self._agreements.get(agreement_id)
+        if agreement is None:
+            raise AgreementNotFoundError()
+        return agreement
+
+    def search(
+        self, filters: AgreementFilters, limit: int, offset: int
+    ) -> Sequence[Agreement]:
+        return self._agreements.search(filters, limit, offset)

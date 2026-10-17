@@ -144,3 +144,85 @@ class TestRegisterAgreement:
         response = register(db_client, headers, new_agreement(mirante.id, jose.id))
 
         assert response.status_code == 403
+
+
+class TestSearchAgreements:
+    def test_registered_agreement_appears_in_the_active_list(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        """US15-CA01"""
+        agreement_id = register(
+            db_client, operator_headers, new_agreement(mirante.id, jose.id)
+        ).json()["id"]
+
+        response = db_client.get(
+            "/agreements", params={"status": "active"}, headers=operator_headers
+        )
+
+        assert [agreement["id"] for agreement in response.json()] == [agreement_id]
+
+    def test_agreements_can_be_filtered_by_condominium(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+        create_condominium: CreateCondominium,
+        create_debtor: CreateDebtor,
+    ) -> None:
+        """US15-CA03: what the Client of a condominium will see (US37)."""
+        lake_view = create_condominium(name="Cond. Lake View")
+        maria = create_debtor(lake_view, name="Maria Souza")
+        register(db_client, operator_headers, new_agreement(mirante.id, jose.id))
+        register(db_client, operator_headers, new_agreement(lake_view.id, maria.id))
+
+        response = db_client.get(
+            "/agreements",
+            params={"condominium_id": str(lake_view.id)},
+            headers=operator_headers,
+        )
+
+        assert [agreement["debtor"]["name"] for agreement in response.json()] == [
+            "Maria Souza"
+        ]
+
+    def test_unknown_status_is_refused(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(
+            "/agreements", params={"status": "archived"}, headers=operator_headers
+        )
+
+        assert response.status_code == 422
+
+
+class TestGetAgreement:
+    def test_returns_the_agreement(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        agreement_id = register(
+            db_client, operator_headers, new_agreement(mirante.id, jose.id)
+        ).json()["id"]
+
+        response = db_client.get(
+            f"/agreements/{agreement_id}", headers=operator_headers
+        )
+
+        assert response.status_code == 200
+        assert response.json()["total_amount"] == "5500.00"
+
+    def test_unknown_agreement_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(f"/agreements/{UNKNOWN_ID}", headers=operator_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Acordo não encontrado."
