@@ -1,4 +1,3 @@
-import re
 import uuid
 from datetime import date
 from typing import Annotated, Self
@@ -15,19 +14,13 @@ from pydantic import (
     model_validator,
 )
 
+from advocondo.common.normalization import keep_only_digits
 from advocondo.condominios.cnpj import is_valid_cnpj
 from advocondo.condominios.models import (
     MAX_ADDRESS_PART_LENGTH,
     MAX_EMAIL_LENGTH,
     MAX_NAME_LENGTH,
 )
-
-
-def keep_only_digits(value: object) -> object:
-    """Accepts masked input, such as 14.447.918/0001-98, 12345-678 or (61) 91234-5678."""
-    if isinstance(value, str):
-        return re.sub(r"\D", "", value)
-    return value
 
 
 def uppercase(value: object) -> object:

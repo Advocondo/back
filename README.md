@@ -69,6 +69,8 @@ O usuário logado edita o próprio nome, e-mail e senha em `PATCH /users/me`. Ve
 
 A equipe do escritório cadastra, busca e edita condomínios em `/condominiums`. Veja [Condomínios](docs/condominios.md).
 
+Os devedores de cada condomínio ficam em `/debtors`, com alerta de cadastro duplicado. Veja [Devedores](docs/devedores.md).
+
 ### Migrations
 
 O schema do banco é versionado com Alembic. Depois de subir os containers (e sempre que alguém adicionar uma migration), aplique as pendentes:

@@ -5,6 +5,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from advocondo.common.search import LIKE_ESCAPE_CHARACTER, contains_pattern
 from advocondo.condominios.errors import CnpjAlreadyRegisteredError
 from advocondo.condominios.models import Condominium
 
@@ -24,11 +25,13 @@ class CondominiumRepository:
         """Condominiums whose name or manager name contains `text`, ignoring case."""
         query = select(Condominium).order_by(Condominium.name, Condominium.id)
         if text:
-            pattern = f"%{escape_like_wildcards(text)}%"
+            pattern = contains_pattern(text)
             query = query.where(
                 or_(
-                    Condominium.name.ilike(pattern, escape="\\"),
-                    Condominium.manager_name.ilike(pattern, escape="\\"),
+                    Condominium.name.ilike(pattern, escape=LIKE_ESCAPE_CHARACTER),
+                    Condominium.manager_name.ilike(
+                        pattern, escape=LIKE_ESCAPE_CHARACTER
+                    ),
                 )
             )
         return self._session.scalars(query.limit(limit).offset(offset)).all()
@@ -53,8 +56,3 @@ class CondominiumRepository:
             ):
                 raise CnpjAlreadyRegisteredError() from error
             raise
-
-
-def escape_like_wildcards(text: str) -> str:
-    """Typed % and _ are searched literally, not as LIKE wildcards."""
-    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
