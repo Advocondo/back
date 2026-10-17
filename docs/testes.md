@@ -25,7 +25,9 @@ uv run pytest -m "not integration"
 
 ## Banco de dados de teste
 
-- Os testes usam um banco **separado**, definido por `TEST_DATABASE_URL`. Por padrão é `advocondo_test` no Postgres local; no docker-compose o host já vem como `db`.
+- Os testes usam um banco **separado**, definido por `TEST_DATABASE_URL`. O docker-compose a define (host `db`) e o CI também.
+- A configuração da aplicação nos testes vem do `.env.example` (fixture `settings`), não do `.env` de quem roda. Testes que dependem de um valor de configuração leem o valor de `settings`, em vez de repetir o número.
+- Antes de importar a aplicação, os testes preenchem com o `.env.example` as variáveis que faltarem no ambiente (`tests/support/environment.py`), sem sobrescrever as que já existem. É o que permite rodar no CI, que só define `TEST_DATABASE_URL`.
 - O nome do banco **precisa terminar em `_test`**. Os testes apagam e recriam o schema, então se a URL apontar para outro banco a suíte para com erro antes de tocar em qualquer dado.
 - O banco é criado automaticamente na primeira execução. O schema é recriado a partir dos modelos (`Base.metadata`) a cada execução da suíte. As migrations são testadas à parte, em `test_app_integration.py` (ver [Migrations](migracoes.md#testes)).
 - No CI, o job sobe um Postgres próprio, descartado ao final.
@@ -51,6 +53,7 @@ Ficam em `conftest.py` (raiz do projeto) e, as de domínio, em `tests/fixtures/`
 | `clock` | Relógio congelado (`FrozenClock`) injetado na API; `clock.advance(timedelta(...))` avança o tempo | Não |
 | `create_user(...)` | Fábrica de usuários ativos, com a senha `DEFAULT_PASSWORD`; aceita `email`, `role`, `status`, `password` | Sim |
 | `authenticate_as(user)` | Cria uma sessão para o usuário e devolve os cabeçalhos `Authorization` | Sim |
+| `outbox` | Captura os e-mails que a API envia (`outbox.messages`), em vez de entregá-los; o `db_client` já usa | Não |
 | `db_engine` | Engine do banco de teste (escopo da suíte inteira) | Sim |
 
 Testes que usam `db_session` ou `db_client` recebem automaticamente o marcador `integration`.

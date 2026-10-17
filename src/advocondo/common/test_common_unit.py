@@ -1,8 +1,18 @@
+import logging
+import smtplib
 from datetime import UTC
+from typing import Any, ClassVar, Self
 
 import pytest
 
+from advocondo.common import email as email_module
 from advocondo.common.clock import get_clock
+from advocondo.common.email import (
+    EmailMessage,
+    LogEmailSender,
+    SmtpEmailSender,
+    build_email_sender,
+)
 from advocondo.common.error_handlers import status_for
 from advocondo.common.errors import (
     AppError,
@@ -14,6 +24,7 @@ from advocondo.common.errors import (
 )
 from advocondo.common.passwords import PasswordHasher
 from advocondo.common.tokens import generate_opaque_token, hash_token
+from tests.support.settings import make_settings
 
 
 class ExpiredLinkError(AuthenticationError):
@@ -24,6 +35,46 @@ hasher = PasswordHasher()
 
 
 PASSWORD_HASH = hasher.hash("senha-correta")
+
+
+MESSAGE = EmailMessage(to="ana@example.com", subject="Assunto", body="Corpo")
+
+
+class FakeSmtp:
+    instances: ClassVar[list["FakeSmtp"]] = []
+
+    def __init__(self, host: str, port: int, timeout: int) -> None:
+        self.address = (host, port)
+        self.calls: list[str] = []
+        self.sent: list[Any] = []
+        FakeSmtp.instances.append(self)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.calls.append("quit")
+
+    def starttls(self) -> None:
+        self.calls.append("starttls")
+
+    def login(self, username: str, password: str) -> None:
+        self.calls.append(f"login:{username}")
+
+    def send_message(self, message: Any) -> None:
+        self.sent.append(message)
+
+
+def build_smtp_sender(**overrides: Any) -> SmtpEmailSender:
+    options: dict[str, Any] = {
+        "host": "smtp.example.com",
+        "port": 587,
+        "username": "usuario",
+        "password": "segredo",
+        "use_tls": True,
+        "sender": "Advocondo <nao-responda@example.com>",
+    }
+    return SmtpEmailSender(**(options | overrides))
 
 
 class TestClock:
@@ -81,3 +132,93 @@ class TestTokens:
 
         assert hash_token(token) == hash_token(token)
         assert token not in hash_token(token)
+
+
+class TestEmail:
+    @pytest.fixture
+    def fake_smtp(self, monkeypatch: pytest.MonkeyPatch) -> type[FakeSmtp]:
+        FakeSmtp.instances = []
+        monkeypatch.setattr(smtplib, "SMTP", FakeSmtp)
+        return FakeSmtp
+
+    def test_smtp_sender_delivers_the_message_over_tls(
+        self, fake_smtp: type[FakeSmtp]
+    ) -> None:
+        build_smtp_sender().send(MESSAGE)
+
+        smtp = fake_smtp.instances[0]
+        sent = smtp.sent[0]
+        assert smtp.address == ("smtp.example.com", 587)
+        assert smtp.calls == ["starttls", "login:usuario", "quit"]
+        assert (sent["From"], sent["To"], sent["Subject"]) == (
+            "Advocondo <nao-responda@example.com>",
+            "ana@example.com",
+            "Assunto",
+        )
+        assert sent.get_content().strip() == "Corpo"
+
+    def test_smtp_sender_skips_tls_and_login_when_not_configured(
+        self,
+        fake_smtp: type[FakeSmtp],
+    ) -> None:
+        build_smtp_sender(use_tls=False, username=None, password=None).send(MESSAGE)
+
+        assert fake_smtp.instances[0].calls == ["quit"]
+
+    def test_log_sender_writes_the_message_to_the_log(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        with caplog.at_level(logging.INFO, logger="advocondo.common.email"):
+            LogEmailSender().send(MESSAGE)
+
+        assert "Para: ana@example.com\nAssunto: Assunto\n\nCorpo" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("overrides", "expected"),
+        [
+            pytest.param(
+                {"environment": "local"}, LogEmailSender, id="local-without-smtp"
+            ),
+            pytest.param(
+                {
+                    "environment": "producao",
+                    "smtp_host": "smtp.example.com",
+                    "email_from": "nao-responda@example.com",
+                },
+                SmtpEmailSender,
+                id="smtp-configured",
+            ),
+        ],
+    )
+    def test_sender_is_chosen_from_the_settings(
+        self, overrides: dict[str, Any], expected: type
+    ) -> None:
+        assert isinstance(build_email_sender(make_settings(**overrides)), expected)
+
+    @pytest.mark.parametrize(
+        ("overrides", "missing"),
+        [
+            pytest.param(
+                {"environment": "producao"}, "SMTP_HOST", id="production-without-smtp"
+            ),
+            pytest.param(
+                {"environment": "local", "smtp_host": "smtp.example.com"},
+                "EMAIL_FROM",
+                id="smtp-without-sender",
+            ),
+        ],
+    )
+    def test_incomplete_email_settings_are_refused(
+        self, overrides: dict[str, Any], missing: str
+    ) -> None:
+        with pytest.raises(RuntimeError, match=missing):
+            build_email_sender(make_settings(**overrides))
+
+    def test_app_dependency_builds_the_sender_from_the_app_settings(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(email_module, "get_settings", make_settings)
+
+        assert isinstance(email_module.get_email_sender(), LogEmailSender)

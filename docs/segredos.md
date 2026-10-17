@@ -14,7 +14,8 @@ Staging ainda não existe (ver a issue de CD, #41). Quando existir, deve ser um 
 
 ## O que está no repositório
 
-- **`.env.example`**: lista todas as variáveis que o back-end usa, com comentários e apenas valores de desenvolvimento local. Toda variável nova entra aqui no mesmo PR que passa a usá-la.
+- **`.env.example`**: lista todas as variáveis que o back-end usa, com comentários e apenas valores de desenvolvimento local. Toda variável nova entra aqui no mesmo PR que passa a usá-la; um teste (`TestConfig`, em `src/advocondo/test_app_unit.py`) falha se faltar alguma.
+- **Sem valores padrão no código**: o `config.py` não define valor para nenhuma variável. Todas precisam existir no ambiente, mesmo as que podem ficar vazias (ex.: `SENTRY_DSN=`, que desliga o Sentry). Se faltar alguma, a API não sobe e o erro lista quais faltam.
 - **`.gitignore`**: ignora `.env` e `.env.*`, exceto o `.env.example`.
 - **`.dockerignore`**: ignora os mesmos arquivos, então nenhum `.env` vai parar dentro da imagem Docker.
 - **CI**: o workflow roda o [gitleaks](https://github.com/gitleaks/gitleaks) em todo push e PR, e falha se encontrar algo que pareça um segredo (senha, token, chave privada) no histórico.
@@ -23,7 +24,7 @@ Staging ainda não existe (ver a issue de CD, #41). Quando existir, deve ser um 
 
 As variáveis são definidas no painel do Coolify, em cada recurso (**Environment Variables**):
 
-- **API**: `DATABASE_URL`, `SENTRY_DSN`, `CORS_ALLOW_ORIGINS` e as demais variáveis do `.env.example` que se aplicam a produção (ver [Observabilidade](observabilidade.md)).
+- **API**: **todas** as variáveis do `.env.example`, com os valores de produção (ver [Observabilidade](observabilidade.md) e [Autenticação](auth.md#configuracao)). As que não se aplicam ficam definidas com valor vazio.
 - **PostgreSQL**: usuário, senha e banco são definidos pelo próprio Coolify ao criar o recurso. A `DATABASE_URL` da API usa a URL interna que o Coolify mostra na página do banco.
 
 Regras:
