@@ -47,3 +47,7 @@ class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     installments: Mapped[list["Installment"]] = relationship(
         order_by="Installment.number", cascade="all, delete-orphan"
     )
+
+    @property
+    def installment_count(self) -> int:
+        return len(self.installments)
