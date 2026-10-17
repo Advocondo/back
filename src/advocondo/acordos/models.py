@@ -1,6 +1,7 @@
 import enum
 import uuid
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -9,6 +10,9 @@ from advocondo.common.models import TimestampsMixin, UuidPrimaryKeyMixin, string
 from advocondo.condominios.models import Condominium
 from advocondo.db import Base
 from advocondo.devedores.models import Debtor
+
+if TYPE_CHECKING:
+    from advocondo.parcelas.models import Installment
 
 # Money is stored as NUMERIC with cents, never as float.
 MONEY = Numeric(12, 2)
@@ -40,3 +44,6 @@ class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
 
     condominium: Mapped[Condominium] = relationship(lazy="joined")
     debtor: Mapped[Debtor] = relationship(lazy="joined")
+    installments: Mapped[list["Installment"]] = relationship(
+        order_by="Installment.number", cascade="all, delete-orphan"
+    )
