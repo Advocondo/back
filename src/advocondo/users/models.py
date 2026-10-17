@@ -1,13 +1,23 @@
 import enum
+import uuid
+from datetime import datetime
 
-from sqlalchemy import CheckConstraint, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from advocondo.common.models import TimestampsMixin, UuidPrimaryKeyMixin, string_enum
+from advocondo.common.models import (
+    CreatedAtMixin,
+    TimestampsMixin,
+    UuidPrimaryKeyMixin,
+    string_enum,
+)
 from advocondo.db import Base
 
 MAX_EMAIL_LENGTH = 254
 MAX_NAME_LENGTH = 200
+MIN_OAB_LENGTH = 8
+MAX_OAB_LENGTH = 12
+TOKEN_HASH_LENGTH = 64
 
 
 class Role(enum.StrEnum):
@@ -30,6 +40,12 @@ class User(UuidPrimaryKeyMixin, TimestampsMixin, Base):
             "status <> 'active' OR password_hash IS NOT NULL",
             name="active_user_has_password",
         ),
+        CheckConstraint(
+            "(NOT is_lawyer AND oab_number IS NULL) "
+            "OR (is_lawyer AND oab_number IS NOT NULL "
+            "AND char_length(oab_number) BETWEEN 8 AND 12)",
+            name="lawyer_has_valid_oab_number",
+        ),
     )
 
     email: Mapped[str] = mapped_column(String(MAX_EMAIL_LENGTH), unique=True)
@@ -39,7 +55,31 @@ class User(UuidPrimaryKeyMixin, TimestampsMixin, Base):
         string_enum(UserStatus, name="user_status"), default=UserStatus.PENDING
     )
     password_hash: Mapped[str | None] = mapped_column(String(255))
+    is_lawyer: Mapped[bool] = mapped_column(Boolean, default=False)
+    oab_number: Mapped[str | None] = mapped_column(String(MAX_OAB_LENGTH))
 
     @property
     def can_log_in(self) -> bool:
         return self.status == UserStatus.ACTIVE
+
+
+class UserInvite(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
+    """A pending invitation (US07). One per user: the invited user starts as PENDING
+    and becomes ACTIVE when they accept, which deletes this row."""
+
+    __tablename__ = "user_invites"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    invited_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(TOKEN_HASH_LENGTH), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship(foreign_keys=[user_id])
+    invited_by: Mapped[User | None] = relationship(foreign_keys=[invited_by_id])
+
+    def is_expired(self, now: datetime) -> bool:
+        return now >= self.expires_at
