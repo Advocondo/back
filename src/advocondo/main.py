@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from advocondo import health
+from advocondo.acordos import router as acordos
 from advocondo.auth import router as auth
 from advocondo.common.error_handlers import register_error_handlers
 from advocondo.condominios import router as condominios
@@ -30,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(users.router)
     app.include_router(condominios.router)
     app.include_router(devedores.router)
+    app.include_router(acordos.router)
     return app
 
 
