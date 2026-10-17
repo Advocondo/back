@@ -33,7 +33,28 @@ class TestUser:
         )
 
         assert user.can_log_in is expected
+    @pytest.mark.parametrize(
+        ("is_lawyer", "status", "expected"),
+        [
+            pytest.param(True, UserStatus.ACTIVE, True, id="active-lawyer"),
+            pytest.param(True, UserStatus.PENDING, False, id="pending-lawyer"),
+            pytest.param(True, UserStatus.INACTIVE, False, id="inactive-lawyer"),
+            pytest.param(False, UserStatus.ACTIVE, False, id="active-non-lawyer"),
+        ],
+    )
+    def test_only_active_lawyers_can_be_responsible_for_an_acordo(
+        self, is_lawyer: bool, status: UserStatus, expected: bool
+    ) -> None:
+        """US18-CA01"""
+        user = User(
+            email="ana@example.com",
+            name="Ana",
+            role=Role.OPERATOR,
+            status=status,
+            is_lawyer=is_lawyer,
+        )
 
+        assert user.can_be_responsible_lawyer is expected
 
 class TestUserInvite:
     def test_invite_is_not_expired_before_its_expiration(self) -> None:

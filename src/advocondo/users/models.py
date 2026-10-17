@@ -61,6 +61,11 @@ class User(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     @property
     def can_log_in(self) -> bool:
         return self.status == UserStatus.ACTIVE
+    
+    @property
+    def can_be_responsible_lawyer(self) -> bool:
+        """Só advogado ativo pode responder por um acordo (US18)."""
+        return self.is_lawyer and self.status == UserStatus.ACTIVE
 
 
 class UserInvite(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
