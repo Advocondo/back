@@ -87,3 +87,16 @@ class UserResponse(BaseModel):
     status: UserStatus
     is_lawyer: bool
     oab_number: str | None
+
+
+class UserStatusUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: UserStatus
+
+    @field_validator("status")
+    @classmethod
+    def _only_active_or_inactive(cls, value: UserStatus) -> UserStatus:
+        if value == UserStatus.PENDING:
+            raise ValueError("Use o convite para criar um usuário pendente.")
+        return value

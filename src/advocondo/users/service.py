@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlencode
@@ -12,6 +13,7 @@ from advocondo.common.passwords import MIN_PASSWORD_LENGTH, PasswordHasher
 from advocondo.common.tokens import generate_opaque_token, hash_token
 from advocondo.users.errors import (
     AdminRoleNotAllowedError,
+    CannotDeactivateSelfError,
     CurrentPasswordRequiredError,
     EmailAlreadyInUseError,
     FirstUserAlreadyCreatedError,
@@ -19,6 +21,8 @@ from advocondo.users.errors import (
     OabNumberNotAllowedError,
     OabNumberRequiredError,
     PasswordTooShortError,
+    UserIsPendingError,
+    UserNotFoundError,
     WrongCurrentPasswordError,
 )
 from advocondo.users.models import Role, User, UserInvite, UserStatus
@@ -234,3 +238,24 @@ def build_invite_email(
         "Se você não esperava este convite, ignore este e-mail.\n"
     )
     return EmailMessage(to=user.email, subject="Convite de acesso", body=body)
+
+
+class UserManagementService:
+    def __init__(self, session: Session, users: UserRepository) -> None:
+        self._session = session
+        self._users = users
+
+    def change_status(
+        self, admin: User, target_user_id: uuid.UUID, new_status: UserStatus
+    ) -> User:
+        user = self._users.get_by_id(target_user_id)
+        if user is None:
+            raise UserNotFoundError()
+        if user.status == UserStatus.PENDING:
+            raise UserIsPendingError()
+        if user.id == admin.id and new_status == UserStatus.INACTIVE:
+            raise CannotDeactivateSelfError()
+
+        user.status = new_status
+        self._session.commit()
+        return user

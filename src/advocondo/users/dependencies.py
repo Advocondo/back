@@ -15,7 +15,12 @@ from advocondo.db import get_session
 from advocondo.users.errors import InvalidSetupTokenError, SetupDisabledError
 from advocondo.users.models import Role, User
 from advocondo.users.repository import UserInviteRepository, UserRepository
-from advocondo.users.service import InviteService, ProfileService, UserService
+from advocondo.users.service import (
+    InviteService,
+    ProfileService,
+    UserManagementService,
+    UserService,
+)
 
 
 def get_user_service(
@@ -54,6 +59,12 @@ def get_invite_service(
         invite_link_duration=settings.invite_link_duration,
         frontend_url=settings.frontend_url,
     )
+
+
+def get_user_management_service(
+    session: Annotated[Session, Depends(get_session)],
+) -> UserManagementService:
+    return UserManagementService(session, UserRepository(session))
 
 
 def require_setup_token(
