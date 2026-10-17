@@ -73,6 +73,22 @@ class TestRegisterAgreement:
         }
         assert body["debtor"]["name"] == "José Simão"
 
+    def test_money_is_returned_with_two_decimal_places(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        response = register(
+            db_client,
+            operator_headers,
+            new_agreement(mirante.id, jose.id, total_amount="5500"),
+        )
+
+        assert response.status_code == 201
+        assert response.json()["total_amount"] == "5500.00"
+
     def test_debtor_of_another_condominium_is_refused(
         self,
         db_client: TestClient,
