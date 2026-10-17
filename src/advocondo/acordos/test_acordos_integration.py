@@ -39,6 +39,8 @@ def new_agreement(
         "condominium_id": str(condominium_id),
         "debtor_id": str(debtor_id),
         "total_amount": "5500.00",
+        "installment_count": 10,
+        "first_due_date": "2026-01-31",
         **fields,
     }
 
@@ -88,6 +90,34 @@ class TestRegisterAgreement:
 
         assert response.status_code == 201
         assert response.json()["total_amount"] == "5500.00"
+
+    def test_installments_are_generated_with_the_agreement(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        """US17-CA01"""
+        response = register(
+            db_client, operator_headers, new_agreement(mirante.id, jose.id)
+        )
+
+        assert response.json()["installment_count"] == 10
+
+    def test_installment_below_one_cent_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        payload = new_agreement(mirante.id, jose.id, total_amount="0.05")
+
+        response = register(db_client, operator_headers, payload)
+
+        assert response.status_code == 422
+        assert response.json()["detail"].startswith("Cada parcela precisa ter")
 
     def test_debtor_of_another_condominium_is_refused(
         self,
