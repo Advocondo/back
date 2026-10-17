@@ -5,7 +5,11 @@ from fastapi import APIRouter, Depends, Query, status
 
 from advocondo.auth.dependencies import require_office_staff
 from advocondo.condominios.dependencies import get_condominium_service
-from advocondo.condominios.schemas import CondominiumCreateRequest, CondominiumResponse
+from advocondo.condominios.schemas import (
+    CondominiumCreateRequest,
+    CondominiumResponse,
+    CondominiumUpdateRequest,
+)
 from advocondo.condominios.service import CondominiumService
 
 DEFAULT_PAGE_SIZE = 50
@@ -49,4 +53,14 @@ def get_condominium(
     condominium_id: uuid.UUID, condominium_service: CondominiumServiceDependency
 ) -> CondominiumResponse:
     condominium = condominium_service.get(condominium_id)
+    return CondominiumResponse.model_validate(condominium)
+
+
+@router.patch("/{condominium_id}")
+def update_condominium(
+    condominium_id: uuid.UUID,
+    request: CondominiumUpdateRequest,
+    condominium_service: CondominiumServiceDependency,
+) -> CondominiumResponse:
+    condominium = condominium_service.update(condominium_id, request)
     return CondominiumResponse.model_validate(condominium)

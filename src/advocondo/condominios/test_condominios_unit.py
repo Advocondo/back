@@ -2,7 +2,10 @@ import pytest
 from pydantic import ValidationError
 
 from advocondo.condominios.cnpj import is_valid_cnpj
-from advocondo.condominios.schemas import CondominiumCreateRequest
+from advocondo.condominios.schemas import (
+    CondominiumCreateRequest,
+    CondominiumUpdateRequest,
+)
 
 VALID_CNPJ = "14447918000198"
 
@@ -56,3 +59,23 @@ class TestCondominiumCreateRequest:
     def test_invalid_request_is_refused(self, fields: dict[str, object]) -> None:
         with pytest.raises(ValidationError):
             CondominiumCreateRequest.model_validate(fields)
+
+
+class TestCondominiumUpdateRequest:
+    def test_only_the_fields_sent_are_changed(self) -> None:
+        request = CondominiumUpdateRequest(manager_name="Nova Administradora")
+
+        assert request.model_dump(exclude_unset=True) == {
+            "manager_name": "Nova Administradora"
+        }
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            pytest.param({}, id="nothing-to-change"),
+            pytest.param({"name": None}, id="name-removed"),
+        ],
+    )
+    def test_invalid_update_is_refused(self, fields: dict[str, object]) -> None:
+        with pytest.raises(ValidationError):
+            CondominiumUpdateRequest.model_validate(fields)

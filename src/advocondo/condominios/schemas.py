@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Self
 
 from pydantic import (
     AfterValidator,
@@ -11,6 +11,8 @@ from pydantic import (
     EmailStr,
     Field,
     StringConstraints,
+    field_validator,
+    model_validator,
 )
 
 from advocondo.condominios.cnpj import is_valid_cnpj
@@ -85,6 +87,25 @@ class CondominiumFields(BaseModel):
 
 class CondominiumCreateRequest(CondominiumFields):
     name: Name
+
+
+class CondominiumUpdateRequest(CondominiumFields):
+    """Only the fields sent are changed; an optional field sent as null is cleared."""
+
+    name: Name | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_cannot_be_removed(cls, name: str | None) -> str:
+        if name is None:
+            raise ValueError("O nome do condomínio não pode ficar vazio.")
+        return name
+
+    @model_validator(mode="after")
+    def _has_a_change(self) -> Self:
+        if not self.model_fields_set:
+            raise ValueError("Informe ao menos um campo para alterar.")
+        return self
 
 
 class CondominiumResponse(BaseModel):

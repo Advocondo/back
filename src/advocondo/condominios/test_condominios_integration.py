@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any
 
 import httpx
@@ -217,3 +218,114 @@ class TestGetCondominium:
 
         assert response.status_code == 404
         assert response.json()["detail"] == "Condomínio não encontrado."
+
+
+def update(
+    client: TestClient,
+    headers: dict[str, str],
+    condominium_id: object,
+    payload: dict[str, Any],
+) -> httpx.Response:
+    response: httpx.Response = client.patch(
+        f"/condominiums/{condominium_id}", json=payload, headers=headers
+    )
+    return response
+
+
+class TestUpdateCondominium:
+    def test_condominium_can_be_edited_after_registered(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        create_condominium: CreateCondominium,
+    ) -> None:
+        """US12-CA02"""
+        condominium = create_condominium(
+            name="Res. Villa Verde", cnpj="14447918000198", manager_name="Marcos"
+        )
+
+        response = update(
+            db_client,
+            operator_headers,
+            condominium.id,
+            {"manager_name": "Nova Administradora", "state": "go"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["manager_name"] == "Nova Administradora"
+        assert body["state"] == "GO"
+        assert body["name"] == "Res. Villa Verde"
+        assert body["cnpj"] == "14447918000198"
+
+    def test_optional_field_sent_as_null_is_cleared(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        create_condominium: CreateCondominium,
+    ) -> None:
+        condominium = create_condominium(manager_email="rita@example.com")
+
+        response = update(
+            db_client, operator_headers, condominium.id, {"manager_email": None}
+        )
+
+        assert response.json()["manager_email"] is None
+
+    def test_cnpj_of_another_condominium_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        create_condominium: CreateCondominium,
+    ) -> None:
+        create_condominium(cnpj="14447918000198")
+        other = create_condominium(name="Outro", cnpj="11222333000181")
+
+        response = update(
+            db_client, operator_headers, other.id, {"cnpj": "14447918000198"}
+        )
+
+        assert response.status_code == 409
+
+    def test_sending_its_own_cnpj_again_is_accepted(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        create_condominium: CreateCondominium,
+    ) -> None:
+        condominium = create_condominium(cnpj="14447918000198")
+
+        response = update(
+            db_client, operator_headers, condominium.id, {"cnpj": "14447918000198"}
+        )
+
+        assert response.status_code == 200
+
+    def test_renewal_is_checked_against_the_stored_start_date(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        create_condominium: CreateCondominium,
+    ) -> None:
+        condominium = create_condominium(contract_start_date=date(2026, 1, 1))
+
+        response = update(
+            db_client,
+            operator_headers,
+            condominium.id,
+            {"contract_renewal_date": "2025-12-31"},
+        )
+
+        assert response.status_code == 422
+
+    def test_unknown_condominium_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = update(
+            db_client,
+            operator_headers,
+            "00000000-0000-0000-0000-000000000000",
+            {"name": "X"},
+        )
+
+        assert response.status_code == 404

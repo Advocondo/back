@@ -36,7 +36,8 @@ class CondominiumRepository:
     def get_by_cnpj(self, cnpj: str) -> Condominium | None:
         return self._session.scalar(select(Condominium).where(Condominium.cnpj == cnpj))
 
-    def add(self, condominium: Condominium) -> None:
+    def save(self, condominium: Condominium) -> None:
+        """Inserts a new condominium or writes the changes of an existing one."""
         self._session.add(condominium)
         self._flush()
 

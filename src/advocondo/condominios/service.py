@@ -11,7 +11,10 @@ from advocondo.condominios.errors import (
 )
 from advocondo.condominios.models import Condominium
 from advocondo.condominios.repository import CondominiumRepository
-from advocondo.condominios.schemas import CondominiumCreateRequest
+from advocondo.condominios.schemas import (
+    CondominiumCreateRequest,
+    CondominiumUpdateRequest,
+)
 
 
 class CondominiumService:
@@ -26,7 +29,26 @@ class CondominiumService:
             request.contract_start_date, request.contract_renewal_date
         )
         condominium = Condominium(**request.model_dump())
-        self._condominiums.add(condominium)
+        self._condominiums.save(condominium)
+        self._session.commit()
+        return condominium
+
+    def update(
+        self, condominium_id: uuid.UUID, request: CondominiumUpdateRequest
+    ) -> Condominium:
+        """Edits a registered condominium, e.g. when the management company changes."""
+        condominium = self.get(condominium_id)
+        changes = request.model_dump(exclude_unset=True)
+        if "cnpj" in changes:
+            self._ensure_cnpj_is_free(changes["cnpj"], condominium)
+        # Checked against the final state: a request may send only one of the dates.
+        ensure_contract_dates_are_consistent(
+            changes.get("contract_start_date", condominium.contract_start_date),
+            changes.get("contract_renewal_date", condominium.contract_renewal_date),
+        )
+        for field_name, new_value in changes.items():
+            setattr(condominium, field_name, new_value)
+        self._condominiums.save(condominium)
         self._session.commit()
         return condominium
 
