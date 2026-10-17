@@ -15,6 +15,8 @@ class InstallmentResponse(BaseModel):
     number: int
     due_date: date
     amount: MoneyResponse
+    condominium_amount: MoneyResponse
+    fee_amount: MoneyResponse
     payment_date: date | None
 
 

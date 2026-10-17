@@ -18,7 +18,7 @@ from advocondo.condominios.repository import CondominiumRepository
 from advocondo.devedores.errors import DebtorNotFoundError
 from advocondo.devedores.repository import DebtorRepository
 from advocondo.parcelas.models import Installment
-from advocondo.parcelas.plan import monthly_due_dates, split_amount
+from advocondo.parcelas.plan import monthly_due_dates, split_amount, split_fee
 
 
 class AgreementService:
@@ -45,13 +45,14 @@ class AgreementService:
         if debtor.condominium_id != condominium.id:
             raise DebtorFromAnotherCondominiumError()
 
+        fee = fee_in_reais(request)
         agreement = Agreement(
             condominium=condominium,
             debtor=debtor,
             total_amount=request.total_amount,
-            fee_amount=fee_in_reais(request),
+            fee_amount=fee,
             fee_percentage=request.fee_percentage,
-            installments=build_installments(request),
+            installments=build_installments(request, fee),
         )
         self._agreements.save(agreement)
         self._session.commit()
@@ -81,13 +82,23 @@ def fee_in_reais(request: AgreementCreateRequest) -> Decimal:
     return fee
 
 
-def build_installments(request: AgreementCreateRequest) -> list[Installment]:
-    """Monthly installments that add up to the total amount (US17-CA01, CA02)."""
+def build_installments(
+    request: AgreementCreateRequest, fee: Decimal
+) -> list[Installment]:
+    """Monthly installments that add up to the total amount (US17-CA01, CA02),
+    each split between the condominium and the office (US16-CA01, CA02)."""
     amounts = split_amount(request.total_amount, request.installment_count)
+    fees = split_fee(amounts, fee)
     due_dates = monthly_due_dates(request.first_due_date, request.installment_count)
     return [
-        Installment(number=number, due_date=due_date, amount=amount)
-        for number, (due_date, amount) in enumerate(
-            zip(due_dates, amounts, strict=True), start=1
+        Installment(
+            number=number,
+            due_date=due_date,
+            amount=amount,
+            condominium_amount=amount - installment_fee,
+            fee_amount=installment_fee,
+        )
+        for number, (due_date, amount, installment_fee) in enumerate(
+            zip(due_dates, amounts, fees, strict=True), start=1
         )
     ]

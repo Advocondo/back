@@ -67,3 +67,28 @@ def absorb_difference(
     if any(cents <= 0 for cents in new_amounts_cents):
         raise FollowingInstallmentWouldBeEmptyError()
     return [from_cents(cents) for cents in new_amounts_cents]
+
+
+def split_fee(amounts: list[Decimal], total_fee: Decimal) -> list[Decimal]:
+    """The fee part of each installment, proportional to its amount (US16-CA01).
+
+    Each installment gets the rounded fee of everything up to it minus the fee of
+    everything before it. So no cent is lost: the fees add up exactly to
+    `total_fee`, and each one stays between zero and its installment amount.
+    """
+    total_cents = sum(to_cents(amount) for amount in amounts)
+    total_fee_cents = to_cents(total_fee)
+    fees_cents: list[int] = []
+    cents_so_far = 0
+    fee_so_far = 0
+    for amount in amounts:
+        cents_so_far += to_cents(amount)
+        fee_up_to_here = rounded_division(total_fee_cents * cents_so_far, total_cents)
+        fees_cents.append(fee_up_to_here - fee_so_far)
+        fee_so_far = fee_up_to_here
+    return [from_cents(cents) for cents in fees_cents]
+
+
+def rounded_division(dividend: int, divisor: int) -> int:
+    """Integer division rounding halves up, for non-negative numbers."""
+    return (2 * dividend + divisor) // (2 * divisor)
