@@ -9,7 +9,10 @@ from sqlalchemy.orm import Session
 
 from advocondo.db import Base, get_session
 from advocondo.main import app
+from tests.support.clock import FrozenClock
 from tests.support.database import ensure_database_exists, get_test_database_url
+
+pytest_plugins = ["tests.fixtures.users", "tests.fixtures.auth"]
 
 # Fixtures que precisam do Postgres de teste; quem as usa vira teste de integração.
 DB_FIXTURES = {"db_session", "db_client"}
@@ -57,8 +60,8 @@ def client() -> TestClient:
 
 
 @pytest.fixture
-def db_client(db_session: Session) -> Iterator[TestClient]:
-    """Cliente HTTP da API usando a sessão do banco de testes."""
+def db_client(db_session: Session, clock: FrozenClock) -> Iterator[TestClient]:
+    """Cliente HTTP da API usando a sessão do banco de testes e o relógio `clock`."""
     app.dependency_overrides[get_session] = lambda: db_session
     try:
         yield TestClient(app)

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20.0",
+    "argon2-cffi>=25.1.0",
     "fastapi[standard]>=0.141.1",
     "psycopg[binary]>=3.2",
     "pydantic-settings>=2.15.0",
@@ -29,7 +30,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["src", "tests"]
 addopts = "--cov=advocondo --cov-report=term-missing --strict-markers"
 markers = [
     "integration: usa o banco de dados de teste (marcado automaticamente)",
@@ -38,6 +39,7 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["advocondo"]
+omit = ["*/test_*.py"]
 
 [tool.mypy]
 strict = true
