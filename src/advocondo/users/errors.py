@@ -1,5 +1,6 @@
 from advocondo.common.errors import (
     BusinessRuleError,
+    ConflictError,
     NotFoundError,
     PermissionDeniedError,
 )
@@ -20,3 +21,15 @@ class SetupDisabledError(NotFoundError):
 
 class InvalidSetupTokenError(PermissionDeniedError):
     message = "Token de configuração inválido."
+
+
+class CurrentPasswordRequiredError(BusinessRuleError):
+    message = "Informe a senha atual para alterar o e-mail ou a senha."
+
+
+class WrongCurrentPasswordError(BusinessRuleError):
+    message = "A senha atual está incorreta."
+
+
+class EmailAlreadyInUseError(ConflictError):
+    message = "Este e-mail já está em uso por outro usuário."
