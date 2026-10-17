@@ -18,6 +18,8 @@ class CreateUser(Protocol):
         role: Role = ...,
         status: UserStatus = ...,
         password: str | None = ...,
+        is_lawyer: bool = ...,
+        oab_number: str | None = ...,
     ) -> User: ...
 
 
@@ -30,6 +32,8 @@ def create_user(db_session: Session) -> CreateUser:
         role: Role = Role.OPERATOR,
         status: UserStatus = UserStatus.ACTIVE,
         password: str | None = DEFAULT_PASSWORD,
+        is_lawyer: bool = False,
+        oab_number: str | None = None,
     ) -> User:
         user = User(
             email=email,
@@ -37,6 +41,8 @@ def create_user(db_session: Session) -> CreateUser:
             role=role,
             status=status,
             password_hash=get_password_hasher().hash(password) if password else None,
+            is_lawyer=is_lawyer,
+            oab_number=oab_number,
         )
         db_session.add(user)
         db_session.flush()

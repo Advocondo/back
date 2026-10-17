@@ -87,3 +87,13 @@ class UserResponse(BaseModel):
     status: UserStatus
     is_lawyer: bool
     oab_number: str | None
+
+
+class LawyerResponse(BaseModel):
+    """Dados mínimos para escolher o advogado responsável (US18)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    oab_number: str | None
