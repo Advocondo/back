@@ -33,6 +33,7 @@ class TestUser:
         )
 
         assert user.can_log_in is expected
+
     @pytest.mark.parametrize(
         ("is_lawyer", "status", "expected"),
         [
@@ -55,6 +56,7 @@ class TestUser:
         )
 
         assert user.can_be_responsible_lawyer is expected
+
 
 class TestUserInvite:
     def test_invite_is_not_expired_before_its_expiration(self) -> None:

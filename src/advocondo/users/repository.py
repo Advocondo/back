@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import delete, exists, select
 from sqlalchemy.orm import Session
 
-from advocondo.users.models import User, UserInvite
+from advocondo.users.models import User, UserInvite, UserStatus
 
 
 class UserRepository:
@@ -18,6 +18,16 @@ class UserRepository:
 
     def is_any_registered(self) -> bool:
         return bool(self._session.scalar(select(exists().select_from(User))))
+
+    def list_active_lawyers(self) -> list[User]:
+        # Mesma regra de User.can_be_responsible_lawyer, aplicada no banco.
+        return list(
+            self._session.scalars(
+                select(User)
+                .where(User.is_lawyer.is_(True), User.status == UserStatus.ACTIVE)
+                .order_by(User.name)
+            )
+        )
 
     def add(self, user: User) -> None:
         self._session.add(user)

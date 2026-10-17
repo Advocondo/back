@@ -9,11 +9,13 @@ from advocondo.users.dependencies import (
     get_profile_service,
     get_user_service,
     require_setup_token,
+    require_staff,
 )
 from advocondo.users.schemas import (
     AcceptInviteRequest,
     FirstAdminRequest,
     InviteUserRequest,
+    LawyerResponse,
     ProfileUpdateRequest,
     UserResponse,
 )
@@ -92,3 +94,15 @@ def accept_invite(
 ) -> UserResponse:
     user = invite_service.accept_invite(request.token, request.password)
     return UserResponse.model_validate(user)
+
+
+@router.get(
+    "/users/lawyers",
+    tags=["users"],
+    dependencies=[Depends(require_staff)],
+)
+def list_lawyers(
+    user_service: Annotated[UserService, Depends(get_user_service)],
+) -> list[LawyerResponse]:
+    lawyers = user_service.list_responsible_lawyers()
+    return [LawyerResponse.model_validate(lawyer) for lawyer in lawyers]
