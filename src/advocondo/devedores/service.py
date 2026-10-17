@@ -1,11 +1,18 @@
+import uuid
+from collections.abc import Sequence
+
 from sqlalchemy.orm import Session
 
 from advocondo.condominios.errors import CondominiumNotFoundError
 from advocondo.condominios.repository import CondominiumRepository
-from advocondo.devedores.errors import ContactRequiredError, SimilarDebtorsFoundError
+from advocondo.devedores.errors import (
+    ContactRequiredError,
+    DebtorNotFoundError,
+    SimilarDebtorsFoundError,
+)
 from advocondo.devedores.models import Debtor
 from advocondo.devedores.repository import DebtorRepository
-from advocondo.devedores.schemas import DebtorCreateRequest
+from advocondo.devedores.schemas import DebtorCreateRequest, DebtorUpdateRequest
 from advocondo.devedores.similarity import find_similar_debtors
 
 
@@ -29,6 +36,34 @@ class DebtorService:
             self._warn_about_similar_debtors(request)
 
         debtor = Debtor(**request.model_dump(exclude={"confirm_duplicate"}))
+        self._debtors.save(debtor)
+        self._session.commit()
+        return debtor
+
+    def get(self, debtor_id: uuid.UUID) -> Debtor:
+        debtor = self._debtors.get(debtor_id)
+        if debtor is None:
+            raise DebtorNotFoundError()
+        return debtor
+
+    def search(
+        self,
+        condominium_id: uuid.UUID | None,
+        text: str | None,
+        limit: int,
+        offset: int,
+    ) -> Sequence[Debtor]:
+        search_text = text.strip() if text else None
+        return self._debtors.search(condominium_id, search_text or None, limit, offset)
+
+    def update(self, debtor_id: uuid.UUID, request: DebtorUpdateRequest) -> Debtor:
+        debtor = self.get(debtor_id)
+        changes = request.model_dump(exclude_unset=True)
+        ensure_has_a_contact(
+            changes.get("phone", debtor.phone), changes.get("email", debtor.email)
+        )
+        for field_name, new_value in changes.items():
+            setattr(debtor, field_name, new_value)
         self._debtors.save(debtor)
         self._session.commit()
         return debtor

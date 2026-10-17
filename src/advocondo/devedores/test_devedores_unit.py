@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from advocondo.devedores.models import Debtor
-from advocondo.devedores.schemas import DebtorCreateRequest
+from advocondo.devedores.schemas import DebtorCreateRequest, DebtorUpdateRequest
 from advocondo.devedores.similarity import comparable_unit, find_similar_debtors
 
 CONDOMINIUM_ID = uuid.uuid4()
@@ -80,3 +80,17 @@ class TestDebtorCreateRequest:
             DebtorCreateRequest.model_validate(
                 {"condominium_id": str(CONDOMINIUM_ID), **fields}
             )
+
+
+class TestDebtorUpdateRequest:
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            pytest.param({}, id="nothing-to-change"),
+            pytest.param({"name": None}, id="name-removed"),
+            pytest.param({"unit": None}, id="unit-removed"),
+        ],
+    )
+    def test_invalid_update_is_refused(self, fields: dict[str, object]) -> None:
+        with pytest.raises(ValidationError):
+            DebtorUpdateRequest.model_validate(fields)

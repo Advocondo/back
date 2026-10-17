@@ -145,3 +145,73 @@ class TestRegisterDebtor:
         headers = authenticate_as(create_user(role=Role.CLIENT))
 
         assert register(db_client, headers, new_debtor(mirante)).status_code == 403
+
+
+class TestSearchDebtors:
+    def test_search_by_name_or_unit_within_a_condominium(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        create_condominium: CreateCondominium,
+        create_debtor: CreateDebtor,
+    ) -> None:
+        create_debtor(mirante, name="José Simão", unit="Bloco B 304")
+        create_debtor(mirante, name="Maria Souza", unit="Torre A 101")
+        create_debtor(create_condominium(name="Outro"), name="José Lima", unit="1")
+
+        def names_found(params: dict[str, str]) -> list[str]:
+            response = db_client.get(
+                "/debtors", params=params, headers=operator_headers
+            )
+            return [debtor["name"] for debtor in response.json()]
+
+        assert names_found({"search": "jos"}) == ["José Lima", "José Simão"]
+        assert names_found({"condominium_id": str(mirante.id), "search": "jos"}) == [
+            "José Simão"
+        ]
+        assert names_found({"search": "torre a"}) == ["Maria Souza"]
+
+    def test_get_unknown_debtor_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(f"/debtors/{UNKNOWN_ID}", headers=operator_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Devedor não encontrado."
+
+
+class TestUpdateDebtor:
+    def test_contact_data_can_be_updated(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        create_debtor: CreateDebtor,
+    ) -> None:
+        debtor = create_debtor(mirante)
+
+        response = db_client.patch(
+            f"/debtors/{debtor.id}",
+            json={"email": "jose@example.com", "phone": None},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["email"] == "jose@example.com"
+        assert response.json()["phone"] is None
+
+    def test_removing_the_only_contact_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        create_debtor: CreateDebtor,
+    ) -> None:
+        debtor = create_debtor(mirante, email=None)
+
+        response = db_client.patch(
+            f"/debtors/{debtor.id}", json={"phone": None}, headers=operator_headers
+        )
+
+        assert response.status_code == 422
