@@ -3,8 +3,11 @@ from decimal import Decimal
 
 import pytest
 
-from advocondo.parcelas.errors import InstallmentBelowOneCentError
-from advocondo.parcelas.plan import monthly_due_dates, split_amount
+from advocondo.parcelas.errors import (
+    FollowingInstallmentWouldBeEmptyError,
+    InstallmentBelowOneCentError,
+)
+from advocondo.parcelas.plan import absorb_difference, monthly_due_dates, split_amount
 
 
 class TestSplitAmount:
@@ -47,3 +50,38 @@ class TestMonthlyDueDates:
             date(2026, 3, 31),
             date(2026, 4, 30),
         ]
+
+
+class TestAbsorbDifference:
+    @pytest.mark.parametrize(
+        ("difference", "following", "expected"),
+        [
+            pytest.param("30.00", ["100.00"] * 3, ["90.00"] * 3, id="higher-amount"),
+            pytest.param("-30.00", ["100.00"] * 3, ["110.00"] * 3, id="lower-amount"),
+            pytest.param(
+                "10.00", ["100.00"] * 3, ["96.67", "96.67", "96.66"], id="cents-to-last"
+            ),
+            pytest.param(
+                "-10.00",
+                ["100.00"] * 3,
+                ["103.33", "103.33", "103.34"],
+                id="negative-cents-to-last",
+            ),
+        ],
+    )
+    def test_difference_is_shared_by_the_following_installments(
+        self, difference: str, following: list[str], expected: list[str]
+    ) -> None:
+        """US17-CA03, keeping US17-CA02"""
+        new_amounts = absorb_difference(
+            Decimal(difference), [Decimal(amount) for amount in following]
+        )
+
+        assert new_amounts == [Decimal(amount) for amount in expected]
+        assert sum(new_amounts) == sum(Decimal(a) for a in following) - Decimal(
+            difference
+        )
+
+    def test_following_installment_cannot_be_left_without_value(self) -> None:
+        with pytest.raises(FollowingInstallmentWouldBeEmptyError):
+            absorb_difference(Decimal("100.00"), [Decimal("50.00"), Decimal("50.00")])

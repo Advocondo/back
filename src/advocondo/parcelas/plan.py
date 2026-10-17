@@ -4,7 +4,10 @@ import calendar
 from datetime import date
 from decimal import Decimal
 
-from advocondo.parcelas.errors import InstallmentBelowOneCentError
+from advocondo.parcelas.errors import (
+    FollowingInstallmentWouldBeEmptyError,
+    InstallmentBelowOneCentError,
+)
 
 CENTS_PER_REAL = 100
 
@@ -41,3 +44,26 @@ def add_months(start: date, months: int) -> date:
     month = month_index % 12 + 1
     last_day_of_month = calendar.monthrange(year, month)[1]
     return date(year, month, min(start.day, last_day_of_month))
+
+
+def absorb_difference(
+    difference: Decimal, following_amounts: list[Decimal]
+) -> list[Decimal]:
+    """New amounts of the following open installments after one installment changed
+    by `difference`, so the plan keeps adding up to the total (US17-CA02, CA03).
+
+    The difference is shared equally; the cents left over go to the last one.
+    """
+    difference_cents = to_cents(difference)
+    count = len(following_amounts)
+    share_cents = int(difference_cents / count)  # rounds toward zero, for both signs
+    shares = [share_cents] * count
+    shares[-1] += difference_cents - share_cents * count
+
+    new_amounts_cents = [
+        to_cents(amount) - share
+        for amount, share in zip(following_amounts, shares, strict=True)
+    ]
+    if any(cents <= 0 for cents in new_amounts_cents):
+        raise FollowingInstallmentWouldBeEmptyError()
+    return [from_cents(cents) for cents in new_amounts_cents]

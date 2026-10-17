@@ -1,10 +1,13 @@
+from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from advocondo.condominios.models import Condominium
+from advocondo.parcelas.models import Installment
 from advocondo.users.models import Role
 from tests.fixtures.auth import AuthenticateAs
 from tests.fixtures.condominios import CreateCondominium
@@ -12,6 +15,12 @@ from tests.fixtures.devedores import CreateDebtor
 from tests.fixtures.users import CreateUser
 
 UNKNOWN_ID = "00000000-0000-0000-0000-000000000000"
+
+
+class RegisterAgreement(Protocol):
+    def __call__(
+        self, total_amount: str, installment_count: int, first_due_date: str
+    ) -> str: ...
 
 
 @pytest.fixture
@@ -32,7 +41,7 @@ def register_agreement(
     operator_headers: dict[str, str],
     mirante: Condominium,
     create_debtor: CreateDebtor,
-) -> Any:
+) -> RegisterAgreement:
     """Registers an agreement through the API and returns its id."""
 
     def register(total_amount: str, installment_count: int, first_due_date: str) -> str:
@@ -67,7 +76,7 @@ class TestInstallmentPlan:
         self,
         db_client: TestClient,
         operator_headers: dict[str, str],
-        register_agreement: Any,
+        register_agreement: RegisterAgreement,
     ) -> None:
         """US17-CA01 and US17-CA02"""
         agreement_id = register_agreement("100.00", 3, "2026-01-31")
@@ -93,6 +102,109 @@ class TestInstallmentPlan:
     ) -> None:
         response = db_client.get(
             f"/agreements/{UNKNOWN_ID}/installments", headers=operator_headers
+        )
+
+        assert response.status_code == 404
+
+
+def amounts(plan: list[dict[str, Any]]) -> list[str]:
+    return [installment["amount"] for installment in plan]
+
+
+class TestUpdateInstallment:
+    def test_new_amount_is_absorbed_by_the_following_open_installments(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+    ) -> None:
+        """US17-CA03, keeping US17-CA02"""
+        agreement_id = register_agreement("400.00", 4, "2026-01-10")
+        second = get_plan(db_client, operator_headers, agreement_id)[1]
+
+        response = db_client.patch(
+            f"/installments/{second['id']}",
+            json={"amount": "130.00"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 200
+        assert amounts(response.json()) == ["100.00", "130.00", "85.00", "85.00"]
+        assert amounts(get_plan(db_client, operator_headers, agreement_id)) == [
+            "100.00",
+            "130.00",
+            "85.00",
+            "85.00",
+        ]
+
+    def test_due_date_can_be_changed(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+    ) -> None:
+        """US17-CA03"""
+        agreement_id = register_agreement("300.00", 3, "2026-01-10")
+        first = get_plan(db_client, operator_headers, agreement_id)[0]
+
+        response = db_client.patch(
+            f"/installments/{first['id']}",
+            json={"due_date": "2026-01-20"},
+            headers=operator_headers,
+        )
+
+        assert response.json()[0]["due_date"] == "2026-01-20"
+        assert amounts(response.json()) == ["100.00", "100.00", "100.00"]
+
+    def test_paid_installment_cannot_be_edited(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+    ) -> None:
+        """US17-CA03: only before the payment (US26)."""
+        agreement_id = register_agreement("300.00", 3, "2026-01-10")
+        first = get_plan(db_client, operator_headers, agreement_id)[0]
+        paid = db_session.get(Installment, first["id"])
+        assert paid is not None
+        paid.payment_date = date(2026, 1, 10)
+        db_session.flush()
+
+        response = db_client.patch(
+            f"/installments/{first['id']}",
+            json={"due_date": "2026-01-20"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Parcela já paga não pode ser editada."
+
+    def test_amount_of_the_last_installment_cannot_change(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+    ) -> None:
+        agreement_id = register_agreement("300.00", 3, "2026-01-10")
+        last = get_plan(db_client, operator_headers, agreement_id)[-1]
+
+        response = db_client.patch(
+            f"/installments/{last['id']}",
+            json={"amount": "150.00"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"].startswith("Não há parcela seguinte em aberto")
+
+    def test_unknown_installment_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.patch(
+            f"/installments/{UNKNOWN_ID}",
+            json={"amount": "1.00"},
+            headers=operator_headers,
         )
 
         assert response.status_code == 404
