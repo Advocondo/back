@@ -5,6 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from advocondo.auth.errors import InvalidSessionError
+from advocondo.auth.models import UserSession
 from advocondo.auth.repository import PasswordResetLinkRepository, UserSessionRepository
 from advocondo.auth.service import (
     AuthService,
@@ -66,13 +67,20 @@ def get_password_reset_service(
     )
 
 
-def get_current_user(
+def get_current_session(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
-) -> User:
+) -> UserSession:
     if credentials is None:
         raise InvalidSessionError()
     return auth_service.authenticate(credentials.credentials)
+
+
+CurrentSession = Annotated[UserSession, Depends(get_current_session)]
+
+
+def get_current_user(current_session: CurrentSession) -> User:
+    return current_session.user
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
