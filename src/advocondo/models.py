@@ -2,6 +2,7 @@
 
 from advocondo.auth.models import PasswordResetLink, UserSession
 from advocondo.condominios.models import Condominium
+from advocondo.devedores.models import Debtor
 from advocondo.users.models import User
 
-__all__ = ["Condominium", "PasswordResetLink", "User", "UserSession"]
+__all__ = ["Condominium", "Debtor", "PasswordResetLink", "User", "UserSession"]
