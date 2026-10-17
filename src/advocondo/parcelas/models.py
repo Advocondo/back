@@ -20,6 +20,12 @@ class Installment(UuidPrimaryKeyMixin, TimestampsMixin, Base):
         ),
         CheckConstraint("amount > 0", name="amount_is_positive"),
         CheckConstraint("number > 0", name="number_is_positive"),
+        CheckConstraint(
+            "condominium_amount >= 0 AND fee_amount >= 0", name="split_not_negative"
+        ),
+        CheckConstraint(
+            "condominium_amount + fee_amount = amount", name="split_adds_up_to_amount"
+        ),
     )
 
     agreement_id: Mapped[uuid.UUID] = mapped_column(
@@ -29,6 +35,9 @@ class Installment(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     number: Mapped[int]
     due_date: Mapped[date] = mapped_column(Date)
     amount: Mapped[Decimal] = mapped_column(MONEY)
+    # How the amount is split between the condominium and the office (US16).
+    condominium_amount: Mapped[Decimal] = mapped_column(MONEY)
+    fee_amount: Mapped[Decimal] = mapped_column(MONEY)
     # Filled when the payment is registered (US26). An installment with a payment
     # date can no longer be edited (US17-CA03).
     payment_date: Mapped[date | None] = mapped_column(Date)

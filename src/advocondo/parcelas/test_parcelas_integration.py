@@ -54,6 +54,7 @@ def register_agreement(
                 "total_amount": total_amount,
                 "installment_count": installment_count,
                 "first_due_date": first_due_date,
+                "fee_percentage": "10",
             },
             headers=operator_headers,
         )
@@ -111,6 +112,26 @@ def amounts(plan: list[dict[str, Any]]) -> list[str]:
     return [installment["amount"] for installment in plan]
 
 
+class TestFeeSplit:
+    def test_each_installment_shows_condominium_and_fee_parts(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+    ) -> None:
+        """US16-CA01 and US16-CA02: 10% fee on R$ 100,00 in 3 installments."""
+        agreement_id = register_agreement("100.00", 3, "2026-01-10")
+
+        plan = get_plan(db_client, operator_headers, agreement_id)
+
+        assert [item["fee_amount"] for item in plan] == ["3.33", "3.34", "3.33"]
+        assert sum(Decimal(item["fee_amount"]) for item in plan) == Decimal("10.00")
+        for installment in plan:
+            assert Decimal(installment["condominium_amount"]) + Decimal(
+                installment["fee_amount"]
+            ) == Decimal(installment["amount"])
+
+
 class TestUpdateInstallment:
     def test_new_amount_is_absorbed_by_the_following_open_installments(
         self,
@@ -130,6 +151,12 @@ class TestUpdateInstallment:
 
         assert response.status_code == 200
         assert amounts(response.json()) == ["100.00", "130.00", "85.00", "85.00"]
+        assert [item["fee_amount"] for item in response.json()] == [
+            "10.00",
+            "13.00",
+            "8.50",
+            "8.50",
+        ]
         assert amounts(get_plan(db_client, operator_headers, agreement_id)) == [
             "100.00",
             "130.00",
