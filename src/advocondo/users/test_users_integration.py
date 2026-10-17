@@ -986,3 +986,79 @@ class TestAcceptInvite:
         body = response.json()
         assert body["is_lawyer"] is True
         assert body["oab_number"] == "123456/SP"
+
+
+class TestListLawyers:
+    def test_lists_only_active_lawyers_ordered_by_name(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US18-CA01"""
+        operator = create_user(email="operador@example.com", name="Operador")
+        zeca = create_user(
+            email="zeca@example.com",
+            name="Zeca Lima",
+            is_lawyer=True,
+            oab_number="123456/SP",
+        )
+        bia = create_user(
+            email="bia@example.com",
+            name="Bia Costa",
+            is_lawyer=True,
+            oab_number="654321/DF",
+        )
+        create_user(email="ana@example.com", name="Ana Souza")
+        create_user(
+            email="pendente@example.com",
+            name="Pendente",
+            is_lawyer=True,
+            oab_number="111111/GO",
+            status=UserStatus.PENDING,
+            password=None,
+        )
+        create_user(
+            email="inativo@example.com",
+            name="Inativo",
+            is_lawyer=True,
+            oab_number="222222/MG",
+            status=UserStatus.INACTIVE,
+        )
+
+        response = db_client.get("/users/lawyers", headers=authenticate_as(operator))
+
+        assert response.status_code == 200
+        assert response.json() == [
+            {"id": str(bia.id), "name": "Bia Costa", "oab_number": "654321/DF"},
+            {"id": str(zeca.id), "name": "Zeca Lima", "oab_number": "123456/SP"},
+        ]
+
+    @pytest.mark.parametrize(
+        ("role", "expected_status"),
+        [
+            pytest.param(Role.ADMIN, 200, id="admin"),
+            pytest.param(Role.OPERATOR, 200, id="operator"),
+            pytest.param(Role.CLIENT, 403, id="client"),
+        ],
+    )
+    def test_only_administrators_and_operators_can_list_lawyers(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        role: Role,
+        expected_status: int,
+    ) -> None:
+        """US18-CA01"""
+        user = create_user(role=role)
+
+        response = db_client.get("/users/lawyers", headers=authenticate_as(user))
+
+        assert response.status_code == expected_status
+
+    def test_request_without_a_token_is_refused(self, db_client: TestClient) -> None:
+        """US18-CA01"""
+        response = db_client.get("/users/lawyers")
+
+        assert response.status_code == 401
