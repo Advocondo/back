@@ -1,9 +1,12 @@
+import uuid
+from collections.abc import Sequence
 from datetime import date
 
 from sqlalchemy.orm import Session
 
 from advocondo.condominios.errors import (
     CnpjAlreadyRegisteredError,
+    CondominiumNotFoundError,
     InvalidContractDatesError,
 )
 from advocondo.condominios.models import Condominium
@@ -26,6 +29,18 @@ class CondominiumService:
         self._condominiums.add(condominium)
         self._session.commit()
         return condominium
+
+    def get(self, condominium_id: uuid.UUID) -> Condominium:
+        condominium = self._condominiums.get(condominium_id)
+        if condominium is None:
+            raise CondominiumNotFoundError()
+        return condominium
+
+    def search(
+        self, text: str | None, limit: int, offset: int
+    ) -> Sequence[Condominium]:
+        search_text = text.strip() if text else None
+        return self._condominiums.search(search_text or None, limit, offset)
 
     def _ensure_cnpj_is_free(
         self, cnpj: str | None, condominium_being_edited: Condominium | None = None

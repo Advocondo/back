@@ -142,3 +142,78 @@ class TestOnlyOfficeStaffManagesCondominiums:
         headers = authenticate_as(create_user(role=Role.ADMIN))
 
         assert register(db_client, headers, MIRANTE).status_code == 201
+
+
+ALL_NAMES_IN_ORDER = ["Cond. Parque das Águas", "Ed. 100% Century", "Res. Villa Verde"]
+
+
+class TestSearchCondominiums:
+    @pytest.fixture(autouse=True)
+    def three_condominiums(self, create_condominium: CreateCondominium) -> None:
+        create_condominium(name="Res. Villa Verde", manager_name="Marcos Tavares")
+        create_condominium(name="Cond. Parque das Águas", manager_name="Rita Belmonte")
+        create_condominium(name="Ed. 100% Century", manager_name="Conselho Gestor")
+
+    @pytest.mark.parametrize(
+        ("search", "expected_names"),
+        [
+            pytest.param(None, ALL_NAMES_IN_ORDER, id="no-search-lists-all-by-name"),
+            pytest.param("villa", ["Res. Villa Verde"], id="part-of-the-name"),
+            pytest.param("RITA", ["Cond. Parque das Águas"], id="manager-name"),
+            pytest.param("100%", ["Ed. 100% Century"], id="percent-is-literal"),
+            pytest.param("0%", ["Ed. 100% Century"], id="percent-is-not-wildcard"),
+            pytest.param("  ", ALL_NAMES_IN_ORDER, id="blank-search-lists-all"),
+            pytest.param("xyz", [], id="nothing-found"),
+        ],
+    )
+    def test_search_by_condominium_or_manager_name(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        search: str | None,
+        expected_names: list[str],
+    ) -> None:
+        params = {"search": search} if search is not None else {}
+
+        response = db_client.get(
+            "/condominiums", params=params, headers=operator_headers
+        )
+
+        assert [item["name"] for item in response.json()] == expected_names
+
+    def test_list_is_paginated(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(
+            "/condominiums", params={"limit": 1, "offset": 1}, headers=operator_headers
+        )
+
+        assert [item["name"] for item in response.json()] == ["Ed. 100% Century"]
+
+
+class TestGetCondominium:
+    def test_returns_the_condominium(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        create_condominium: CreateCondominium,
+    ) -> None:
+        condominium = create_condominium(name="Res. Terra Nova")
+
+        response = db_client.get(
+            f"/condominiums/{condominium.id}", headers=operator_headers
+        )
+
+        assert response.status_code == 200
+        assert response.json()["name"] == "Res. Terra Nova"
+
+    def test_unknown_condominium_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(
+            "/condominiums/00000000-0000-0000-0000-000000000000",
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Condomínio não encontrado."

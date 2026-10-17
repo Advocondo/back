@@ -1,11 +1,15 @@
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from advocondo.auth.dependencies import require_office_staff
 from advocondo.condominios.dependencies import get_condominium_service
 from advocondo.condominios.schemas import CondominiumCreateRequest, CondominiumResponse
 from advocondo.condominios.service import CondominiumService
+
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 200
 
 router = APIRouter(
     prefix="/condominiums",
@@ -24,4 +28,25 @@ def register_condominium(
     condominium_service: CondominiumServiceDependency,
 ) -> CondominiumResponse:
     condominium = condominium_service.register(request)
+    return CondominiumResponse.model_validate(condominium)
+
+
+@router.get("")
+def search_condominiums(
+    condominium_service: CondominiumServiceDependency,
+    search: Annotated[
+        str | None, Query(description="Parte do nome do condomínio ou do síndico")
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[CondominiumResponse]:
+    condominiums = condominium_service.search(search, limit, offset)
+    return [CondominiumResponse.model_validate(item) for item in condominiums]
+
+
+@router.get("/{condominium_id}")
+def get_condominium(
+    condominium_id: uuid.UUID, condominium_service: CondominiumServiceDependency
+) -> CondominiumResponse:
+    condominium = condominium_service.get(condominium_id)
     return CondominiumResponse.model_validate(condominium)
