@@ -73,6 +73,8 @@ Os devedores de cada condomínio ficam em `/debtors`, com alerta de cadastro dup
 
 Os acordos com cada devedor ficam em `/agreements`. Veja [Acordos](docs/acordos.md).
 
+O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`. Veja [Parcelas](docs/parcelas.md).
+
 ### Migrations
 
 O schema do banco é versionado com Alembic. Depois de subir os containers (e sempre que alguém adicionar uma migration), aplique as pendentes:

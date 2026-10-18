@@ -14,6 +14,8 @@ from advocondo.condominios.errors import CondominiumNotFoundError
 from advocondo.condominios.repository import CondominiumRepository
 from advocondo.devedores.errors import DebtorNotFoundError
 from advocondo.devedores.repository import DebtorRepository
+from advocondo.parcelas.models import Installment
+from advocondo.parcelas.plan import monthly_due_dates, split_amount
 
 
 class AgreementService:
@@ -41,7 +43,10 @@ class AgreementService:
             raise DebtorFromAnotherCondominiumError()
 
         agreement = Agreement(
-            condominium=condominium, debtor=debtor, total_amount=request.total_amount
+            condominium=condominium,
+            debtor=debtor,
+            total_amount=request.total_amount,
+            installments=build_installments(request),
         )
         self._agreements.save(agreement)
         self._session.commit()
@@ -57,3 +62,15 @@ class AgreementService:
         self, filters: AgreementFilters, limit: int, offset: int
     ) -> Sequence[Agreement]:
         return self._agreements.search(filters, limit, offset)
+
+
+def build_installments(request: AgreementCreateRequest) -> list[Installment]:
+    """Monthly installments that add up to the total amount (US17-CA01, CA02)."""
+    amounts = split_amount(request.total_amount, request.installment_count)
+    due_dates = monthly_due_dates(request.first_due_date, request.installment_count)
+    return [
+        Installment(number=number, due_date=due_date, amount=amount)
+        for number, (due_date, amount) in enumerate(
+            zip(due_dates, amounts, strict=True), start=1
+        )
+    ]

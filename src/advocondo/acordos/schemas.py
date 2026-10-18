@@ -1,10 +1,13 @@
 import uuid
+from datetime import date
 from decimal import Decimal
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 
 from advocondo.acordos.models import AgreementStatus
+
+MAX_INSTALLMENTS = 120
 
 # Up to R$ 9.999.999.999,99, always with cents.
 MoneyAmount = Annotated[Decimal, Field(gt=0, max_digits=12, decimal_places=2)]
@@ -24,6 +27,9 @@ class AgreementCreateRequest(BaseModel):
     condominium_id: uuid.UUID
     debtor_id: uuid.UUID
     total_amount: MoneyAmount
+    # The installments are generated with the agreement (US17-CA01).
+    installment_count: Annotated[int, Field(ge=1, le=MAX_INSTALLMENTS)]
+    first_due_date: date
 
 
 class CondominiumSummary(BaseModel):
@@ -47,5 +53,6 @@ class AgreementResponse(BaseModel):
     id: uuid.UUID
     status: AgreementStatus
     total_amount: MoneyResponse
+    installment_count: int
     condominium: CondominiumSummary
     debtor: DebtorSummary
