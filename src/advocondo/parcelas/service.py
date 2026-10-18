@@ -12,7 +12,7 @@ from advocondo.parcelas.errors import (
     PaidInstallmentCannotBeEditedError,
 )
 from advocondo.parcelas.models import Installment
-from advocondo.parcelas.plan import absorb_difference
+from advocondo.parcelas.plan import absorb_difference, split_fee
 from advocondo.parcelas.repository import InstallmentRepository
 from advocondo.parcelas.schemas import InstallmentUpdateRequest
 
@@ -59,6 +59,11 @@ class InstallmentService:
         new_amount: Decimal,
         plan: Sequence[Installment],
     ) -> None:
+        """The following open installments absorb the difference (US17-CA03), and
+        the fee still to be received is split again among the open installments, so
+        each keeps condominium part + fee part = amount (US16-CA02)."""
+        agreement = self._agreements.get(installment.agreement_id)
+        assert agreement is not None  # the installment's foreign key guarantees it
         following_open = [
             other
             for other in plan
@@ -66,10 +71,25 @@ class InstallmentService:
         ]
         if not following_open:
             raise NoOpenInstallmentAfterError()
-        new_following_amounts = absorb_difference(
+        following_amounts = absorb_difference(
             new_amount - installment.amount,
             [other.amount for other in following_open],
         )
-        installment.amount = new_amount
-        for other, amount in zip(following_open, new_following_amounts, strict=True):
-            other.amount = amount
+        new_amounts = {installment.id: new_amount}
+        for other, amount in zip(following_open, following_amounts, strict=True):
+            new_amounts[other.id] = amount
+
+        open_installments = [item for item in plan if not item.is_paid]
+        open_amounts = [
+            new_amounts.get(item.id, item.amount) for item in open_installments
+        ]
+        fee_already_paid = sum(
+            (item.fee_amount for item in plan if item.is_paid), Decimal(0)
+        )
+        open_fees = split_fee(open_amounts, agreement.fee_amount - fee_already_paid)
+        for item, amount, fee in zip(
+            open_installments, open_amounts, open_fees, strict=True
+        ):
+            item.amount = amount
+            item.fee_amount = fee
+            item.condominium_amount = amount - fee

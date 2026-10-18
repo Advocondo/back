@@ -2,7 +2,7 @@
 
 Cadastro e consulta dos acordos extrajudiciais ([US15](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us15)). O código fica em `src/advocondo/acordos/`.
 
-Todas as rotas exigem o cabeçalho `Authorization: Bearer <token>` de um usuário **Administrador** ou **Equipe Operacional**. Usuários Cliente recebem `403`; a visão deles é o painel do Cliente (US37), sem dados financeiros do escritório.
+Todas as rotas exigem o cabeçalho `Authorization: Bearer <token>` de um usuário **Administrador** ou **Equipe Operacional**. Usuários Cliente recebem `403`; a visão deles é o painel do Cliente (US37), que não pode mostrar honorários.
 
 ## Campos
 
@@ -11,6 +11,7 @@ Todas as rotas exigem o cabeçalho `Authorization: Bearer <token>` de um usuári
 | `condominium_id` | Obrigatório. O condomínio precisa estar cadastrado (US12-CA01); o acordo fica vinculado a ele (US15-CA03). |
 | `debtor_id` | Obrigatório. O devedor precisa estar cadastrado e ser **do mesmo condomínio**. |
 | `total_amount` | Valor total da dívida, obrigatório, maior que zero, com no máximo 2 casas decimais. |
+| `fee_percentage` ou `fee_amount` | Honorários do escritório ([US16](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us16)), em **um** dos dois formatos: percentual do total (0 a 100, até 2 casas) ou valor em reais (de 0 até o valor total). Com o percentual, o valor é calculado e arredondado ao centavo (US16-CA01); o percentual só é guardado quando foi informado. |
 | `installment_count` | Número de parcelas, obrigatório, de 1 a 120. |
 | `first_due_date` | Vencimento da primeira parcela (`AAAA-MM-DD`), obrigatório. As parcelas são geradas com o acordo; ver [Parcelas](parcelas.md). |
 | `status` | Definido pelo sistema: todo acordo nasce `active`. O cancelamento é a US20. |
@@ -30,6 +31,8 @@ Cadastra o acordo e gera as parcelas (US17-CA01). O acordo passa a aparecer na l
   "id": "…",
   "status": "active",
   "total_amount": "5500.00",
+  "fee_amount": "550.00",
+  "fee_percentage": "10.00",
   "installment_count": 10,
   "condominium": {"id": "…", "name": "Residencial Mirante"},
   "debtor": {"id": "…", "name": "José Simão", "unit": "Bloco B 304"}
@@ -52,5 +55,6 @@ Devolve um acordo.
 | Usuário Cliente | `403` | `Você não tem permissão para esta operação.` |
 | Condomínio, devedor ou acordo inexistente | `404` | `Condomínio não encontrado.` / `Devedor não encontrado.` / `Acordo não encontrado.` |
 | Devedor de outro condomínio | `422` | `O devedor informado não pertence a este condomínio.` |
+| Honorários maiores que o valor total | `422` | `Os honorários não podem ser maiores que o valor total do acordo.` |
 | Parcelas abaixo de R$ 0,01 | `422` | `Cada parcela precisa ter pelo menos R$ 0,01. Diminua o número de parcelas.` |
-| Campo obrigatório ausente (US15-CA02), valor zero, negativo ou com fração de centavo, campo desconhecido ou `status` inválido | `422` | erros de validação do FastAPI |
+| Honorários ausentes ou informados nos dois formatos, campo obrigatório ausente (US15-CA02), valor zero, negativo ou com fração de centavo, campo desconhecido ou `status` inválido | `422` | erros de validação do FastAPI |

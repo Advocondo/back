@@ -7,7 +7,12 @@ from advocondo.parcelas.errors import (
     FollowingInstallmentWouldBeEmptyError,
     InstallmentBelowOneCentError,
 )
-from advocondo.parcelas.plan import absorb_difference, monthly_due_dates, split_amount
+from advocondo.parcelas.plan import (
+    absorb_difference,
+    monthly_due_dates,
+    split_amount,
+    split_fee,
+)
 
 
 class TestSplitAmount:
@@ -85,3 +90,39 @@ class TestAbsorbDifference:
     def test_following_installment_cannot_be_left_without_value(self) -> None:
         with pytest.raises(FollowingInstallmentWouldBeEmptyError):
             absorb_difference(Decimal("100.00"), [Decimal("50.00"), Decimal("50.00")])
+
+
+class TestSplitFee:
+    @pytest.mark.parametrize(
+        ("amounts", "total_fee", "expected"),
+        [
+            pytest.param(["550.00"] * 10, "550.00", ["55.00"] * 10, id="even"),
+            pytest.param(
+                ["33.33", "33.33", "33.34"],
+                "10.00",
+                ["3.33", "3.34", "3.33"],
+                id="cents",
+            ),
+            pytest.param(
+                ["100.00", "0.01"], "50.00", ["50.00", "0.00"], id="tiny-last"
+            ),
+            pytest.param(["100.00", "100.00"], "0.00", ["0.00", "0.00"], id="no-fee"),
+            pytest.param(
+                ["70.00", "30.00"], "100.00", ["70.00", "30.00"], id="all-fee"
+            ),
+        ],
+    )
+    def test_fees_add_up_and_fit_each_installment(
+        self, amounts: list[str], total_fee: str, expected: list[str]
+    ) -> None:
+        """US16-CA01 and US16-CA02"""
+        installment_amounts = [Decimal(amount) for amount in amounts]
+
+        fees = split_fee(installment_amounts, Decimal(total_fee))
+
+        assert fees == [Decimal(fee) for fee in expected]
+        assert sum(fees) == Decimal(total_fee)
+        assert all(
+            0 <= fee <= amount
+            for fee, amount in zip(fees, installment_amounts, strict=True)
+        )
