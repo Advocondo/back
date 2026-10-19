@@ -57,7 +57,7 @@ A regex que cobre os dois, e só eles:
 https://<projeto>-(?:[a-z0-9]{9}|git-[a-z0-9-]+)-<time>\.vercel\.app
 ```
 
-Troque `<projeto>` pelo nome do projeto na Vercel e `<time>` pelo slug do time (aparece nas URLs de preview). A regex precisa casar com a origem **inteira** (a API usa `fullmatch`), então não é preciso `^` nem `$`. Os testes em `tests/unit/test_security.py` cobrem origens liberadas e bloqueadas, incluindo domínios parecidos e previews de outros times.
+Troque `<projeto>` pelo nome do projeto na Vercel e `<time>` pelo slug do time (aparece nas URLs de preview). A regex precisa casar com a origem **inteira** (a API usa `fullmatch`), então não é preciso `^` nem `$`. Os testes em `src/advocondo/test_app_unit.py` cobrem origens liberadas e bloqueadas, incluindo domínios parecidos e previews de outros times.
 
 ### Risco da regex de preview
 
