@@ -115,7 +115,8 @@ class TestDefineGoal:
 
         assert response.status_code == 422
         assert (
-            response.json()["detail"] == "Só membros da Equipe Operacional podem ter meta."
+            response.json()["detail"]
+            == "Só membros da Equipe Operacional podem ter meta."
         )
 
     def test_unknown_collaborator_is_not_found(

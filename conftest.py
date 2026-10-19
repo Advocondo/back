@@ -17,7 +17,12 @@ from tests.support.database import ensure_database_exists, get_test_database_url
 from tests.support.email import Outbox
 from tests.support.settings import make_settings
 
-pytest_plugins = ["tests.fixtures.metas", "tests.fixtures.users", "tests.fixtures.auth", "tests.fixtures.email"]
+pytest_plugins = [
+    "tests.fixtures.metas",
+    "tests.fixtures.users",
+    "tests.fixtures.auth",
+    "tests.fixtures.email",
+]
 
 # Fixtures que precisam do Postgres de teste; quem as usa vira teste de integração.
 DB_FIXTURES = {"db_session", "db_client"}
