@@ -28,6 +28,17 @@ Resposta `200`, com `id`, `name`, `email` e `role` do usuário já atualizados.
 
 Ao trocar a senha, as sessões em outros dispositivos são encerradas e precisam de login com a senha nova; o dispositivo que fez a troca continua logado. Trocar o nome ou o e-mail não encerra sessões.
 
+### Condomínios de um Cliente
+
+O Administrador define a quais condomínios um usuário com perfil Cliente tem acesso ([US10](https://advocondo.github.io/docs/historias/ep02-usuarios-perfis/#us10)). Um Cliente só deve ver dados dos condomínios vinculados a ele; sem nenhum vínculo, não vê nada (US10-CA02). Os vínculos ficam na tabela `user_condominiums`, e o filtro das consultas de acordos é aplicado pela US37.
+
+- `PUT /users/{user_id}/condominiums` substitui a lista inteira. Corpo: `{"condominium_ids": ["…", "…"]}`. Uma lista vazia remove todos os vínculos. IDs repetidos contam uma vez.
+- `GET /users/{user_id}/condominiums` mostra os condomínios vinculados.
+
+Ambas exigem um Administrador e respondem `200` com `[{"id": "…", "name": "…"}]`, ordenado por nome. Só usuários com perfil Cliente podem ser vinculados (em qualquer situação: ativo, inativo ou com convite pendente). Se algum condomínio da lista não existe, nada é alterado.
+
+Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of(user_id)` (em `users/repository.py`), que devolve o conjunto de IDs; vazio significa "nenhum condomínio".
+
 ## Respostas de erro
 
 | Situação | Status | `detail` |
@@ -37,6 +48,10 @@ Ao trocar a senha, as sessões em outros dispositivos são encerradas e precisam
 | `current_password` errada | `422` | `A senha atual está incorreta.` |
 | Nova senha com menos de 8 caracteres | `422` | `A senha precisa ter pelo menos 8 caracteres.` |
 | E-mail já usado por outro usuário | `409` | `Este e-mail já está em uso por outro usuário.` |
+| Vínculo de condomínios: usuário não é Cliente | `422` | `Só é possível vincular condomínios a usuários com perfil Cliente.` |
+| Vínculo de condomínios: condomínio inexistente | `422` | `Condomínio não encontrado: <ids>.` |
+| Vínculo de condomínios: usuário inexistente | `404` | `Usuário não encontrado.` |
+| Vínculo de condomínios sem ser Administrador | `403` | mensagem de acesso negado |
 | Nada para alterar, nome vazio, e-mail inválido, senha com mais de 128 caracteres ou campo fora do perfil (`role`, `status`…) | `422` | erros de validação do FastAPI |
 
 ## Decisões

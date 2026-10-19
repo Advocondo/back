@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlencode
@@ -11,9 +12,11 @@ from advocondo.common.clock import Clock
 from advocondo.common.email import EmailMessage, EmailSender
 from advocondo.common.passwords import MIN_PASSWORD_LENGTH, PasswordHasher
 from advocondo.common.tokens import generate_opaque_token, hash_token
+from advocondo.condominios.models import Condominium
 from advocondo.users.errors import (
     AdminRoleNotAllowedError,
     CannotDeactivateSelfError,
+    CondominiumNotFoundError,
     CurrentPasswordRequiredError,
     EmailAlreadyInUseError,
     FirstUserAlreadyCreatedError,
@@ -21,12 +24,17 @@ from advocondo.users.errors import (
     OabNumberNotAllowedError,
     OabNumberRequiredError,
     PasswordTooShortError,
+    TargetNotClientError,
     UserIsPendingError,
     UserNotFoundError,
     WrongCurrentPasswordError,
 )
 from advocondo.users.models import Role, User, UserInvite, UserStatus
-from advocondo.users.repository import UserInviteRepository, UserRepository
+from advocondo.users.repository import (
+    UserCondominiumRepository,
+    UserInviteRepository,
+    UserRepository,
+)
 
 INVITE_PAGE = "/convite"
 
@@ -259,3 +267,40 @@ class UserManagementService:
         user.status = new_status
         self._session.commit()
         return user
+
+
+class UserCondominiumService:
+    def __init__(
+        self,
+        session: Session,
+        users: UserRepository,
+        user_condominiums: UserCondominiumRepository,
+    ) -> None:
+        self._session = session
+        self._users = users
+        self._user_condominiums = user_condominiums
+
+    def list_condominiums(self, user_id: uuid.UUID) -> Sequence[Condominium]:
+        self._ensure_is_client(self._users.get_by_id(user_id))
+        return self._user_condominiums.list_condominiums_of(user_id)
+
+    def replace_condominiums(
+        self, user_id: uuid.UUID, condominium_ids: list[uuid.UUID]
+    ) -> Sequence[Condominium]:
+        """Sets the whole list of condominiums of a Client; an empty list unlinks all."""
+        # The row lock serializes simultaneous edits of the same user's links.
+        self._ensure_is_client(self._users.get_by_id_for_update(user_id))
+        wanted = set(condominium_ids)
+        missing = wanted - self._user_condominiums.existing_condominium_ids(wanted)
+        if missing:
+            raise CondominiumNotFoundError(sorted(missing, key=str))
+
+        self._user_condominiums.replace(user_id, wanted)
+        self._session.commit()
+        return self._user_condominiums.list_condominiums_of(user_id)
+
+    def _ensure_is_client(self, user: User | None) -> None:
+        if user is None:
+            raise UserNotFoundError()
+        if user.role != Role.CLIENT:
+            raise TargetNotClientError()

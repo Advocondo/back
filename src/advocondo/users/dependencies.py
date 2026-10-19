@@ -14,10 +14,15 @@ from advocondo.config import Settings, get_settings
 from advocondo.db import get_session
 from advocondo.users.errors import InvalidSetupTokenError, SetupDisabledError
 from advocondo.users.models import Role, User
-from advocondo.users.repository import UserInviteRepository, UserRepository
+from advocondo.users.repository import (
+    UserCondominiumRepository,
+    UserInviteRepository,
+    UserRepository,
+)
 from advocondo.users.service import (
     InviteService,
     ProfileService,
+    UserCondominiumService,
     UserManagementService,
     UserService,
 )
@@ -65,6 +70,14 @@ def get_user_management_service(
     session: Annotated[Session, Depends(get_session)],
 ) -> UserManagementService:
     return UserManagementService(session, UserRepository(session))
+
+
+def get_user_condominium_service(
+    session: Annotated[Session, Depends(get_session)],
+) -> UserCondominiumService:
+    return UserCondominiumService(
+        session, UserRepository(session), UserCondominiumRepository(session)
+    )
 
 
 def require_setup_token(
