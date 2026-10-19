@@ -83,3 +83,17 @@ class UserInvite(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
 
     def is_expired(self, now: datetime) -> bool:
         return now >= self.expires_at
+
+
+class UserCondominium(CreatedAtMixin, Base):
+    """Links a Client user to a condominium they follow (US10). A Client sees only
+    the data of the condominiums linked to them; with no link they see nothing."""
+
+    __tablename__ = "user_condominiums"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    condominium_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("condominiums.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
