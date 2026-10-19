@@ -1,18 +1,27 @@
 import pytest
 from pydantic import ValidationError
 
-from advocondo.condominios.cnpj import is_valid_cnpj
+from advocondo.condominios.cnpj import is_valid_cnpj, normalize_cnpj
 from advocondo.condominios.schemas import (
     CondominiumCreateRequest,
     CondominiumUpdateRequest,
 )
 
 VALID_CNPJ = "14447918000198"
+# Example from the Receita Federal for the alphanumeric CNPJ.
+VALID_ALPHANUMERIC_CNPJ = "12ABC34501DE35"
 
 
 class TestIsValidCnpj:
-    def test_cnpj_with_right_check_digits_is_valid(self) -> None:
-        assert is_valid_cnpj(VALID_CNPJ)
+    @pytest.mark.parametrize(
+        "cnpj",
+        [
+            pytest.param(VALID_CNPJ, id="numeric"),
+            pytest.param(VALID_ALPHANUMERIC_CNPJ, id="alphanumeric"),
+        ],
+    )
+    def test_cnpj_with_right_check_digits_is_valid(self, cnpj: str) -> None:
+        assert is_valid_cnpj(cnpj)
 
     @pytest.mark.parametrize(
         "cnpj",
@@ -20,11 +29,17 @@ class TestIsValidCnpj:
             pytest.param("14447918000199", id="wrong-check-digit"),
             pytest.param("11111111111111", id="all-digits-equal"),
             pytest.param("1444791800019", id="too-short"),
-            pytest.param("1444791800019a", id="not-only-digits"),
+            pytest.param("12ABC34501DE36", id="alphanumeric-wrong-check-digit"),
+            pytest.param("12ABC34501DEA5", id="letter-in-check-digit"),
+            pytest.param("12abc34501de35", id="not-normalized"),
+            pytest.param("12ABC3450*DE35", id="invalid-character"),
         ],
     )
     def test_invalid_cnpj_is_refused(self, cnpj: str) -> None:
         assert not is_valid_cnpj(cnpj)
+
+    def test_mask_is_removed_and_letters_are_uppercased(self) -> None:
+        assert normalize_cnpj(" 12.abc.345/01de-35 ") == VALID_ALPHANUMERIC_CNPJ
 
 
 class TestCondominiumCreateRequest:
