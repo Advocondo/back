@@ -15,7 +15,7 @@ from pydantic import (
 )
 
 from advocondo.common.normalization import keep_only_digits
-from advocondo.condominios.cnpj import is_valid_cnpj
+from advocondo.condominios.cnpj import is_valid_cnpj, normalize_cnpj
 from advocondo.condominios.models import (
     MAX_ADDRESS_PART_LENGTH,
     MAX_EMAIL_LENGTH,
@@ -45,8 +45,8 @@ AddressPart = Annotated[
 ]
 Cnpj = Annotated[
     str,
-    BeforeValidator(keep_only_digits),
-    StringConstraints(pattern=r"^\d{14}$"),
+    BeforeValidator(normalize_cnpj),
+    StringConstraints(pattern=r"^[0-9A-Z]{12}\d{2}$"),
     AfterValidator(check_cnpj_digits),
 ]
 ZipCode = Annotated[

@@ -112,6 +112,16 @@ class TestRegisterCondominium:
             "A data de renovação não pode ser anterior ao início do contrato."
         )
 
+    def test_alphanumeric_cnpj_is_accepted(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        payload = {**MIRANTE, "cnpj": "12.abc.345/01de-35"}
+
+        response = register(db_client, operator_headers, payload)
+
+        assert response.status_code == 201
+        assert response.json()["cnpj"] == "12ABC34501DE35"
+
     def test_invalid_cnpj_is_refused(
         self, db_client: TestClient, operator_headers: dict[str, str]
     ) -> None:
