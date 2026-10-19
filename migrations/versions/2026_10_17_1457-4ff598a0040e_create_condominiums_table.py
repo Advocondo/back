@@ -1,7 +1,7 @@
 """create condominiums table
 
 Revision ID: 4ff598a0040e
-Revises: 0557c13f7116
+Revises: 1ffb2dbe4380
 Create Date: 2026-10-17 14:57:02.546758
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "4ff598a0040e"
-down_revision: str | Sequence[str] | None = "0557c13f7116"
+down_revision: str | Sequence[str] | None = "1ffb2dbe4380"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
