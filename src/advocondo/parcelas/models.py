@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from advocondo.acordos.models import MONEY
 from advocondo.common.models import TimestampsMixin, UuidPrimaryKeyMixin
 from advocondo.db import Base
+from advocondo.parcelas.status import InstallmentStatus, calculate_installment_status
 
 
 class Installment(UuidPrimaryKeyMixin, TimestampsMixin, Base):
@@ -45,3 +46,6 @@ class Installment(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     @property
     def is_paid(self) -> bool:
         return self.payment_date is not None
+
+    def status_on(self, today: date) -> InstallmentStatus:
+        return calculate_installment_status(self.due_date, self.payment_date, today)

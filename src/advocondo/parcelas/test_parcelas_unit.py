@@ -13,12 +13,13 @@ from advocondo.parcelas.plan import (
     split_amount,
     split_fee,
 )
-
 from advocondo.parcelas.status import (
-    InstallmentStatus, 
+    InstallmentStatus,
     calculate_installment_status,
 )
+
 TODAY = date(2026, 10, 15)
+
 
 class TestSplitAmount:
     @pytest.mark.parametrize(
@@ -131,6 +132,8 @@ class TestSplitFee:
             0 <= fee <= amount
             for fee, amount in zip(fees, installment_amounts, strict=True)
         )
+
+
 class TestCalculateInstallmentStatus:
     @pytest.mark.parametrize(
         ("days_until_due", "expected"),
