@@ -1,3 +1,4 @@
+import uuid
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -11,3 +12,13 @@ class GoalRequest(BaseModel):
     target_amount: Decimal = Field(
         gt=0, max_digits=MAX_TARGET_DIGITS, decimal_places=TARGET_DECIMAL_PLACES
     )
+
+
+class GoalResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    user_id: uuid.UUID
+    year: int
+    month: int
+    target_amount: Decimal
