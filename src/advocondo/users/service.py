@@ -16,7 +16,6 @@ from advocondo.condominios.models import Condominium
 from advocondo.users.errors import (
     AdminRoleNotAllowedError,
     CannotDeactivateSelfError,
-    CondominiumNotFoundError,
     CurrentPasswordRequiredError,
     EmailAlreadyInUseError,
     FirstUserAlreadyCreatedError,
@@ -25,6 +24,7 @@ from advocondo.users.errors import (
     OabNumberRequiredError,
     PasswordTooShortError,
     TargetNotClientError,
+    UnknownCondominiumsError,
     UserIsPendingError,
     UserNotFoundError,
     WrongCurrentPasswordError,
@@ -293,7 +293,7 @@ class UserCondominiumService:
         wanted = set(condominium_ids)
         missing = wanted - self._user_condominiums.existing_condominium_ids(wanted)
         if missing:
-            raise CondominiumNotFoundError(sorted(missing, key=str))
+            raise UnknownCondominiumsError(sorted(missing, key=str))
 
         self._user_condominiums.replace(user_id, wanted)
         self._session.commit()

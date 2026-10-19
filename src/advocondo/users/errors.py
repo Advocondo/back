@@ -66,10 +66,10 @@ class UserIsPendingError(BusinessRuleError):
 
 
 class TargetNotClientError(BusinessRuleError):
-    message = "Só é possível vincular condomínios a usuários com perfil Cliente."
+    message = "Somente usuários com perfil Cliente têm condomínios vinculados."
 
 
-class CondominiumNotFoundError(BusinessRuleError):
+class UnknownCondominiumsError(BusinessRuleError):
     def __init__(self, missing_ids: list[uuid.UUID]) -> None:
         listed = ", ".join(str(missing_id) for missing_id in missing_ids)
-        super().__init__(f"Condomínio não encontrado: {listed}.")
+        super().__init__(f"Condomínios inexistentes na lista: {listed}.")

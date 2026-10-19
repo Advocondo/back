@@ -65,7 +65,7 @@ curl http://localhost:8000/health/ready
 
 O login é feito em `POST /auth/login` e as demais rotas recebem o token no cabeçalho `Authorization: Bearer <token>`. Veja [Autenticação](docs/auth.md).
 
-O usuário logado edita o próprio nome, e-mail e senha em `PATCH /users/me`. Veja [Usuários](docs/users.md).
+O usuário logado edita o próprio nome, e-mail e senha em `PATCH /users/me`. O Administrador define os condomínios de cada Cliente em `PUT /users/{id}/condominiums`. Veja [Usuários](docs/users.md).
 
 A equipe do escritório cadastra, busca e edita condomínios em `/condominiums`. Veja [Condomínios](docs/condominios.md).
 

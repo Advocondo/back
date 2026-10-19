@@ -1137,7 +1137,7 @@ class TestLinkClientToCondominiums:
         assert response.status_code == 200
         assert response.json() == [{"id": str(mirante.id), "name": "Mirante"}]
 
-    def test_unknown_condominium_is_refused_without_saving_anything(
+    def test_replace_condominiums_rejects_unknown_condominium_without_saving(
         self,
         db_client: TestClient,
         db_session: Session,
@@ -1178,7 +1178,7 @@ class TestLinkClientToCondominiums:
         get_response = get_condominiums(db_client, headers, target)
 
         expected = {
-            "detail": "Só é possível vincular condomínios a usuários com perfil Cliente."
+            "detail": "Somente usuários com perfil Cliente têm condomínios vinculados."
         }
         assert put_response.status_code == 422
         assert put_response.json() == expected
