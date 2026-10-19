@@ -13,6 +13,7 @@ from advocondo.common.passwords import MIN_PASSWORD_LENGTH, PasswordHasher
 from advocondo.common.tokens import generate_opaque_token, hash_token
 from advocondo.users.errors import (
     AdminRoleNotAllowedError,
+    CannotChangeOwnRoleError,
     CannotDeactivateSelfError,
     CurrentPasswordRequiredError,
     EmailAlreadyInUseError,
@@ -257,5 +258,18 @@ class UserManagementService:
             raise CannotDeactivateSelfError()
 
         user.status = new_status
+        self._session.commit()
+        return user
+
+    def change_role(
+        self, admin: User, target_user_id: uuid.UUID, new_role: Role
+    ) -> User:
+        user = self._users.get_by_id(target_user_id)
+        if user is None:
+            raise UserNotFoundError()
+        if user.id == admin.id and user.role != new_role:
+            raise CannotChangeOwnRoleError()
+
+        user.role = new_role
         self._session.commit()
         return user

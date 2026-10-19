@@ -77,6 +77,12 @@ class AcceptInviteRequest(BaseModel):
     password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
 
 
+class UserRoleUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Role
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

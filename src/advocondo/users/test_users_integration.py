@@ -1,4 +1,5 @@
 import re
+import uuid
 from datetime import timedelta
 from typing import Any
 
@@ -102,6 +103,18 @@ def invite_as_admin(
 ) -> tuple[dict[str, str], User]:
     admin = create_user(role=Role.ADMIN)
     return authenticate_as(admin), admin
+
+
+def change_role(
+    client: TestClient,
+    headers: dict[str, str],
+    user_id: uuid.UUID,
+    role: str,
+) -> httpx.Response:
+    response: httpx.Response = client.patch(
+        f"/users/{user_id}/role", json={"role": role}, headers=headers
+    )
+    return response
 
 
 class TestFirstAdminSetup:
@@ -986,3 +999,153 @@ class TestAcceptInvite:
         body = response.json()
         assert body["is_lawyer"] is True
         assert body["oab_number"] == "123456/SP"
+
+
+class TestChangeUserRole:
+    def test_admin_changes_operator_to_client(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US09-CA01"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="target@example.com", role=Role.OPERATOR)
+
+        response = change_role(db_client, headers, target.id, Role.CLIENT.value)
+
+        assert response.status_code == 200
+        assert response.json()["role"] == Role.CLIENT.value
+
+    def test_admin_changes_client_to_operator(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US09-CA01"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="target@example.com", role=Role.CLIENT)
+
+        response = change_role(db_client, headers, target.id, Role.OPERATOR.value)
+
+        assert response.status_code == 200
+        assert response.json()["role"] == Role.OPERATOR.value
+
+    def test_admin_promotes_operator_to_administrator(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US09-CA01"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="target@example.com", role=Role.OPERATOR)
+
+        response = change_role(db_client, headers, target.id, Role.ADMIN.value)
+
+        assert response.status_code == 200
+        assert response.json()["role"] == Role.ADMIN.value
+
+    @pytest.mark.parametrize(
+        "role",
+        [
+            pytest.param(Role.OPERATOR, id="operator"),
+            pytest.param(Role.CLIENT, id="client"),
+        ],
+    )
+    def test_only_admin_can_change_role(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        role: Role,
+    ) -> None:
+        """US09-CA02"""
+        headers = authenticate_as(create_user(role=role))
+        target = create_user(email="target@example.com", role=Role.OPERATOR)
+
+        response = change_role(db_client, headers, target.id, Role.CLIENT.value)
+
+        assert response.status_code == 403
+        assert response.json() == {
+            "detail": "Você não tem permissão para esta operação."
+        }
+
+    def test_change_role_requires_authentication(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+    ) -> None:
+        """US09-CA02"""
+        target = create_user(email="target@example.com", role=Role.OPERATOR)
+
+        response = db_client.patch(
+            f"/users/{target.id}/role", json={"role": Role.CLIENT.value}
+        )
+
+        assert response.status_code == 401
+
+    def test_admin_cannot_change_own_role(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        admin = create_user(role=Role.ADMIN)
+        headers = authenticate_as(admin)
+
+        response = change_role(db_client, headers, admin.id, Role.OPERATOR.value)
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Você não pode alterar o seu próprio perfil."
+        }
+
+    def test_admin_can_confirm_own_role_without_change(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        admin = create_user(role=Role.ADMIN)
+        headers = authenticate_as(admin)
+
+        response = change_role(db_client, headers, admin.id, Role.ADMIN.value)
+
+        assert response.status_code == 200
+        assert response.json()["role"] == Role.ADMIN.value
+
+    def test_invalid_user_returns_404(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = change_role(db_client, headers, uuid.uuid4(), Role.CLIENT.value)
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Usuário não encontrado."}
+
+    @pytest.mark.parametrize(
+        "invalid_role",
+        [
+            pytest.param("superadmin", id="unknown-role"),
+            pytest.param("", id="empty"),
+        ],
+    )
+    def test_invalid_role_payload_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        invalid_role: str,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="target@example.com", role=Role.OPERATOR)
+
+        response = change_role(db_client, headers, target.id, invalid_role)
+
+        assert response.status_code == 422

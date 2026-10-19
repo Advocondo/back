@@ -18,6 +18,7 @@ from advocondo.users.schemas import (
     InviteUserRequest,
     ProfileUpdateRequest,
     UserResponse,
+    UserRoleUpdateRequest,
     UserStatusUpdateRequest,
 )
 from advocondo.users.service import (
@@ -108,4 +109,17 @@ def change_user_status(
     ],
 ) -> UserResponse:
     user = user_management.change_status(current_admin, user_id, request.status)
+    return UserResponse.model_validate(user)
+
+
+@router.patch("/users/{user_id}/role", tags=["users"])
+def change_user_role(
+    user_id: uuid.UUID,
+    request: UserRoleUpdateRequest,
+    current_admin: CurrentAdmin,
+    user_management: Annotated[
+        UserManagementService, Depends(get_user_management_service)
+    ],
+) -> UserResponse:
+    user = user_management.change_role(current_admin, user_id, request.role)
     return UserResponse.model_validate(user)
