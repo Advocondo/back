@@ -5,7 +5,8 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from advocondo.acordos.schemas import MoneyAmount, MoneyResponse
-from advocondo.parcelas.models import Installment, InstallmentStatus
+from advocondo.parcelas.models import Installment
+from advocondo.parcelas.status import InstallmentStatus
 
 
 class InstallmentResponse(BaseModel):

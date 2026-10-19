@@ -1,5 +1,3 @@
-"""Regra pura da situação da parcela, calculada a partir das datas (US27)."""
-
 import enum
 from datetime import date
 
