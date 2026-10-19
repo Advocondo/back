@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, status
 from advocondo.auth.dependencies import CurrentSession
 from advocondo.users.dependencies import (
     CurrentAdmin,
+    get_audit_service,
     get_invite_service,
     get_profile_service,
     get_user_management_service,
@@ -17,11 +18,14 @@ from advocondo.users.schemas import (
     FirstAdminRequest,
     InviteUserRequest,
     ProfileUpdateRequest,
+    UserAuditLogListResponse,
+    UserAuditLogResponse,
     UserResponse,
     UserRoleUpdateRequest,
     UserStatusUpdateRequest,
 )
 from advocondo.users.service import (
+    AuditService,
     InviteDetails,
     InviteService,
     ProfileChanges,
@@ -123,3 +127,15 @@ def change_user_role(
 ) -> UserResponse:
     user = user_management.change_role(current_admin, user_id, request.role)
     return UserResponse.model_validate(user)
+
+
+@router.get("/users/{user_id}/history", tags=["users"])
+def get_user_history(
+    user_id: uuid.UUID,
+    current_admin: CurrentAdmin,
+    audit_service: Annotated[AuditService, Depends(get_audit_service)],
+) -> UserAuditLogListResponse:
+    logs = audit_service.list_user_history(user_id)
+    return UserAuditLogListResponse(
+        logs=[UserAuditLogResponse.model_validate(log) for log in logs]
+    )
