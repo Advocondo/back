@@ -1,18 +1,19 @@
+"""Regra pura da situação da parcela, calculada a partir das datas (US27)."""
 import enum
 from datetime import date
 
 
-class ParcelaStatus(enum.StrEnum):
+class InstallmentStatus(enum.StrEnum):
     """Situação da parcela exibida ao usuário. É calculada, nunca gravada."""
 
-    EM_ABERTO = "em_aberto"
-    PAGO = "pago"
-    ATRASADO = "atrasado"
+    OPEN = "open"
+    PAID = "paid"
+    OVERDUE = "overdue"
 
 
-def calculate_parcela_status(
+def calculate_installment_status(
     due_date: date, payment_date: date | None, today: date
-) -> ParcelaStatus:
+) -> InstallmentStatus:
     """Devolve a situação da parcela na data `today`.
 
     Parcela com data de pagamento está paga, mesmo que o pagamento tenha sido
@@ -20,9 +21,9 @@ def calculate_parcela_status(
     no dia seguinte ao vencimento.
     """
     if payment_date is not None:
-        return ParcelaStatus.PAGO
+        return InstallmentStatus.PAID
 
     if today > due_date:
-        return ParcelaStatus.ATRASADO
+        return InstallmentStatus.OVERDUE
 
-    return ParcelaStatus.EM_ABERTO
+    return InstallmentStatus.OPEN
