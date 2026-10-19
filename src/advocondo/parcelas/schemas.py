@@ -29,7 +29,7 @@ class InstallmentResponse(BaseModel):
             number=installment.number,
             due_date=installment.due_date,
             amount=installment.amount,
-            condominium_amount=installment.condominium_amount,  
+            condominium_amount=installment.condominium_amount,
             fee_amount=installment.fee_amount,
             payment_date=installment.payment_date,
             status=installment.status_on(today),

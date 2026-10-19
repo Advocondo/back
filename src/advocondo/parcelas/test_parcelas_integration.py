@@ -6,10 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from advocondo.common.clock import today_in_brazil
 from advocondo.condominios.models import Condominium
 from advocondo.parcelas.models import Installment
 from advocondo.users.models import Role
-from advocondo.common.clock import today_in_brazil
 from tests.fixtures.auth import AuthenticateAs
 from tests.fixtures.condominios import CreateCondominium
 from tests.fixtures.devedores import CreateDebtor
@@ -237,6 +237,8 @@ class TestUpdateInstallment:
         )
 
         assert response.status_code == 404
+
+
 class TestInstallmentStatus:
     def test_status_is_calculated_from_the_dates(
         self,
@@ -266,25 +268,25 @@ class TestInstallmentStatus:
         ]
 
     def test_installment_becomes_overdue_the_day_after_its_due_date(
-            self,
-            db_client: TestClient,
-            create_user: CreateUser,
-            authenticate_as: AuthenticateAs,
-            register_agreement: RegisterAgreement,
-            clock: FrozenClock,
-        ) -> None:
-            """US27-CA01: sem job, o status muda sozinho com o passar dos dias."""
-            user = create_user(email="operator_overdue@advocondo.test", role=Role.OPERATOR)
-            operator_headers = authenticate_as(user)
-            
-            today = today_in_brazil(clock.now())
-            agreement_id = register_agreement("100.00", 1, today.isoformat())
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        register_agreement: RegisterAgreement,
+        clock: FrozenClock,
+    ) -> None:
+        """US27-CA01: sem job, o status muda sozinho com o passar dos dias."""
+        user = create_user(email="operator_overdue@advocondo.test", role=Role.OPERATOR)
+        operator_headers = authenticate_as(user)
 
-            on_due_date = get_plan(db_client, operator_headers, agreement_id)[0]["status"]
-            clock.advance(timedelta(days=1))
-            operator_headers = authenticate_as(user)
-            
-            next_day = get_plan(db_client, operator_headers, agreement_id)[0]["status"]
+        today = today_in_brazil(clock.now())
+        agreement_id = register_agreement("100.00", 1, today.isoformat())
 
-            assert on_due_date == "open"
-            assert next_day == "overdue"
+        on_due_date = get_plan(db_client, operator_headers, agreement_id)[0]["status"]
+        clock.advance(timedelta(days=1))
+        operator_headers = authenticate_as(user)
+
+        next_day = get_plan(db_client, operator_headers, agreement_id)[0]["status"]
+
+        assert on_due_date == "open"
+        assert next_day == "overdue"
