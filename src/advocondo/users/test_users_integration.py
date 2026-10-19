@@ -1,3 +1,5 @@
+import re
+from datetime import timedelta
 from typing import Any
 
 import httpx
@@ -8,16 +10,21 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from advocondo.common.passwords import MAX_PASSWORD_LENGTH
+from advocondo.common.tokens import hash_token
 from advocondo.config import Settings, get_settings
 from advocondo.main import app
-from advocondo.users.models import Role, User, UserStatus
+from advocondo.users.models import Role, User, UserInvite, UserStatus
 from tests.fixtures.auth import AuthenticateAs
 from tests.fixtures.users import DEFAULT_PASSWORD, CreateUser
+from tests.support.clock import FrozenClock
+from tests.support.email import Outbox
 from tests.support.settings import make_settings
 
 PASSWORD = "senha-do-admin"
 SETUP_TOKEN = "token-de-configuracao-usado-so-nos-testes"  # gitleaks:allow
 FIRST_ADMIN = {"email": "Ana@Example.com", "name": "Ana Souza", "password": PASSWORD}
+NEW_PASSWORD = "nova-senha-segura"  # gitleaks:allow (test-only password)
+INVITE_PASSWORD = "senha-do-convidado"  # gitleaks:allow (test-only password)
 
 
 def set_up(
@@ -33,9 +40,6 @@ def set_up(
 
 def count_users(session: Session) -> int:
     return session.scalar(select(func.count()).select_from(User)) or 0
-
-
-NEW_PASSWORD = "nova-senha-segura"  # gitleaks:allow (test-only password)
 
 
 def update_profile(
@@ -61,6 +65,43 @@ def build_user(**overrides: Any) -> User:
         "password_hash": "hash",
     }
     return User(**(fields | overrides))
+
+
+def invite_user(
+    client: TestClient, headers: dict[str, str], **overrides: Any
+) -> httpx.Response:
+    body: dict[str, Any] = {
+        "email": "novo@example.com",
+        "name": "Novo Colaborador",
+        "role": Role.OPERATOR.value,
+    }
+    body.update(overrides)
+    response: httpx.Response = client.post("/users/invites", json=body, headers=headers)
+    return response
+
+
+def accept_invite(
+    client: TestClient, token: str, password: str = INVITE_PASSWORD
+) -> httpx.Response:
+    response: httpx.Response = client.post(
+        "/users/invites/accept", json={"token": token, "password": password}
+    )
+    return response
+
+
+def extract_token(body: str) -> str:
+    match = re.search(r"[?&]token=([A-Za-z0-9_\-]+)", body)
+    assert match is not None, "e-mail de convite não contém token"
+    return match.group(1)
+
+
+def invite_as_admin(
+    client: TestClient,
+    create_user: CreateUser,
+    authenticate_as: AuthenticateAs,
+) -> tuple[dict[str, str], User]:
+    admin = create_user(role=Role.ADMIN)
+    return authenticate_as(admin), admin
 
 
 class TestFirstAdminSetup:
@@ -220,6 +261,22 @@ class TestUserModel:
         db_session.flush()
 
         assert db_session.scalar(select(User.status)) == status
+
+    def test_lawyer_must_have_an_oab_number(self, db_session: Session) -> None:
+        db_session.add(build_user(is_lawyer=True, oab_number=None))
+
+        with pytest.raises(
+            IntegrityError, match="ck_users_lawyer_has_valid_oab_number"
+        ):
+            db_session.flush()
+
+    def test_non_lawyer_cannot_have_an_oab_number(self, db_session: Session) -> None:
+        db_session.add(build_user(is_lawyer=False, oab_number="123456/SP"))
+
+        with pytest.raises(
+            IntegrityError, match="ck_users_lawyer_has_valid_oab_number"
+        ):
+            db_session.flush()
 
 
 class TestEditProfile:
@@ -515,3 +572,417 @@ class TestEditProfile:
         response = db_client.patch("/users/me", json={"name": "Ana Lima"})
 
         assert response.status_code == 401
+
+
+class TestInviteUser:
+    def test_admin_can_invite_an_operator(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US07-CA01"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = invite_user(db_client, headers)
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["email"] == "novo@example.com"
+        assert body["name"] == "Novo Colaborador"
+        assert body["role"] == Role.OPERATOR.value
+        assert body["status"] == UserStatus.PENDING.value
+        assert body["is_lawyer"] is False
+        assert body["oab_number"] is None
+
+    def test_admin_can_invite_a_client(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US07-CA01"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = invite_user(db_client, headers, role=Role.CLIENT.value)
+
+        assert response.status_code == 201
+        assert response.json()["role"] == Role.CLIENT.value
+
+    def test_invited_user_is_stored_as_pending(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US07-CA01"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        invite_user(db_client, headers)
+
+        user = db_session.scalar(select(User).where(User.email == "novo@example.com"))
+        assert user is not None
+        assert user.status == UserStatus.PENDING
+        assert user.password_hash is None
+
+    def test_invite_sends_email_with_token(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        outbox: Outbox,
+    ) -> None:
+        """US07-CA03"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        invite_user(db_client, headers)
+
+        assert len(outbox.messages) == 1
+        message = outbox.messages[0]
+        assert message.to == "novo@example.com"
+        token = extract_token(message.body)
+        invite = db_session.scalar(select(UserInvite))
+        assert invite is not None
+        assert invite.token_hash == hash_token(token)
+
+    def test_invite_records_who_invited(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, admin = invite_as_admin(db_client, create_user, authenticate_as)
+
+        invite_user(db_client, headers)
+
+        invite = db_session.scalar(select(UserInvite))
+        assert invite is not None
+        assert invite.invited_by_id == admin.id
+
+    def test_invite_requires_authentication(self, db_client: TestClient) -> None:
+        """US07-CA02"""
+        response = db_client.post(
+            "/users/invites",
+            json={
+                "email": "novo@example.com",
+                "name": "Novo Colaborador",
+                "role": Role.OPERATOR.value,
+            },
+        )
+
+        assert response.status_code == 401
+
+    @pytest.mark.parametrize(
+        "role",
+        [
+            pytest.param(Role.OPERATOR, id="operator"),
+            pytest.param(Role.CLIENT, id="client"),
+        ],
+    )
+    def test_only_admin_can_invite(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        role: Role,
+    ) -> None:
+        """US07-CA02"""
+        headers = authenticate_as(create_user(role=role))
+
+        response = invite_user(db_client, headers)
+
+        assert response.status_code == 403
+        assert response.json() == {
+            "detail": "Você não tem permissão para esta operação."
+        }
+
+    def test_cannot_invite_another_admin(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = invite_user(db_client, headers, role=Role.ADMIN.value)
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Não é possível convidar outro Administrador."
+        }
+
+    def test_email_must_be_unique(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US07-CA03"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        create_user(email="novo@example.com")
+
+        response = invite_user(db_client, headers)
+
+        assert response.status_code == 409
+        assert response.json() == {
+            "detail": "Este e-mail já está em uso por outro usuário."
+        }
+
+    def test_email_case_is_ignored_when_checking_duplicates(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US07-CA03"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        create_user(email="novo@example.com")
+
+        response = invite_user(db_client, headers, email="NOVO@example.com")
+
+        assert response.status_code == 409
+
+    def test_lawyer_invitation_stores_the_oab_number(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US07-CA04"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = invite_user(
+            db_client, headers, is_lawyer=True, oab_number="123456/SP"
+        )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["is_lawyer"] is True
+        assert body["oab_number"] == "123456/SP"
+
+    def test_lawyer_marking_is_independent_of_the_role(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US07-CA04"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = invite_user(
+            db_client,
+            headers,
+            role=Role.OPERATOR.value,
+            is_lawyer=True,
+            oab_number="123456/SP",
+        )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["role"] == Role.OPERATOR.value
+        assert body["is_lawyer"] is True
+
+    def test_lawyer_without_the_oab_number_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US07-CA04"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = invite_user(db_client, headers, is_lawyer=True)
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Informe o número da OAB para marcar o usuário como advogado."
+        }
+
+    @pytest.mark.parametrize(
+        ("oab_number", "error_type"),
+        [
+            pytest.param("1234567", "string_too_short", id="too-short"),
+            pytest.param("1234567890123", "string_too_long", id="too-long"),
+        ],
+    )
+    def test_lawyer_with_invalid_oab_number_length_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        oab_number: str,
+        error_type: str,
+    ) -> None:
+        """US07-CA04"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = invite_user(
+            db_client, headers, is_lawyer=True, oab_number=oab_number
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["type"] == error_type
+
+    def test_non_lawyer_with_the_oab_number_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US07-CA04"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = invite_user(db_client, headers, oab_number="123456/SP")
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "O número da OAB só pode ser informado para advogados."
+        }
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param({"email": "sem-arroba"}, id="bad-email"),
+            pytest.param({"email": ""}, id="empty-email"),
+            pytest.param({"name": "   "}, id="blank-name"),
+            pytest.param({"role": "invalid"}, id="bad-role"),
+        ],
+    )
+    def test_invalid_payload_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        payload: dict[str, str],
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = invite_user(db_client, headers, **payload)
+
+        assert response.status_code == 422
+
+
+class TestAcceptInvite:
+    def _invite(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        outbox: Outbox,
+        **payload: Any,
+    ) -> str:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        invite_user(db_client, headers, **payload)
+        assert len(outbox.messages) == 1
+        return extract_token(outbox.messages[0].body)
+
+    def test_invited_user_can_accept_and_log_in(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        outbox: Outbox,
+    ) -> None:
+        """US07-CA01"""
+        token = self._invite(db_client, create_user, authenticate_as, outbox)
+
+        response = accept_invite(db_client, token)
+
+        assert response.status_code == 200
+        assert response.json()["status"] == UserStatus.ACTIVE.value
+        assert log_in(db_client, "novo@example.com", INVITE_PASSWORD) == 200
+
+    def test_accepting_the_invite_deletes_the_invite_row(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        outbox: Outbox,
+    ) -> None:
+        token = self._invite(db_client, create_user, authenticate_as, outbox)
+
+        accept_invite(db_client, token)
+
+        assert db_session.scalar(select(UserInvite)) is None
+
+    def test_accepting_the_same_invite_twice_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        outbox: Outbox,
+    ) -> None:
+        token = self._invite(db_client, create_user, authenticate_as, outbox)
+        accept_invite(db_client, token)
+
+        response = accept_invite(db_client, token)
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "O convite é inválido ou já expirou."}
+
+    def test_invalid_token_is_refused(self, db_client: TestClient) -> None:
+        response = accept_invite(db_client, "token-que-nao-existe")
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "O convite é inválido ou já expirou."}
+
+    def test_expired_invite_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        outbox: Outbox,
+        clock: FrozenClock,
+    ) -> None:
+        token = self._invite(db_client, create_user, authenticate_as, outbox)
+        clock.advance(timedelta(days=2))
+
+        response = accept_invite(db_client, token)
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "O convite é inválido ou já expirou."}
+
+    def test_short_password_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        outbox: Outbox,
+    ) -> None:
+        token = self._invite(db_client, create_user, authenticate_as, outbox)
+
+        response = accept_invite(db_client, token, password="curta")
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "A senha precisa ter pelo menos 8 caracteres."
+        }
+
+    def test_lawyer_information_survives_the_acceptance(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        outbox: Outbox,
+    ) -> None:
+        """US07-CA04"""
+        token = self._invite(
+            db_client,
+            create_user,
+            authenticate_as,
+            outbox,
+            is_lawyer=True,
+            oab_number="123456/SP",
+        )
+
+        response = accept_invite(db_client, token)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["is_lawyer"] is True
+        assert body["oab_number"] == "123456/SP"
