@@ -20,6 +20,7 @@ from advocondo.condominios.models import (
     MAX_ADDRESS_PART_LENGTH,
     MAX_EMAIL_LENGTH,
     MAX_NAME_LENGTH,
+    Condominium,
 )
 
 
@@ -76,6 +77,8 @@ class CondominiumFields(BaseModel):
     manager_phone: Phone | None = None
     contract_start_date: date | None = None
     contract_renewal_date: date | None = None
+    # Preenchido por from_condominium, que sabe qual é a data de hoje.
+    near_renewal: bool = False
 
 
 class CondominiumCreateRequest(CondominiumFields):
@@ -117,3 +120,9 @@ class CondominiumResponse(BaseModel):
     manager_phone: str | None
     contract_start_date: date | None
     contract_renewal_date: date | None
+
+    @classmethod
+    def from_condominium(cls, condominium: Condominium, today: date) -> Self:
+        return cls.model_validate(condominium).model_copy(
+            update={"near_renewal": condominium.is_near_renewal(today)}
+        )

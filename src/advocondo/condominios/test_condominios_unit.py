@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+
 import pytest
 from pydantic import ValidationError
 
@@ -13,7 +14,6 @@ VALID_CNPJ = "14447918000198"
 # Example from the Receita Federal for the alphanumeric CNPJ.
 VALID_ALPHANUMERIC_CNPJ = "12ABC34501DE35"
 TODAY = date(2026, 10, 15)
-
 
 
 class TestIsValidCnpj:
@@ -98,6 +98,7 @@ class TestCondominiumUpdateRequest:
     def test_invalid_update_is_refused(self, fields: dict[str, object]) -> None:
         with pytest.raises(ValidationError):
             CondominiumUpdateRequest.model_validate(fields)
+
 
 class TestIsNearRenewal:
     @pytest.mark.parametrize(

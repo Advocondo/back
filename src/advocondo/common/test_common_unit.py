@@ -222,12 +222,16 @@ class TestEmail:
         monkeypatch.setattr(email_module, "get_settings", make_settings)
 
         assert isinstance(email_module.get_email_sender(), LogEmailSender)
+
+
 class TestTodayInBrazil:
     @pytest.mark.parametrize(
         ("moment", "expected"),
         [
             pytest.param(
-                datetime(2026, 10, 15, 12, 0, tzinfo=UTC), date(2026, 10, 15), id="midday"
+                datetime(2026, 10, 15, 12, 0, tzinfo=UTC),
+                date(2026, 10, 15),
+                id="midday",
             ),
             pytest.param(
                 datetime(2026, 10, 15, 3, 0, tzinfo=UTC),
