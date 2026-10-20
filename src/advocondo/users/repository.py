@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import delete, exists, select
 from sqlalchemy.orm import Session
 
-from advocondo.users.models import User, UserInvite
+from advocondo.users.models import User, UserAuditLog, UserInvite
 
 
 class UserRepository:
@@ -42,3 +42,21 @@ class UserInviteRepository:
 
     def delete_all_of_user(self, user_id: uuid.UUID) -> None:
         self._session.execute(delete(UserInvite).where(UserInvite.user_id == user_id))
+
+
+class UserAuditLogRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, log: UserAuditLog) -> None:
+        self._session.add(log)
+        self._session.flush()
+
+    def list_by_user(self, user_id: uuid.UUID) -> list[UserAuditLog]:
+        return list(
+            self._session.scalars(
+                select(UserAuditLog)
+                .where(UserAuditLog.user_id == user_id)
+                .order_by(UserAuditLog.created_at.desc())
+            ).all()
+        )

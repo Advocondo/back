@@ -1,3 +1,4 @@
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -13,6 +14,7 @@ from advocondo.common.passwords import MIN_PASSWORD_LENGTH, PasswordHasher
 from advocondo.common.tokens import generate_opaque_token, hash_token
 from advocondo.users.errors import (
     AdminRoleNotAllowedError,
+    CannotChangeOwnRoleError,
     CannotDeactivateSelfError,
     CurrentPasswordRequiredError,
     EmailAlreadyInUseError,
@@ -25,10 +27,22 @@ from advocondo.users.errors import (
     UserNotFoundError,
     WrongCurrentPasswordError,
 )
-from advocondo.users.models import Role, User, UserInvite, UserStatus
-from advocondo.users.repository import UserInviteRepository, UserRepository
+from advocondo.users.models import (
+    AuditAction,
+    Role,
+    User,
+    UserAuditLog,
+    UserInvite,
+    UserStatus,
+)
+from advocondo.users.repository import (
+    UserAuditLogRepository,
+    UserInviteRepository,
+    UserRepository,
+)
 
 INVITE_PAGE = "/convite"
+logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -139,6 +153,7 @@ class InviteService:
         session: Session,
         users: UserRepository,
         invites: UserInviteRepository,
+        audit_logs: UserAuditLogRepository,
         password_hasher: PasswordHasher,
         email_sender: EmailSender,
         clock: Clock,
@@ -148,6 +163,7 @@ class InviteService:
         self._session = session
         self._users = users
         self._invites = invites
+        self._audit_logs = audit_logs
         self._password_hasher = password_hasher
         self._email_sender = email_sender
         self._clock = clock
@@ -181,6 +197,16 @@ class InviteService:
             expires_at=self._clock.now() + self._invite_link_duration,
         )
         self._invites.add(invite)
+
+        log = UserAuditLog(
+            user=invited,
+            actor=invited_by,
+            action=AuditAction.INVITED,
+            old_value=None,
+            new_value=invited.role.value,
+        )
+        self._audit_logs.add(log)
+
         self._session.commit()
 
         self._send_invite_email(invited, token)
@@ -215,11 +241,7 @@ class InviteService:
         try:
             self._email_sender.send(message)
         except Exception:
-            # O convite já está no banco; a falha de e-mail não pode derrubar a
-            # requisição. Vai para o log e para o Sentry (US07 não define retry).
-            import logging
-
-            logging.getLogger(__name__).exception("Falha ao enviar o e-mail de convite")
+            logger.exception("Falha ao enviar o e-mail de convite")
 
     def _invite_url(self, token: str) -> str:
         base_url = self._frontend_url.rstrip("/")
@@ -241,9 +263,15 @@ def build_invite_email(
 
 
 class UserManagementService:
-    def __init__(self, session: Session, users: UserRepository) -> None:
+    def __init__(
+        self,
+        session: Session,
+        users: UserRepository,
+        audit_logs: UserAuditLogRepository,
+    ) -> None:
         self._session = session
         self._users = users
+        self._audit_logs = audit_logs
 
     def change_status(
         self, admin: User, target_user_id: uuid.UUID, new_status: UserStatus
@@ -256,6 +284,59 @@ class UserManagementService:
         if user.id == admin.id and new_status == UserStatus.INACTIVE:
             raise CannotDeactivateSelfError()
 
+        old_status = user.status
         user.status = new_status
+
+        if old_status != new_status:
+            log = UserAuditLog(
+                user=user,
+                actor=admin,
+                action=AuditAction.STATUS_CHANGED,
+                old_value=old_status.value,
+                new_value=new_status.value,
+            )
+            self._audit_logs.add(log)
+
         self._session.commit()
         return user
+
+    def change_role(
+        self, admin: User, target_user_id: uuid.UUID, new_role: Role
+    ) -> User:
+        user = self._users.get_by_id(target_user_id)
+        if user is None:
+            raise UserNotFoundError()
+        if user.id == admin.id and user.role != new_role:
+            raise CannotChangeOwnRoleError()
+
+        old_role = user.role
+        user.role = new_role
+
+        if old_role != new_role:
+            log = UserAuditLog(
+                user=user,
+                actor=admin,
+                action=AuditAction.ROLE_CHANGED,
+                old_value=old_role.value,
+                new_value=new_role.value,
+            )
+            self._audit_logs.add(log)
+
+        self._session.commit()
+        return user
+
+
+class AuditService:
+    def __init__(
+        self,
+        users: UserRepository,
+        audit_logs: UserAuditLogRepository,
+    ) -> None:
+        self._users = users
+        self._audit_logs = audit_logs
+
+    def list_user_history(self, user_id: uuid.UUID) -> list[UserAuditLog]:
+        user = self._users.get_by_id(user_id)
+        if user is None:
+            raise UserNotFoundError()
+        return self._audit_logs.list_by_user(user_id)
