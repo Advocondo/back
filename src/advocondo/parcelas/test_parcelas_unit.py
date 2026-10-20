@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -13,6 +13,12 @@ from advocondo.parcelas.plan import (
     split_amount,
     split_fee,
 )
+from advocondo.parcelas.status import (
+    InstallmentStatus,
+    calculate_installment_status,
+)
+
+TODAY = date(2026, 10, 15)
 
 
 class TestSplitAmount:
@@ -126,3 +132,43 @@ class TestSplitFee:
             0 <= fee <= amount
             for fee, amount in zip(fees, installment_amounts, strict=True)
         )
+
+
+class TestCalculateInstallmentStatus:
+    @pytest.mark.parametrize(
+        ("days_until_due", "expected"),
+        [
+            pytest.param(5, InstallmentStatus.OPEN, id="due-in-a-few-days"),
+            pytest.param(0, InstallmentStatus.OPEN, id="due-today-not-overdue-yet"),
+            pytest.param(-1, InstallmentStatus.OVERDUE, id="due-yesterday"),
+            pytest.param(-300, InstallmentStatus.OVERDUE, id="due-long-ago"),
+        ],
+    )
+    def test_unpaid_installment_is_overdue_only_after_the_due_date(
+        self, days_until_due: int, expected: InstallmentStatus
+    ) -> None:
+        """US27-CA01"""
+        due_date = TODAY + timedelta(days=days_until_due)
+
+        status = calculate_installment_status(due_date, payment_date=None, today=TODAY)
+
+        assert status == expected
+
+    @pytest.mark.parametrize(
+        ("days_until_due", "days_until_payment"),
+        [
+            pytest.param(5, -5, id="paid-before-the-due-date"),
+            pytest.param(0, 0, id="paid-on-the-due-date"),
+            pytest.param(-35, -14, id="paid-late-stays-paid"),
+        ],
+    )
+    def test_paid_installment_is_never_overdue(
+        self, days_until_due: int, days_until_payment: int
+    ) -> None:
+        """US27-CA01"""
+        due_date = TODAY + timedelta(days=days_until_due)
+        payment_date = TODAY + timedelta(days=days_until_payment)
+
+        status = calculate_installment_status(due_date, payment_date, today=TODAY)
+
+        assert status == InstallmentStatus.PAID

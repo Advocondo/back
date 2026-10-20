@@ -15,6 +15,16 @@ As parcelas são geradas junto com o acordo, em `POST /agreements`, a partir de 
 
 Cada parcela tem `number` (1, 2, 3…), `due_date`, `amount` e `payment_date`, que fica vazia até a baixa ([US26](https://advocondo.github.io/docs/historias/ep04-parcelas/#us26)). A situação "Em aberto", "Pago" ou "Atrasado" é calculada a partir dessas datas ([US27](https://advocondo.github.io/docs/historias/ep04-parcelas/#us27)), nunca gravada.
 
+## Situação da parcela (US27)
+
+Cada parcela traz `status`, calculado a cada consulta a partir de `due_date`, `payment_date` e da data de hoje no Brasil. Nada é gravado, então o status nunca fica desatualizado.
+
+| `status` | Quando |
+| --- | --- |
+| `paid` | A parcela tem `payment_date`, mesmo que o pagamento tenha sido depois do vencimento. |
+| `open` | Sem `payment_date` e com vencimento hoje ou no futuro. |
+| `overdue` | Sem `payment_date` e com vencimento anterior a hoje: atrasa no dia seguinte ao vencimento. |
+
 ## Rotas
 
 ### `GET /agreements/{id}/installments`
@@ -23,7 +33,7 @@ Devolve as parcelas do acordo, em ordem:
 
 ```json
 [
-  {"id": "…", "agreement_id": "…", "number": 1, "due_date": "2026-01-31", "amount": "33.33", "condominium_amount": "30.00", "fee_amount": "3.33", "payment_date": null}
+  {"id": "…", "agreement_id": "…", "number": 1, "due_date": "2026-01-31", "amount": "33.33", "condominium_amount": "30.00", "fee_amount": "3.33", "payment_date": null, "status": "open"}
 ]
 ```
 
