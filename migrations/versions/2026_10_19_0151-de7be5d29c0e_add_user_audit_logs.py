@@ -1,7 +1,7 @@
 """add user audit logs
 
 Revision ID: de7be5d29c0e
-Revises: 1ffb2dbe4380
+Revises: 7328a7cea479
 Create Date: 2026-10-19 01:51:00.000000
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "de7be5d29c0e"
-down_revision: str | Sequence[str] | None = "1ffb2dbe4380"
+down_revision: str | Sequence[str] | None = "7328a7cea479"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
