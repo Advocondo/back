@@ -1,11 +1,12 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, model_validator
 
 from advocondo.acordos.models import AgreementStatus
+from advocondo.users.schemas import LawyerResponse
 
 MAX_INSTALLMENTS = 120
 
@@ -63,6 +64,29 @@ class DebtorSummary(BaseModel):
     unit: str
 
 
+class UserSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+
+
+class LawyerAssignmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lawyer_id: uuid.UUID
+
+
+class LawyerAssignmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    previous_lawyer: LawyerResponse | None
+    new_lawyer: LawyerResponse
+    assigned_by: UserSummary
+    assigned_at: datetime
+
+
 class AgreementResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -74,3 +98,4 @@ class AgreementResponse(BaseModel):
     installment_count: int
     condominium: CondominiumSummary
     debtor: DebtorSummary
+    responsible_lawyer: LawyerResponse | None

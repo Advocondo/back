@@ -15,6 +15,7 @@ class AgreementFilters:
     status: AgreementStatus | None = None
     condominium_id: uuid.UUID | None = None
     debtor_id: uuid.UUID | None = None
+    responsible_lawyer_id: uuid.UUID | None = None
 
 
 class AgreementRepository:
@@ -35,6 +36,10 @@ class AgreementRepository:
             query = query.where(Agreement.condominium_id == filters.condominium_id)
         if filters.debtor_id is not None:
             query = query.where(Agreement.debtor_id == filters.debtor_id)
+        if filters.responsible_lawyer_id is not None:
+            query = query.where(
+                Agreement.responsible_lawyer_id == filters.responsible_lawyer_id
+            )
         return self._session.scalars(query.limit(limit).offset(offset)).all()
 
     def save(self, agreement: Agreement) -> None:

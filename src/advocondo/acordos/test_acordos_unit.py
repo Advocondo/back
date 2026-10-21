@@ -1,14 +1,37 @@
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
 from advocondo.acordos.fees import fee_from_percentage
+from advocondo.acordos.lawyer_assignment import (
+    LawyerNotEligibleError,
+    ensure_can_be_responsible,
+)
+from advocondo.acordos.models import Agreement
 from advocondo.acordos.schemas import AgreementCreateRequest
+from advocondo.users.models import Role, User, UserStatus
 
 IDS = {"condominium_id": str(uuid.uuid4()), "debtor_id": str(uuid.uuid4())}
 PLAN = {"installment_count": 10, "first_due_date": "2026-01-31", "fee_percentage": "10"}
+
+NOW = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
+
+
+def make_user(name: str, **fields: Any) -> User:
+    defaults: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "email": f"{name.lower()}@example.com",
+        "name": name,
+        "role": Role.OPERATOR,
+        "status": UserStatus.ACTIVE,
+        "is_lawyer": True,
+        "oab_number": "123456/DF",
+    }
+    return User(**{**defaults, **fields})
 
 
 class TestAgreementCreateRequest:
@@ -85,3 +108,68 @@ class TestFee:
             AgreementCreateRequest.model_validate(
                 {**IDS, **plan, "total_amount": "100", **fee}
             )
+
+
+class TestAssignLawyer:
+    def test_first_assignment_has_no_previous_lawyer(self) -> None:
+        """US18-CA01"""
+        agreement = Agreement()
+        marina, beto = make_user("Marina"), make_user("Beto")
+
+        changed = agreement.assign_lawyer(marina, assigned_by=beto, now=NOW)
+
+        assert changed is True
+        assert agreement.responsible_lawyer is marina
+        assert [
+            (a.previous_lawyer, a.new_lawyer) for a in agreement.lawyer_assignments
+        ] == [(None, marina)]
+
+    def test_reassigning_keeps_who_was_before_and_who_is_now(self) -> None:
+        """US18-CA02"""
+        agreement = Agreement()
+        marina, rui, beto = make_user("Marina"), make_user("Rui"), make_user("Beto")
+
+        agreement.assign_lawyer(marina, assigned_by=beto, now=NOW)
+        agreement.assign_lawyer(rui, assigned_by=beto, now=NOW)
+
+        assert agreement.responsible_lawyer is rui
+        assert [
+            (a.previous_lawyer, a.new_lawyer) for a in agreement.lawyer_assignments
+        ] == [
+            (None, marina),
+            (marina, rui),
+        ]
+
+    def test_assigning_the_same_lawyer_changes_nothing(self) -> None:
+        """US18-CA02"""
+        agreement = Agreement()
+        marina, beto = make_user("Marina"), make_user("Beto")
+        agreement.assign_lawyer(marina, assigned_by=beto, now=NOW)
+
+        changed = agreement.assign_lawyer(marina, assigned_by=beto, now=NOW)
+
+        assert changed is False
+        assert len(agreement.lawyer_assignments) == 1
+
+
+class TestEnsureCanBeResponsible:
+    def test_active_lawyer_can_be_responsible(self) -> None:
+        """US18-CA01"""
+        ensure_can_be_responsible(make_user("Marina"))
+
+    @pytest.mark.parametrize(
+        ("is_lawyer", "status"),
+        [
+            pytest.param(False, UserStatus.ACTIVE, id="not-a-lawyer"),
+            pytest.param(True, UserStatus.PENDING, id="pending-lawyer"),
+            pytest.param(True, UserStatus.INACTIVE, id="inactive-lawyer"),
+        ],
+    )
+    def test_others_cannot_be_responsible(
+        self, is_lawyer: bool, status: UserStatus
+    ) -> None:
+        """US18-CA01"""
+        candidate = make_user("Candidato", is_lawyer=is_lawyer, status=status)
+
+        with pytest.raises(LawyerNotEligibleError):
+            ensure_can_be_responsible(candidate)

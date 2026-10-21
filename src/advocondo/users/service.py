@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlencode
@@ -12,6 +13,7 @@ from advocondo.common.clock import Clock
 from advocondo.common.email import EmailMessage, EmailSender
 from advocondo.common.passwords import MIN_PASSWORD_LENGTH, PasswordHasher
 from advocondo.common.tokens import generate_opaque_token, hash_token
+from advocondo.condominios.models import Condominium
 from advocondo.users.errors import (
     AdminRoleNotAllowedError,
     CannotChangeOwnRoleError,
@@ -23,6 +25,8 @@ from advocondo.users.errors import (
     OabNumberNotAllowedError,
     OabNumberRequiredError,
     PasswordTooShortError,
+    TargetNotClientError,
+    UnknownCondominiumsError,
     UserIsPendingError,
     UserNotFoundError,
     WrongCurrentPasswordError,
@@ -37,6 +41,7 @@ from advocondo.users.models import (
 )
 from advocondo.users.repository import (
     UserAuditLogRepository,
+    UserCondominiumRepository,
     UserInviteRepository,
     UserRepository,
 )
@@ -69,6 +74,10 @@ class UserService:
         self._users.add(user)
         self._session.commit()
         return user
+
+    def list_responsible_lawyers(self) -> list[User]:
+        """Advogados que podem ser escolhidos como responsáveis por um acordo."""
+        return self._users.list_active_lawyers()
 
 
 @dataclass(frozen=True)
@@ -268,10 +277,12 @@ class UserManagementService:
         session: Session,
         users: UserRepository,
         audit_logs: UserAuditLogRepository,
+        user_condominiums: UserCondominiumRepository,
     ) -> None:
         self._session = session
         self._users = users
         self._audit_logs = audit_logs
+        self._user_condominiums = user_condominiums
 
     def change_status(
         self, admin: User, target_user_id: uuid.UUID, new_status: UserStatus
@@ -303,7 +314,9 @@ class UserManagementService:
     def change_role(
         self, admin: User, target_user_id: uuid.UUID, new_role: Role
     ) -> User:
-        user = self._users.get_by_id(target_user_id)
+        # Same row lock as replace_condominiums, so a role change and a links edit of
+        # the same user cannot interleave and leave links on a non-Client.
+        user = self._users.get_by_id_for_update(target_user_id)
         if user is None:
             raise UserNotFoundError()
         if user.id == admin.id and user.role != new_role:
@@ -311,6 +324,11 @@ class UserManagementService:
 
         old_role = user.role
         user.role = new_role
+
+        if old_role == Role.CLIENT and new_role != Role.CLIENT:
+            # Condominium links only mean something for Clients (US10); dropping them
+            # keeps old access from coming back if the user is made a Client again.
+            self._user_condominiums.clear(user.id)
 
         if old_role != new_role:
             log = UserAuditLog(
@@ -340,3 +358,40 @@ class AuditService:
         if user is None:
             raise UserNotFoundError()
         return self._audit_logs.list_by_user(user_id)
+
+
+class UserCondominiumService:
+    def __init__(
+        self,
+        session: Session,
+        users: UserRepository,
+        user_condominiums: UserCondominiumRepository,
+    ) -> None:
+        self._session = session
+        self._users = users
+        self._user_condominiums = user_condominiums
+
+    def list_condominiums(self, user_id: uuid.UUID) -> Sequence[Condominium]:
+        self._ensure_is_client(self._users.get_by_id(user_id))
+        return self._user_condominiums.list_condominiums_of(user_id)
+
+    def replace_condominiums(
+        self, user_id: uuid.UUID, condominium_ids: list[uuid.UUID]
+    ) -> Sequence[Condominium]:
+        """Sets the whole list of condominiums of a Client; an empty list unlinks all."""
+        # The row lock serializes simultaneous edits of the same user's links.
+        self._ensure_is_client(self._users.get_by_id_for_update(user_id))
+        wanted = set(condominium_ids)
+        missing = wanted - self._user_condominiums.existing_condominium_ids(wanted)
+        if missing:
+            raise UnknownCondominiumsError(sorted(missing, key=str))
+
+        self._user_condominiums.replace(user_id, wanted)
+        self._session.commit()
+        return self._user_condominiums.list_condominiums_of(user_id)
+
+    def _ensure_is_client(self, user: User | None) -> None:
+        if user is None:
+            raise UserNotFoundError()
+        if user.role != Role.CLIENT:
+            raise TargetNotClientError()
