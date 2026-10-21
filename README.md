@@ -69,7 +69,7 @@ O usuário logado edita o próprio nome, e-mail e senha em `PATCH /users/me`. O 
 
 A equipe do escritório cadastra, busca e edita condomínios em `/condominiums`. Veja [Condomínios](docs/condominios.md).
 
-Os devedores de cada condomínio ficam em `/debtors`, com alerta de cadastro duplicado. Veja [Devedores](docs/devedores.md).
+Os devedores de cada condomínio ficam em `/debtors`, com alerta de cadastro duplicado e importação em lote por planilha. Veja [Devedores](docs/devedores.md).
 
 Os acordos com cada devedor ficam em `/agreements`. Veja [Acordos](docs/acordos.md).
 
