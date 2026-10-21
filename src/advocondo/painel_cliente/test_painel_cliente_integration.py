@@ -273,3 +273,88 @@ class TestAccess:
 
     def test_anonymous_gets_401(self, db_client: TestClient) -> None:
         assert db_client.get(URL).status_code == 401
+
+
+class TestThroughTheRealRoutes:
+    def test_client_sees_agreement_registered_for_a_linked_condominium(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        client_user: User,
+        client_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        """Admin links the condominium (US10), the operator registers the agreement
+        (US15, US17) and the Client reads the panel (US37)."""
+        admin_headers = authenticate_as(
+            create_user(role=Role.ADMIN, email="a@example.com")
+        )
+        operator_headers = authenticate_as(
+            create_user(role=Role.OPERATOR, email="o@example.com")
+        )
+        before = db_client.get(URL, headers=client_headers)
+        link = db_client.put(
+            f"/users/{client_user.id}/condominiums",
+            json={"condominium_ids": [str(mirante.id)]},
+            headers=admin_headers,
+        )
+        registered = db_client.post(
+            "/agreements",
+            json={
+                "condominium_id": str(mirante.id),
+                "debtor_id": str(jose.id),
+                "total_amount": "1000.00",
+                "installment_count": 2,
+                "first_due_date": "2026-03-31",
+                "fee_percentage": "10",
+            },
+            headers=operator_headers,
+        )
+
+        response = db_client.get(URL, headers=client_headers)
+
+        assert before.json() == []
+        assert link.status_code == 200
+        assert registered.status_code == 201
+        assert response.json() == [
+            {
+                "id": registered.json()["id"],
+                "condominium_name": "Residencial Mirante",
+                "debtor_name": "José Simão",
+                "debtor_unit": "Bloco B 304",
+                "status": "em_dia",
+                "overdue_installments": 0,
+                "next_due_date": "2026-03-31",
+            }
+        ]
+
+
+def test_agreements_are_ordered_by_condominium_then_debtor_name(
+    db_client: TestClient,
+    client_user: User,
+    client_headers: dict[str, str],
+    link_client: LinkClient,
+    mirante: Condominium,
+    aurora: Condominium,
+    create_debtor: CreateDebtor,
+    create_agreement_with_installments: CreateAgreementWithInstallments,
+) -> None:
+    upcoming = [(date(2026, 4, 10), None)]
+    for condominium, name in [
+        (mirante, "Bia"),
+        (aurora, "Zé"),
+        (mirante, "Ana"),
+    ]:
+        debtor = create_debtor(condominium, name=name)
+        create_agreement_with_installments(condominium, debtor, upcoming)
+    link_client(client_user, mirante, aurora)
+
+    response = db_client.get(URL, headers=client_headers)
+
+    assert [(i["condominium_name"], i["debtor_name"]) for i in response.json()] == [
+        ("Edifício Aurora", "Zé"),
+        ("Residencial Mirante", "Ana"),
+        ("Residencial Mirante", "Bia"),
+    ]

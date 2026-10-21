@@ -28,12 +28,13 @@ Devolve a lista dos acordos **ativos** dos condomínios vinculados ao Cliente ([
 | `overdue_installments` | Quantidade de parcelas atrasadas. |
 | `next_due_date` | Menor vencimento entre as parcelas sem baixa que vencem hoje ou depois; `null` se não houver nenhuma. |
 
-A ordem é: atrasados primeiro, depois por nome do condomínio e por nome do devedor.
+A ordem é: atrasados primeiro, depois por nome do condomínio e por nome do devedor (ordenação do PostgreSQL, a mesma das outras listagens).
 
 ## Regras
 
 - **Só os condomínios vinculados (US37-CA01).** O filtro é um `JOIN` na tabela `user_condominiums` dentro da própria consulta, então acordos de outros condomínios nunca saem do banco. Cliente sem vínculo recebe `[]` (US10-CA02).
 - **Sem honorários nem valores (US37-CA02).** O schema de resposta é uma lista fechada de campos. `total_amount`, `fee_amount`, `fee_percentage`, `amount` e `condominium_amount` não aparecem, e um teste confere cada um.
+- **Status simplificado (US37-CA02).** O Cliente vê apenas `em_dia` ou `atrasado`.
 - **Status calculado, nunca gravado.** Usa a mesma regra de atraso das parcelas ([Parcelas](parcelas.md)), com "hoje" na data do Brasil: uma parcela vence no fim do dia, e à noite a data UTC já é a do dia seguinte.
 - **Só acordos `active`.** A consulta filtra pela situação ativa; situações novas de acordo ficam de fora até alguém decidir mostrá-las.
 

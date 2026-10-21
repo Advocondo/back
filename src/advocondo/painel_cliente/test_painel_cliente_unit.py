@@ -112,15 +112,14 @@ class TestSummarizeAgreement:
 
 
 class TestListAgreements:
-    def test_overdue_first_then_condominium_then_debtor(self) -> None:
+    def test_overdue_first_keeping_the_repository_order(self) -> None:
         on_time = [(date(2026, 4, 10), None)]
         overdue = [(date(2026, 3, 1), None)]
         agreements = [
             make_agreement(on_time, "Aurora", "Ana"),
-            make_agreement(overdue, "Zênite", "Zé"),
-            make_agreement(on_time, "Aurora", "Bia"),
-            make_agreement(overdue, "Mirante", "Caio"),
             make_agreement(overdue, "Mirante", "Beto"),
+            make_agreement(on_time, "Mirante", "Bia"),
+            make_agreement(overdue, "Zênite", "Zé"),
         ]
         service = ClientPanelService(FakeRepository(agreements))
 
@@ -128,10 +127,9 @@ class TestListAgreements:
 
         assert [(item.condominium_name, item.debtor_name) for item in result] == [
             ("Mirante", "Beto"),
-            ("Mirante", "Caio"),
             ("Zênite", "Zé"),
             ("Aurora", "Ana"),
-            ("Aurora", "Bia"),
+            ("Mirante", "Bia"),
         ]
 
 

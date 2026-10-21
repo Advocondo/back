@@ -36,17 +36,12 @@ class ClientPanelService:
     def list_agreements(
         self, user_id: uuid.UUID, today: date
     ) -> list[AgreementSummary]:
-        """Overdue agreements first, then by condominium and debtor name."""
+        """Overdue agreements first. Within each group the repository's order (by
+        condominium and debtor name) is kept, because `sorted` is stable."""
         summaries = [
             summarize_agreement(agreement, today)
             for agreement in self._agreements.list_agreements_of_client(user_id)
         ]
         return sorted(
-            summaries,
-            key=lambda item: (
-                item.status != AgreementStanding.OVERDUE,
-                item.condominium_name,
-                item.debtor_name,
-                item.id,
-            ),
+            summaries, key=lambda item: item.status != AgreementStanding.OVERDUE
         )
