@@ -25,7 +25,37 @@ Cada parcela traz `status`, calculado a cada consulta a partir de `due_date`, `p
 | `open` | Sem `payment_date` e com vencimento hoje ou no futuro. |
 | `overdue` | Sem `payment_date` e com vencimento anterior a hoje: atrasa no dia seguinte ao vencimento. |
 
+## Faturas do mês (US25)
+
+A equipe vê as parcelas que vencem no mês, de todos os acordos, para saber o que conferir e dar baixa ([US25](https://advocondo.github.io/docs/historias/ep04-parcelas/#us25)):
+
+- **Mês:** por padrão, o mês atual no Brasil. `year` e `month` escolhem outro mês.
+- **O que aparece:** cada parcela traz, além dos campos acima, o devedor (`debtor`, com nome e unidade) e o condomínio (`condominium`) do acordo (US25-CA01).
+- **Filtros (US25-CA02):** `condominium_id` e `status` (`open`, `paid` ou `overdue`). O filtro de status usa a mesma regra da [situação da parcela](#situacao-da-parcela-us27), aplicada no banco.
+- **Ordem:** pelo vencimento, do mais antigo para o mais novo.
+- Parcelas atrasadas de meses anteriores não aparecem no mês atual, porque a lista é das parcelas com vencimento no mês. Para vê-las, consulte o mês delas.
+- O filtro por responsável pelo acordo depende da atribuição do advogado ([US18](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us18)) e ainda não existe.
+
 ## Rotas
+
+### `GET /installments`
+
+Lista as faturas do mês. Parâmetros, todos opcionais:
+
+| Parâmetro | Padrão | Descrição |
+| --- | --- | --- |
+| `year` | ano atual | Ano do vencimento |
+| `month` | mês atual | Mês do vencimento, de 1 a 12 |
+| `condominium_id` | — | Só as parcelas de acordos deste condomínio |
+| `status` | — | `open`, `paid` ou `overdue` |
+| `limit` | 50 | Quantas parcelas devolver, até 200 |
+| `offset` | 0 | Quantas parcelas pular, para paginar |
+
+```json
+[
+  {"id": "…", "agreement_id": "…", "number": 2, "due_date": "2026-03-10", "amount": "100.00", "condominium_amount": "90.00", "fee_amount": "10.00", "payment_date": null, "status": "open", "condominium": {"id": "…", "name": "Residencial Mirante"}, "debtor": {"id": "…", "name": "José Simão", "unit": "Bloco B 304"}}
+]
+```
 
 ### `GET /agreements/{id}/installments`
 
@@ -64,3 +94,4 @@ A resposta é o plano inteiro do acordo, já atualizado, porque a mudança de va
 | Diferença maior que o valor das parcelas seguintes | `422` | `A diferença deixaria alguma parcela seguinte sem valor.` |
 | Parcelas abaixo de R$ 0,01 no cadastro | `422` | `Cada parcela precisa ter pelo menos R$ 0,01. Diminua o número de parcelas.` |
 | Edição sem campos, valor zero, negativo ou com fração de centavo, campo desconhecido | `422` | erros de validação do FastAPI |
+| Listagem com `month` fora de 1 a 12, `status` desconhecido ou `limit` acima de 200 | `422` | erros de validação do FastAPI |
