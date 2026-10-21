@@ -61,3 +61,7 @@ class CannotDeactivateSelfError(BusinessRuleError):
 
 class UserIsPendingError(BusinessRuleError):
     message = "Usuário com convite pendente precisa aceitar o convite antes."
+
+
+class CannotChangeOwnRoleError(BusinessRuleError):
+    message = "Você não pode alterar o seu próprio perfil."
