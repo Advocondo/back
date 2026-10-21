@@ -526,3 +526,238 @@ class TestMonthInstallments:
         response = db_client.get("/installments", headers=headers)
 
         assert response.status_code == 403
+
+
+def payment_url(installment_id: str) -> str:
+    return f"/installments/{installment_id}/payment"
+
+
+class TestInstallmentPayment:
+    """US26. O relógio dos testes está em 2 de março de 2026."""
+
+    @pytest.fixture
+    def admin_headers(
+        self, create_user: CreateUser, authenticate_as: AuthenticateAs
+    ) -> dict[str, str]:
+        return authenticate_as(
+            create_user(email="admin_payments@advocondo.test", role=Role.ADMIN)
+        )
+
+    @pytest.fixture
+    def first_installment_id(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+    ) -> str:
+        """Primeira de três parcelas, vencida em 10 de fevereiro de 2026."""
+        agreement_id = register_agreement("300.00", 3, "2026-02-10")
+        installment_id: str = get_plan(db_client, operator_headers, agreement_id)[0][
+            "id"
+        ]
+        return installment_id
+
+    def test_payment_marks_the_installment_as_paid(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        first_installment_id: str,
+    ) -> None:
+        """US26-CA01"""
+        response = db_client.post(
+            payment_url(first_installment_id),
+            json={"payment_date": "2026-02-12"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["payment_date"] == "2026-02-12"
+        assert response.json()["status"] == "paid"
+
+    def test_payment_can_be_made_before_the_due_date(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        first_installment_id: str,
+    ) -> None:
+        response = db_client.post(
+            payment_url(first_installment_id),
+            json={"payment_date": "2026-02-01"},
+            headers=operator_headers,
+        )
+
+        assert response.json()["status"] == "paid"
+
+    def test_payment_date_cannot_be_in_the_future(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        first_installment_id: str,
+    ) -> None:
+        response = db_client.post(
+            payment_url(first_installment_id),
+            json={"payment_date": "2026-03-03"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "A data do pagamento não pode ser futura."
+
+    def test_paid_installment_cannot_be_paid_again(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        first_installment_id: str,
+    ) -> None:
+        url = payment_url(first_installment_id)
+        db_client.post(
+            url, json={"payment_date": "2026-02-12"}, headers=operator_headers
+        )
+
+        response = db_client.post(
+            url, json={"payment_date": "2026-02-15"}, headers=operator_headers
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Parcela já paga. Para mudar a data do pagamento, corrija a baixa."
+        )
+
+    def test_administrator_corrects_the_payment_date(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        first_installment_id: str,
+    ) -> None:
+        """US26-CA02"""
+        url = payment_url(first_installment_id)
+        db_client.post(
+            url, json={"payment_date": "2026-02-12"}, headers=operator_headers
+        )
+
+        response = db_client.put(
+            url, json={"payment_date": "2026-02-11"}, headers=admin_headers
+        )
+
+        assert response.status_code == 200
+        assert response.json()["payment_date"] == "2026-02-11"
+        assert response.json()["status"] == "paid"
+
+    def test_administrator_reverses_the_payment(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        first_installment_id: str,
+    ) -> None:
+        """US26-CA02: a parcela vencida em fevereiro volta a constar como atrasada."""
+        url = payment_url(first_installment_id)
+        db_client.post(
+            url, json={"payment_date": "2026-02-12"}, headers=operator_headers
+        )
+
+        response = db_client.delete(url, headers=admin_headers)
+
+        assert response.status_code == 200
+        assert response.json()["payment_date"] is None
+        assert response.json()["status"] == "overdue"
+
+    @pytest.mark.parametrize(
+        "method",
+        [pytest.param("PUT", id="correction"), pytest.param("DELETE", id="reversal")],
+    )
+    def test_operator_cannot_correct_or_reverse_a_payment(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        first_installment_id: str,
+        method: str,
+    ) -> None:
+        """US26-CA02: só quem tem permissão, o Administrador."""
+        url = payment_url(first_installment_id)
+        db_client.post(
+            url, json={"payment_date": "2026-02-12"}, headers=operator_headers
+        )
+
+        response = db_client.request(
+            method, url, json={"payment_date": "2026-02-11"}, headers=operator_headers
+        )
+
+        assert response.status_code == 403
+
+    @pytest.mark.parametrize(
+        "method",
+        [pytest.param("PUT", id="correction"), pytest.param("DELETE", id="reversal")],
+    )
+    def test_unpaid_installment_has_no_payment_to_change(
+        self,
+        db_client: TestClient,
+        admin_headers: dict[str, str],
+        first_installment_id: str,
+        method: str,
+    ) -> None:
+        response = db_client.request(
+            method,
+            payment_url(first_installment_id),
+            json={"payment_date": "2026-02-11"},
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "A parcela ainda não foi paga."
+
+    @pytest.mark.parametrize("method", ["POST", "PUT", "DELETE"])
+    def test_unknown_installment_is_not_found(
+        self, db_client: TestClient, admin_headers: dict[str, str], method: str
+    ) -> None:
+        response = db_client.request(
+            method,
+            payment_url(UNKNOWN_ID),
+            json={"payment_date": "2026-02-11"},
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 404
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param({}, id="without-date"),
+            pytest.param({"payment_date": "12/02/2026"}, id="date-not-iso"),
+            pytest.param(
+                {"payment_date": "2026-02-12", "amount": "100.00"}, id="unknown-field"
+            ),
+        ],
+    )
+    def test_invalid_payment_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        first_installment_id: str,
+        payload: dict[str, str],
+    ) -> None:
+        response = db_client.post(
+            payment_url(first_installment_id), json=payload, headers=operator_headers
+        )
+
+        assert response.status_code == 422
+
+    def test_client_user_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        first_installment_id: str,
+    ) -> None:
+        headers = authenticate_as(
+            create_user(email="client_payments@advocondo.test", role=Role.CLIENT)
+        )
+
+        response = db_client.post(
+            payment_url(first_installment_id),
+            json={"payment_date": "2026-02-12"},
+            headers=headers,
+        )
+
+        assert response.status_code == 403
