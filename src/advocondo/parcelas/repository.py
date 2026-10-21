@@ -25,8 +25,13 @@ class InstallmentRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def get(self, installment_id: uuid.UUID) -> Installment | None:
-        return self._session.get(Installment, installment_id)
+    def get_for_update(self, installment_id: uuid.UUID) -> Installment | None:
+        """Carrega a parcela e trava a linha até o fim da transação."""
+        return self._session.scalar(
+            select(Installment)
+            .where(Installment.id == installment_id)
+            .with_for_update()
+        )
 
     def list_by_agreement(self, agreement_id: uuid.UUID) -> Sequence[Installment]:
         return self._session.scalars(
