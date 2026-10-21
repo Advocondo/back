@@ -285,6 +285,28 @@ class TestSearchAgreements:
             "Maria Souza"
         ]
 
+    def test_agreements_can_be_filtered_by_debtor(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+        create_debtor: CreateDebtor,
+    ) -> None:
+        maria = create_debtor(mirante, name="Maria Souza", unit="Bloco A 101")
+        register(db_client, operator_headers, new_agreement(mirante.id, jose.id))
+        register(db_client, operator_headers, new_agreement(mirante.id, maria.id))
+
+        response = db_client.get(
+            "/agreements",
+            params={"debtor_id": str(maria.id)},
+            headers=operator_headers,
+        )
+
+        assert [agreement["debtor"]["name"] for agreement in response.json()] == [
+            "Maria Souza"
+        ]
+
     def test_unknown_status_is_refused(
         self, db_client: TestClient, operator_headers: dict[str, str]
     ) -> None:
