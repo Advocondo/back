@@ -18,6 +18,7 @@ from advocondo.devedores.models import (
     MAX_NAME_LENGTH,
     MAX_UNIT_LENGTH,
 )
+from advocondo.devedores.spreadsheet import ImportRowStatus
 
 DebtorName = Annotated[
     str,
@@ -82,3 +83,24 @@ class DebtorResponse(BaseModel):
 class SimilarDebtorsResponse(BaseModel):
     detail: str
     similar_debtors: list[DebtorResponse]
+
+
+class DebtorImportRowResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    number: int = Field(description="Número da linha no Excel")
+    status: ImportRowStatus
+    values: dict[str, str | None] = Field(description="Texto lido de cada coluna")
+    errors: list[str]
+    similar_debtors: list[DebtorResponse]
+    repeats_row: int | None = Field(
+        description="Linha anterior da planilha com o mesmo devedor"
+    )
+
+
+class DebtorImportResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    confirmed: bool
+    imported: int
+    rows: list[DebtorImportRowResponse]
