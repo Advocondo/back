@@ -67,6 +67,14 @@ O login é feito em `POST /auth/login` e as demais rotas recebem o token no cabe
 
 O usuário logado edita o próprio nome, e-mail e senha em `PATCH /users/me`. Veja [Usuários](docs/users.md).
 
+A equipe do escritório cadastra, busca e edita condomínios em `/condominiums`. Veja [Condomínios](docs/condominios.md).
+
+Os devedores de cada condomínio ficam em `/debtors`, com alerta de cadastro duplicado. Veja [Devedores](docs/devedores.md).
+
+Os acordos com cada devedor ficam em `/agreements`. Veja [Acordos](docs/acordos.md).
+
+O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`. Veja [Parcelas](docs/parcelas.md).
+
 ### Migrations
 
 O schema do banco é versionado com Alembic. Depois de subir os containers (e sempre que alguém adicionar uma migration), aplique as pendentes:

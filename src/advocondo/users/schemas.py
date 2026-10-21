@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Annotated, Self
 
 from pydantic import (
@@ -17,6 +18,7 @@ from advocondo.users.models import (
     MAX_NAME_LENGTH,
     MAX_OAB_LENGTH,
     MIN_OAB_LENGTH,
+    AuditAction,
     Role,
     UserStatus,
 )
@@ -77,6 +79,25 @@ class AcceptInviteRequest(BaseModel):
     password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
 
 
+class UserStatusUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: UserStatus
+
+    @field_validator("status")
+    @classmethod
+    def _only_active_or_inactive(cls, value: UserStatus) -> UserStatus:
+        if value == UserStatus.PENDING:
+            raise ValueError("Use o convite para criar um usuário pendente.")
+        return value
+
+
+class UserRoleUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Role
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -97,3 +118,25 @@ class LawyerResponse(BaseModel):
     id: uuid.UUID
     name: str
     oab_number: str | None
+
+
+class ActorResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+
+
+class UserAuditLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    created_at: datetime
+    action: AuditAction
+    old_value: str | None
+    new_value: str | None
+    actor: ActorResponse | None
+
+
+class UserAuditLogListResponse(BaseModel):
+    logs: list[UserAuditLogResponse]

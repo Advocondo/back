@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from advocondo.common.models import (
@@ -30,6 +30,12 @@ class UserStatus(enum.StrEnum):
     PENDING = "pending"
     ACTIVE = "active"
     INACTIVE = "inactive"
+
+
+class AuditAction(enum.StrEnum):
+    INVITED = "invited"
+    STATUS_CHANGED = "status_changed"
+    ROLE_CHANGED = "role_changed"
 
 
 class User(UuidPrimaryKeyMixin, TimestampsMixin, Base):
@@ -88,3 +94,30 @@ class UserInvite(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
 
     def is_expired(self, now: datetime) -> bool:
         return now >= self.expires_at
+
+
+class UserAuditLog(UuidPrimaryKeyMixin, Base):
+    """Registro de ações de gestão de usuários (US11)."""
+
+    __tablename__ = "user_audit_logs"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    action: Mapped[AuditAction] = mapped_column(
+        string_enum(AuditAction, name="audit_action")
+    )
+    old_value: Mapped[str | None] = mapped_column(String(255))
+    new_value: Mapped[str | None] = mapped_column(String(255))
+    # clock_timestamp() em vez de now() (do CreatedAtMixin): now() retorna o
+    # início da transação no PostgreSQL, então várias ações na mesma transação
+    # compartilhariam o timestamp e perderiam a ordem.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
+
+    user: Mapped[User] = relationship(foreign_keys=[user_id])
+    actor: Mapped[User | None] = relationship(foreign_keys=[actor_id])

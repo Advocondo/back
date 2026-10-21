@@ -17,7 +17,13 @@ from tests.support.database import ensure_database_exists, get_test_database_url
 from tests.support.email import Outbox
 from tests.support.settings import make_settings
 
-pytest_plugins = ["tests.fixtures.users", "tests.fixtures.auth", "tests.fixtures.email"]
+pytest_plugins = [
+    "tests.fixtures.users",
+    "tests.fixtures.auth",
+    "tests.fixtures.email",
+    "tests.fixtures.condominios",
+    "tests.fixtures.devedores",
+]
 
 # Fixtures que precisam do Postgres de teste; quem as usa vira teste de integração.
 DB_FIXTURES = {"db_session", "db_client"}
@@ -50,7 +56,13 @@ def db_session(db_engine: Engine) -> Iterator[Session]:
     """
     with db_engine.connect() as connection:
         transaction = connection.begin()
-        session = Session(bind=connection, join_transaction_mode="create_savepoint")
+        # Como em `db.get_sessionmaker`: os objetos não são recarregados do banco
+        # depois do commit, então os testes veem o que a API devolve de fato.
+        session = Session(
+            bind=connection,
+            join_transaction_mode="create_savepoint",
+            expire_on_commit=False,
+        )
         try:
             yield session
         finally:
