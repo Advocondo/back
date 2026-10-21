@@ -75,6 +75,8 @@ Os acordos com cada devedor ficam em `/agreements`. Veja [Acordos](docs/acordos.
 
 O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`. Veja [Parcelas](docs/parcelas.md).
 
+O Cliente consulta o status dos acordos dos seus condomínios em `/client-panel`. Veja [Painel do Cliente](docs/painel-cliente.md).
+
 ### Migrations
 
 O schema do banco é versionado com Alembic. Depois de subir os containers (e sempre que alguém adicionar uma migration), aplique as pendentes:
