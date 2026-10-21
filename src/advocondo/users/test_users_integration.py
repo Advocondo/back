@@ -1624,6 +1624,32 @@ class TestLinkClientToCondominiums:
         links = UserCondominiumRepository(db_session)
         assert links.condominium_ids_of(target.id) == {mirante.id}
 
+    def test_links_are_kept_when_the_client_is_deactivated_and_reactivated(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        put_condominiums(db_client, headers, target, [mirante.id])
+        url = f"/users/{target.id}/status"
+
+        deactivated = db_client.patch(
+            url, json={"status": UserStatus.INACTIVE.value}, headers=headers
+        )
+        reactivated = db_client.patch(
+            url, json={"status": UserStatus.ACTIVE.value}, headers=headers
+        )
+
+        assert deactivated.status_code == 200
+        assert reactivated.status_code == 200
+        links = UserCondominiumRepository(db_session)
+        assert links.condominium_ids_of(target.id) == {mirante.id}
+
     def test_links_are_deleted_with_the_user_and_with_the_condominium(
         self,
         db_client: TestClient,

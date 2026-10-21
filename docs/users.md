@@ -65,7 +65,7 @@ Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of
 - **Campos fora do perfil são recusados, não ignorados.** Enviar `role` ou `status` responde `422` em vez de ser descartado em silêncio: uma tentativa de se promover a Administrador falha de forma visível, e um teste garante que o perfil continua o mesmo.
 - **Senha atual conferida antes de procurar o e-mail novo.** Assim, quem não sabe a senha não descobre, pela resposta `409`, quais e-mails estão cadastrados.
 - **Trocar a senha encerra as outras sessões, mas não a atual.** Segue a US03-CA03 (a senha antiga deixa de valer em todo lugar) sem obrigar quem acabou de trocar a fazer login de novo.
-- **O `PUT` de condomínios substitui a lista inteira.** Fica simples para um campo de seleção múltipla no front, é idempotente e a lista vazia cobre "sem acesso" sem outra rota. O custo é que dois Administradores editando o mesmo Cliente ao mesmo tempo não se mesclam: vale a última gravação. Uma trava na linha do usuário serializa essas gravações, para que nenhuma falhe por vínculo duplicado.
+- **O `PUT` de condomínios substitui a lista inteira.** Fica simples para um campo de seleção múltipla no front, é idempotente e a lista vazia cobre "sem acesso" sem outra rota. O custo é que dois Administradores editando o mesmo Cliente ao mesmo tempo não se mesclam: vale a última gravação. Uma trava na linha do usuário serializa essas gravações, para que nenhuma falhe por vínculo duplicado; a troca de perfil (US09) usa a mesma trava.
 - **Mudar o perfil de um Cliente apaga os vínculos, sem entrar no histórico.** A alternativa de manter as linhas faria o acesso antigo reaparecer se o usuário voltasse a ser Cliente. O apagamento não vira linha da US11: o registro da troca de perfil já existe e os vínculos podem ser refeitos pelo Administrador.
 - **Condomínio inexistente na lista responde `422`, não `404`.** O recurso da rota é o usuário, que existe; o erro está no corpo enviado.
 - **O vínculo não depende da situação do usuário.** Um Cliente inativo ou pendente mantém seus condomínios, que voltam a valer ao reativá-lo (US08).
@@ -73,4 +73,5 @@ Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of
 
 ## Pendências
 
+- **Histórico das mudanças de vínculo**: o `PUT /users/{user_id}/condominiums` não grava linha no histórico da US11, então não há registro de quem liberou quais condomínios a um Cliente. Registrar exigiria um novo tipo de ação no histórico (com migration) e a diferença entre o conjunto antigo e o novo.
 - **Limite de tentativas da senha atual**: como no login (ver as pendências em [Autenticação](auth.md)), a rota não limita tentativas erradas.

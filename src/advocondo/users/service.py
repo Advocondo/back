@@ -310,7 +310,9 @@ class UserManagementService:
     def change_role(
         self, admin: User, target_user_id: uuid.UUID, new_role: Role
     ) -> User:
-        user = self._users.get_by_id(target_user_id)
+        # Same row lock as replace_condominiums, so a role change and a links edit of
+        # the same user cannot interleave and leave links on a non-Client.
+        user = self._users.get_by_id_for_update(target_user_id)
         if user is None:
             raise UserNotFoundError()
         if user.id == admin.id and user.role != new_role:
