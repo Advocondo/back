@@ -31,10 +31,9 @@ A equipe vê as parcelas que vencem no mês, de todos os acordos, para saber o q
 
 - **Mês:** por padrão, o mês atual no Brasil. `year` e `month` escolhem outro mês.
 - **O que aparece:** cada parcela traz, além dos campos acima, o devedor (`debtor`, com nome e unidade) e o condomínio (`condominium`) do acordo (US25-CA01).
-- **Filtros (US25-CA02):** `condominium_id` e `status` (`open`, `paid` ou `overdue`). O filtro de status usa a mesma regra da [situação da parcela](#situacao-da-parcela-us27), aplicada no banco.
+- **Filtros (US25-CA02):** `condominium_id`, `responsible_lawyer_id` (o advogado responsável pelo acordo, [US18](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us18)) e `status` (`open`, `paid` ou `overdue`). O filtro de status usa a mesma regra da [situação da parcela](#situacao-da-parcela-us27), aplicada no banco.
 - **Ordem:** pelo vencimento, do mais antigo para o mais novo.
 - Parcelas atrasadas de meses anteriores não aparecem no mês atual, porque a lista é das parcelas com vencimento no mês. Para vê-las, consulte o mês delas.
-- O filtro por responsável pelo acordo depende da atribuição do advogado ([US18](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us18)) e ainda não existe.
 
 ## Rotas
 
@@ -47,6 +46,7 @@ Lista as faturas do mês. Parâmetros, todos opcionais:
 | `year` | ano atual | Ano do vencimento |
 | `month` | mês atual | Mês do vencimento, de 1 a 12 |
 | `condominium_id` | — | Só as parcelas de acordos deste condomínio |
+| `responsible_lawyer_id` | — | Só as parcelas de acordos deste advogado responsável |
 | `status` | — | `open`, `paid` ou `overdue` |
 | `limit` | 50 | Quantas parcelas devolver, até 200 |
 | `offset` | 0 | Quantas parcelas pular, para paginar |

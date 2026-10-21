@@ -414,6 +414,38 @@ class TestMonthInstallments:
 
         assert [item["debtor"]["name"] for item in installments] == ["Ana Souza"]
 
+    def test_filters_by_responsible_lawyer(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        create_user: CreateUser,
+        register_agreement_in: RegisterAgreementIn,
+    ) -> None:
+        """US25-CA02: o responsável é o advogado atribuído ao acordo (US18)."""
+        lawyer = create_user(
+            email="marina@example.com",
+            name="Marina Dias",
+            role=Role.OPERATOR,
+            is_lawyer=True,
+            oab_number="123456/DF",
+        )
+        assigned_agreement_id = register_agreement_in(
+            mirante, "José Simão", 1, "2026-03-10"
+        )
+        register_agreement_in(mirante, "Ana Souza", 1, "2026-03-20")
+        db_client.put(
+            f"/agreements/{assigned_agreement_id}/responsible-lawyer",
+            json={"lawyer_id": str(lawyer.id)},
+            headers=operator_headers,
+        )
+
+        installments = list_due_in_month(
+            db_client, operator_headers, responsible_lawyer_id=str(lawyer.id)
+        )
+
+        assert [item["debtor"]["name"] for item in installments] == ["José Simão"]
+
     @pytest.mark.parametrize(
         ("status", "debtor_name"),
         [

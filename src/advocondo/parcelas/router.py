@@ -44,6 +44,7 @@ def list_installments_due_in_month(
     year: Annotated[int | None, Query(ge=MINYEAR, le=MAXYEAR)] = None,
     month: Annotated[int | None, Query(ge=1, le=12)] = None,
     condominium_id: uuid.UUID | None = None,
+    responsible_lawyer_id: uuid.UUID | None = None,
     installment_status: Annotated[
         InstallmentStatus | None, Query(alias="status")
     ] = None,
@@ -52,7 +53,9 @@ def list_installments_due_in_month(
 ) -> list[InstallmentWithDebtorResponse]:
     """Parcelas que vencem no mês; por padrão, o mês atual no Brasil (US25)."""
     filters = InstallmentFilters(
-        condominium_id=condominium_id, status=installment_status
+        condominium_id=condominium_id,
+        responsible_lawyer_id=responsible_lawyer_id,
+        status=installment_status,
     )
     installments = installment_service.list_due_in_month(
         year if year is not None else today.year,

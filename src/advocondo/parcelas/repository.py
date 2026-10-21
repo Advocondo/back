@@ -17,6 +17,7 @@ class InstallmentFilters:
     aplicados."""
 
     condominium_id: uuid.UUID | None = None
+    responsible_lawyer_id: uuid.UUID | None = None
     status: InstallmentStatus | None = None
 
 
@@ -55,6 +56,10 @@ class InstallmentRepository:
         )
         if filters.condominium_id is not None:
             query = query.where(Agreement.condominium_id == filters.condominium_id)
+        if filters.responsible_lawyer_id is not None:
+            query = query.where(
+                Agreement.responsible_lawyer_id == filters.responsible_lawyer_id
+            )
         if filters.status is not None:
             query = query.where(has_status(filters.status, today))
         return self._session.scalars(query.limit(limit).offset(offset)).all()
