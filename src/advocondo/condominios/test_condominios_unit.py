@@ -1,18 +1,31 @@
+from datetime import date, timedelta
+
 import pytest
 from pydantic import ValidationError
 
-from advocondo.condominios.cnpj import is_valid_cnpj
+from advocondo.condominios.cnpj import is_valid_cnpj, normalize_cnpj
+from advocondo.condominios.renewal import DEFAULT_RENEWAL_WARNING_DAYS, is_near_renewal
 from advocondo.condominios.schemas import (
     CondominiumCreateRequest,
     CondominiumUpdateRequest,
 )
 
 VALID_CNPJ = "14447918000198"
+# Example from the Receita Federal for the alphanumeric CNPJ.
+VALID_ALPHANUMERIC_CNPJ = "12ABC34501DE35"
+TODAY = date(2026, 10, 15)
 
 
 class TestIsValidCnpj:
-    def test_cnpj_with_right_check_digits_is_valid(self) -> None:
-        assert is_valid_cnpj(VALID_CNPJ)
+    @pytest.mark.parametrize(
+        "cnpj",
+        [
+            pytest.param(VALID_CNPJ, id="numeric"),
+            pytest.param(VALID_ALPHANUMERIC_CNPJ, id="alphanumeric"),
+        ],
+    )
+    def test_cnpj_with_right_check_digits_is_valid(self, cnpj: str) -> None:
+        assert is_valid_cnpj(cnpj)
 
     @pytest.mark.parametrize(
         "cnpj",
@@ -20,11 +33,17 @@ class TestIsValidCnpj:
             pytest.param("14447918000199", id="wrong-check-digit"),
             pytest.param("11111111111111", id="all-digits-equal"),
             pytest.param("1444791800019", id="too-short"),
-            pytest.param("1444791800019a", id="not-only-digits"),
+            pytest.param("12ABC34501DE36", id="alphanumeric-wrong-check-digit"),
+            pytest.param("12ABC34501DEA5", id="letter-in-check-digit"),
+            pytest.param("12abc34501de35", id="not-normalized"),
+            pytest.param("12ABC3450*DE35", id="invalid-character"),
         ],
     )
     def test_invalid_cnpj_is_refused(self, cnpj: str) -> None:
         assert not is_valid_cnpj(cnpj)
+
+    def test_mask_is_removed_and_letters_are_uppercased(self) -> None:
+        assert normalize_cnpj(" 12.abc.345/01de-35 ") == VALID_ALPHANUMERIC_CNPJ
 
 
 class TestCondominiumCreateRequest:
@@ -79,3 +98,47 @@ class TestCondominiumUpdateRequest:
     def test_invalid_update_is_refused(self, fields: dict[str, object]) -> None:
         with pytest.raises(ValidationError):
             CondominiumUpdateRequest.model_validate(fields)
+
+
+class TestIsNearRenewal:
+    @pytest.mark.parametrize(
+        ("days_until_renewal", "expected"),
+        [
+            pytest.param(365, False, id="renewal-in-a-year"),
+            pytest.param(
+                DEFAULT_RENEWAL_WARNING_DAYS + 1, False, id="one-day-outside-the-window"
+            ),
+            pytest.param(
+                DEFAULT_RENEWAL_WARNING_DAYS, True, id="last-day-of-the-window"
+            ),
+            pytest.param(5, True, id="renewal-in-a-few-days"),
+            pytest.param(0, True, id="renewal-today"),
+            pytest.param(-1, True, id="renewal-date-already-passed"),
+        ],
+    )
+    def test_contract_is_flagged_inside_the_default_window(
+        self, days_until_renewal: int, expected: bool
+    ) -> None:
+        """US23-CA01"""
+        renewal_date = TODAY + timedelta(days=days_until_renewal)
+
+        assert is_near_renewal(renewal_date, today=TODAY) is expected
+
+    @pytest.mark.parametrize(
+        ("warning_days", "days_until_renewal", "expected"),
+        [
+            pytest.param(30, 30, True, id="30-day-window-last-day"),
+            pytest.param(30, 31, False, id="30-day-window-one-day-outside"),
+            pytest.param(0, 0, True, id="no-notice-renewal-today"),
+            pytest.param(0, 1, False, id="no-notice-renewal-tomorrow"),
+        ],
+    )
+    def test_warning_window_can_be_changed(
+        self, warning_days: int, days_until_renewal: int, expected: bool
+    ) -> None:
+        """US23-CA01"""
+        renewal_date = TODAY + timedelta(days=days_until_renewal)
+
+        result = is_near_renewal(renewal_date, today=TODAY, warning_days=warning_days)
+
+        assert result is expected

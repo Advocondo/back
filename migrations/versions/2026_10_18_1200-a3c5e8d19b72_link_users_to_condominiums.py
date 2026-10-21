@@ -1,7 +1,7 @@
 """link users to condominiums
 
 Revision ID: a3c5e8d19b72
-Revises: 1ffb2dbe4380, 7328a7cea479
+Revises: 9aa921c54a85
 Create Date: 2026-10-18 12:00:00.000000
 
 """
@@ -12,8 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a3c5e8d19b72"
-# Merges the user-invite line (US07) with the condominiums/debtors line (US12, US13).
-down_revision: str | Sequence[str] | None = ("1ffb2dbe4380", "7328a7cea479")
+down_revision: str | Sequence[str] | None = "9aa921c54a85"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

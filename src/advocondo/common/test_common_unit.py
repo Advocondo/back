@@ -1,12 +1,12 @@
 import logging
 import smtplib
-from datetime import UTC
+from datetime import UTC, date, datetime
 from typing import Any, ClassVar, Self
 
 import pytest
 
 from advocondo.common import email as email_module
-from advocondo.common.clock import get_clock
+from advocondo.common.clock import get_clock, today_in_brazil
 from advocondo.common.email import (
     EmailMessage,
     LogEmailSender,
@@ -222,3 +222,29 @@ class TestEmail:
         monkeypatch.setattr(email_module, "get_settings", make_settings)
 
         assert isinstance(email_module.get_email_sender(), LogEmailSender)
+
+
+class TestTodayInBrazil:
+    @pytest.mark.parametrize(
+        ("moment", "expected"),
+        [
+            pytest.param(
+                datetime(2026, 10, 15, 12, 0, tzinfo=UTC),
+                date(2026, 10, 15),
+                id="midday",
+            ),
+            pytest.param(
+                datetime(2026, 10, 15, 3, 0, tzinfo=UTC),
+                date(2026, 10, 15),
+                id="midnight-in-brazil",
+            ),
+            pytest.param(
+                datetime(2026, 10, 15, 2, 59, tzinfo=UTC),
+                date(2026, 10, 14),
+                id="one-minute-before-midnight-in-brazil",
+            ),
+        ],
+    )
+    def test_date_follows_brasilia_time(self, moment: datetime, expected: date) -> None:
+        """US27-CA01"""
+        assert today_in_brazil(moment) == expected

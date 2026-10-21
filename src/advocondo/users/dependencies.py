@@ -15,11 +15,13 @@ from advocondo.db import get_session
 from advocondo.users.errors import InvalidSetupTokenError, SetupDisabledError
 from advocondo.users.models import Role, User
 from advocondo.users.repository import (
+    UserAuditLogRepository,
     UserCondominiumRepository,
     UserInviteRepository,
     UserRepository,
 )
 from advocondo.users.service import (
+    AuditService,
     InviteService,
     ProfileService,
     UserCondominiumService,
@@ -58,6 +60,7 @@ def get_invite_service(
         session=session,
         users=UserRepository(session),
         invites=UserInviteRepository(session),
+        audit_logs=UserAuditLogRepository(session),
         password_hasher=password_hasher,
         email_sender=email_sender,
         clock=clock,
@@ -69,7 +72,20 @@ def get_invite_service(
 def get_user_management_service(
     session: Annotated[Session, Depends(get_session)],
 ) -> UserManagementService:
-    return UserManagementService(session, UserRepository(session))
+    return UserManagementService(
+        session=session,
+        users=UserRepository(session),
+        audit_logs=UserAuditLogRepository(session),
+    )
+
+
+def get_audit_service(
+    session: Annotated[Session, Depends(get_session)],
+) -> AuditService:
+    return AuditService(
+        users=UserRepository(session),
+        audit_logs=UserAuditLogRepository(session),
+    )
 
 
 def get_user_condominium_service(

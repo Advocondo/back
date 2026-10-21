@@ -9,7 +9,7 @@ Todas as rotas exigem o cabeçalho `Authorization: Bearer <token>` de um usuári
 | Campo | Regra |
 | --- | --- |
 | `name` | Obrigatório, de 1 a 200 caracteres, sem espaços nas pontas. |
-| `cnpj` | Opcional. Aceita com ou sem máscara (`14.447.918/0001-98`) e é gravado só com os 14 dígitos. Os dígitos verificadores são conferidos. Dois condomínios não podem ter o mesmo CNPJ. |
+| `cnpj` | Opcional. Numérico (`14.447.918/0001-98`) ou alfanumérico (`12.ABC.345/01DE-35`, IN RFB 2.229/2024), com ou sem máscara. É gravado sem a máscara e com as letras em maiúsculas (`12ABC34501DE35`). Os dígitos verificadores são conferidos. Dois condomínios não podem ter o mesmo CNPJ. |
 | `zip_code` | CEP, 8 dígitos, com ou sem máscara. |
 | `street`, `neighborhood`, `city` | Logradouro, bairro e cidade, até 200 caracteres. |
 | `state` | UF com 2 letras; gravada em maiúsculas. |

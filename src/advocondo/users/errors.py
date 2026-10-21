@@ -73,3 +73,7 @@ class UnknownCondominiumsError(BusinessRuleError):
     def __init__(self, missing_ids: list[uuid.UUID]) -> None:
         listed = ", ".join(str(missing_id) for missing_id in missing_ids)
         super().__init__(f"Condomínios inexistentes na lista: {listed}.")
+
+
+class CannotChangeOwnRoleError(BusinessRuleError):
+    message = "Você não pode alterar o seu próprio perfil."
