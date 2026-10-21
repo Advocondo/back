@@ -77,8 +77,6 @@ class CondominiumFields(BaseModel):
     manager_phone: Phone | None = None
     contract_start_date: date | None = None
     contract_renewal_date: date | None = None
-    # Preenchido por from_condominium, que sabe qual é a data de hoje.
-    near_renewal: bool = False
 
 
 class CondominiumCreateRequest(CondominiumFields):
@@ -120,6 +118,8 @@ class CondominiumResponse(BaseModel):
     manager_phone: str | None
     contract_start_date: date | None
     contract_renewal_date: date | None
+    # Preenchido por from_condominium, que sabe qual é a data de hoje.
+    near_renewal: bool = False
 
     @classmethod
     def from_condominium(cls, condominium: Condominium, today: date) -> Self:

@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from advocondo.condominios.cnpj import is_valid_cnpj, normalize_cnpj
+from advocondo.condominios.models import Condominium
 from advocondo.condominios.renewal import DEFAULT_RENEWAL_WARNING_DAYS, is_near_renewal
 from advocondo.condominios.schemas import (
     CondominiumCreateRequest,
@@ -142,3 +143,30 @@ class TestIsNearRenewal:
         result = is_near_renewal(renewal_date, today=TODAY, warning_days=warning_days)
 
         assert result is expected
+
+
+class TestCondominiumIsNearRenewal:
+    def test_condominium_without_a_renewal_date_is_not_flagged(self) -> None:
+        """US23-CA01"""
+        condominium = Condominium(name="Residencial Mirante")
+
+        assert condominium.is_near_renewal(TODAY) is False
+
+    @pytest.mark.parametrize(
+        ("days_until_renewal", "expected"),
+        [
+            pytest.param(365, False, id="renewal-in-a-year"),
+            pytest.param(10, True, id="renewal-in-ten-days"),
+            pytest.param(-1, True, id="renewal-date-already-passed"),
+        ],
+    )
+    def test_condominium_follows_its_renewal_date(
+        self, days_until_renewal: int, expected: bool
+    ) -> None:
+        """US23-CA01"""
+        condominium = Condominium(
+            name="Residencial Mirante",
+            contract_renewal_date=TODAY + timedelta(days=days_until_renewal),
+        )
+
+        assert condominium.is_near_renewal(TODAY) is expected

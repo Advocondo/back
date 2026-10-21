@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from advocondo.auth.dependencies import require_office_staff
 from advocondo.common.dependencies import Today
@@ -27,7 +27,9 @@ CondominiumServiceDependency = Annotated[
 ]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", status_code=status.HTTP_201_CREATED, response_model=CondominiumResponse
+)
 def register_condominium(
     request: CondominiumCreateRequest,
     condominium_service: CondominiumServiceDependency,
@@ -37,7 +39,7 @@ def register_condominium(
     return CondominiumResponse.from_condominium(condominium, today)
 
 
-@router.get("")
+@router.get("", response_model=list[CondominiumResponse])
 def search_condominiums(
     condominium_service: CondominiumServiceDependency,
     today: Today,
@@ -51,17 +53,19 @@ def search_condominiums(
     return [CondominiumResponse.from_condominium(item, today) for item in condominiums]
 
 
-@router.get("/{condominium_id}")
+@router.get("/{condominium_id}", response_model=CondominiumResponse)
 def get_condominium(
     condominium_id: uuid.UUID,
     condominium_service: CondominiumServiceDependency,
     today: Today,
 ) -> CondominiumResponse:
     condominium = condominium_service.get(condominium_id)
+    if not condominium:
+        raise HTTPException(status_code=404, detail="Condomínio não encontrado.")
     return CondominiumResponse.from_condominium(condominium, today)
 
 
-@router.patch("/{condominium_id}")
+@router.patch("/{condominium_id}", response_model=CondominiumResponse)
 def update_condominium(
     condominium_id: uuid.UUID,
     request: CondominiumUpdateRequest,
@@ -69,4 +73,6 @@ def update_condominium(
     today: Today,
 ) -> CondominiumResponse:
     condominium = condominium_service.update(condominium_id, request)
+    if not condominium:
+        raise HTTPException(status_code=404, detail="Condomínio não encontrado.")
     return CondominiumResponse.from_condominium(condominium, today)
