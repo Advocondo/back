@@ -2,6 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from advocondo.parcelas.errors import (
     FollowingInstallmentWouldBeEmptyError,
@@ -13,6 +14,7 @@ from advocondo.parcelas.plan import (
     split_amount,
     split_fee,
 )
+from advocondo.parcelas.schemas import InstallmentUpdateRequest
 from advocondo.parcelas.status import (
     InstallmentStatus,
     calculate_installment_status,
@@ -172,3 +174,29 @@ class TestCalculateInstallmentStatus:
         status = calculate_installment_status(due_date, payment_date, today=TODAY)
 
         assert status == InstallmentStatus.PAID
+
+
+class TestInstallmentUpdateRequest:
+    @pytest.mark.parametrize(
+        ("fields", "message"),
+        [
+            pytest.param(
+                {}, "Informe o novo vencimento ou o novo valor.", id="nothing-to-change"
+            ),
+            pytest.param(
+                {"due_date": None},
+                "O vencimento e o valor não podem ficar vazios.",
+                id="due-date-removed",
+            ),
+            pytest.param(
+                {"amount": None},
+                "O vencimento e o valor não podem ficar vazios.",
+                id="amount-removed",
+            ),
+        ],
+    )
+    def test_invalid_update_is_refused(
+        self, fields: dict[str, object], message: str
+    ) -> None:
+        with pytest.raises(ValidationError, match=message):
+            InstallmentUpdateRequest.model_validate(fields)
