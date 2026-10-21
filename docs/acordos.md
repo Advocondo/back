@@ -18,7 +18,7 @@ Todas as rotas exigem o cabeçalho `Authorization: Bearer <token>` de um usuári
 
 Valores em dinheiro são gravados como `NUMERIC(12, 2)`, nunca como ponto flutuante, e voltam na resposta como texto com duas casas (`"5500.00"`), para não perder centavos. O front formata como `R$ 5.500,00`.
 
-O advogado responsável (US18) ainda não faz parte do cadastro: ele depende da marcação de advogado no convite de usuário (US07).
+O advogado responsável (US18) não é informado no cadastro: o acordo nasce sem responsável e um Administrador ou membro da Equipe Operacional o atribui depois. Só vale usuário **ativo, marcado como advogado no convite (US07) e com OAB**. A lista de candidatos vem de `GET /users/lawyers`.
 
 ## Rotas
 
@@ -41,11 +41,19 @@ Cadastra o acordo e gera as parcelas (US17-CA01). O acordo passa a aparecer na l
 
 ### `GET /agreements`
 
-Lista os acordos, do mais recente para o mais antigo. Filtros opcionais e combináveis: `status` (`active`), `condominium_id`, `debtor_id`; paginação com `limit` (padrão 50, máximo 200) e `offset`.
+Lista os acordos, do mais recente para o mais antigo. Filtros opcionais e combináveis: `status` (`active`), `condominium_id`, `debtor_id`, `responsible_lawyer_id`; paginação com `limit` (padrão 50, máximo 200) e `offset`.
 
 ### `GET /agreements/{id}`
 
 Devolve um acordo.
+
+### `PUT /agreements/{id}/responsible-lawyer`
+
+Atribui o acordo a um advogado ou troca o responsável. Corpo: `{"lawyer_id": "…"}`. Resposta `200` com o acordo, que passa a trazer `responsible_lawyer` (`id`, `name`, `oab_number`). Toda troca vai para o histórico, e escolher o advogado que já é o responsável não muda nada (US18-CA01).
+
+### `GET /agreements/{id}/lawyer-history`
+
+Lista as atribuições do acordo, da mais antiga para a mais recente. Cada item traz `previous_lawyer` (vazio na primeira atribuição), `new_lawyer`, `assigned_by` e `assigned_at` (US18-CA02).
 
 ## Respostas de erro
 
@@ -58,3 +66,5 @@ Devolve um acordo.
 | Honorários maiores que o valor total | `422` | `Os honorários não podem ser maiores que o valor total do acordo.` |
 | Parcelas abaixo de R$ 0,01 | `422` | `Cada parcela precisa ter pelo menos R$ 0,01. Diminua o número de parcelas.` |
 | Honorários ausentes ou informados nos dois formatos, campo obrigatório ausente (US15-CA02), valor zero, negativo ou com fração de centavo, campo desconhecido ou `status` inválido | `422` | erros de validação do FastAPI |
+| Advogado inexistente | `404` | `Advogado não encontrado.` |
+| Responsável que não é advogado ativo com OAB | `422` | `O responsável precisa ser um advogado ativo, com OAB cadastrada.` |

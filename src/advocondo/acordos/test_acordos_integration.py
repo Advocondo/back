@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 import httpx
@@ -6,11 +7,12 @@ from fastapi.testclient import TestClient
 
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
-from advocondo.users.models import Role
+from advocondo.users.models import Role, User, UserStatus
 from tests.fixtures.auth import AuthenticateAs
 from tests.fixtures.condominios import CreateCondominium
 from tests.fixtures.devedores import CreateDebtor
 from tests.fixtures.users import CreateUser
+from tests.support.clock import FrozenClock
 
 UNKNOWN_ID = "00000000-0000-0000-0000-000000000000"
 
@@ -32,6 +34,17 @@ def jose(mirante: Condominium, create_debtor: CreateDebtor) -> Debtor:
     return create_debtor(mirante, name="José Simão", unit="Bloco B 304")
 
 
+@pytest.fixture
+def lawyer(create_user: CreateUser) -> User:
+    return create_user(
+        email="marina@example.com",
+        name="Marina Dias",
+        role=Role.OPERATOR,
+        is_lawyer=True,
+        oab_number="123456/DF",
+    )
+
+
 def new_agreement(
     condominium_id: object, debtor_id: object, **fields: Any
 ) -> dict[str, Any]:
@@ -50,6 +63,17 @@ def register(
     client: TestClient, headers: dict[str, str], payload: dict[str, Any]
 ) -> httpx.Response:
     response: httpx.Response = client.post("/agreements", json=payload, headers=headers)
+    return response
+
+
+def assign_lawyer(
+    client: TestClient, headers: dict[str, str], agreement_id: str, lawyer_id: object
+) -> httpx.Response:
+    response: httpx.Response = client.put(
+        f"/agreements/{agreement_id}/responsible-lawyer",
+        json={"lawyer_id": str(lawyer_id)},
+        headers=headers,
+    )
     return response
 
 
@@ -343,3 +367,242 @@ class TestGetAgreement:
 
         assert response.status_code == 404
         assert response.json()["detail"] == "Acordo não encontrado."
+
+
+class TestAssignLawyer:
+    def test_agreement_is_assigned_to_a_lawyer(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+        lawyer: User,
+    ) -> None:
+        """US18-CA01"""
+        agreement_id = register(
+            db_client, operator_headers, new_agreement(mirante.id, jose.id)
+        ).json()["id"]
+
+        response = assign_lawyer(db_client, operator_headers, agreement_id, lawyer.id)
+
+        assert response.status_code == 200
+        assert response.json()["responsible_lawyer"] == {
+            "id": str(lawyer.id),
+            "name": "Marina Dias",
+            "oab_number": "123456/DF",
+        }
+        fetched = db_client.get(f"/agreements/{agreement_id}", headers=operator_headers)
+        assert fetched.json()["responsible_lawyer"]["name"] == "Marina Dias"
+
+    @pytest.mark.parametrize(
+        ("is_lawyer", "status"),
+        [
+            pytest.param(False, UserStatus.ACTIVE, id="not-a-lawyer"),
+            pytest.param(True, UserStatus.PENDING, id="pending-lawyer"),
+            pytest.param(True, UserStatus.INACTIVE, id="inactive-lawyer"),
+        ],
+    )
+    def test_only_active_lawyers_can_be_chosen(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+        is_lawyer: bool,
+        status: UserStatus,
+    ) -> None:
+        """US18-CA01"""
+        candidate = create_user(
+            email="candidato@example.com",
+            role=Role.OPERATOR,
+            is_lawyer=is_lawyer,
+            oab_number="654321/SP" if is_lawyer else None,
+            status=status,
+        )
+        agreement_id = register(
+            db_client, operator_headers, new_agreement(mirante.id, jose.id)
+        ).json()["id"]
+
+        response = assign_lawyer(
+            db_client, operator_headers, agreement_id, candidate.id
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "O responsável precisa ser um advogado ativo, com OAB cadastrada."
+        )
+
+    def test_unknown_lawyer_and_unknown_agreement_are_not_found(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+        lawyer: User,
+    ) -> None:
+        """US18-CA01"""
+        agreement_id = register(
+            db_client, operator_headers, new_agreement(mirante.id, jose.id)
+        ).json()["id"]
+
+        unknown_lawyer = assign_lawyer(
+            db_client, operator_headers, agreement_id, UNKNOWN_ID
+        )
+        unknown_agreement = assign_lawyer(
+            db_client, operator_headers, UNKNOWN_ID, lawyer.id
+        )
+
+        assert unknown_lawyer.status_code == 404
+        assert unknown_lawyer.json()["detail"] == "Advogado não encontrado."
+        assert unknown_agreement.status_code == 404
+        assert unknown_agreement.json()["detail"] == "Acordo não encontrado."
+
+    @pytest.mark.parametrize(
+        ("caller_role", "expected_status"),
+        [
+            pytest.param(Role.ADMIN, 200, id="admin"),
+            pytest.param(Role.OPERATOR, 200, id="operator"),
+            pytest.param(Role.CLIENT, 403, id="client"),
+        ],
+    )
+    def test_administrators_and_operators_can_assign_lawyers(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+        lawyer: User,
+        caller_role: Role,
+        expected_status: int,
+    ) -> None:
+        """US18-CA01"""
+        agreement_id = register(
+            db_client, operator_headers, new_agreement(mirante.id, jose.id)
+        ).json()["id"]
+        caller = create_user(email="chamador@example.com", role=caller_role)
+
+        response = assign_lawyer(
+            db_client, authenticate_as(caller), agreement_id, lawyer.id
+        )
+
+        assert response.status_code == expected_status
+
+    def test_request_without_a_token_is_refused(
+        self, db_client: TestClient, lawyer: User
+    ) -> None:
+        """US18-CA01"""
+        response = assign_lawyer(db_client, {}, UNKNOWN_ID, lawyer.id)
+
+        assert response.status_code == 401
+
+
+class TestLawyerHistory:
+    def test_reassigning_keeps_the_history(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        mirante: Condominium,
+        jose: Debtor,
+        lawyer: User,
+        clock: FrozenClock,
+    ) -> None:
+        """US18-CA02"""
+        operator = create_user(
+            email="beto@example.com", name="Beto Lima", role=Role.OPERATOR
+        )
+        headers = authenticate_as(operator)
+        rui = create_user(
+            email="rui@example.com",
+            name="Rui Alves",
+            role=Role.OPERATOR,
+            is_lawyer=True,
+            oab_number="777777/GO",
+        )
+        agreement_id = register(
+            db_client, headers, new_agreement(mirante.id, jose.id)
+        ).json()["id"]
+        assign_lawyer(db_client, headers, agreement_id, lawyer.id)
+        clock.advance(timedelta(minutes=5))
+        assign_lawyer(db_client, headers, agreement_id, rui.id)
+
+        response = db_client.get(
+            f"/agreements/{agreement_id}/lawyer-history", headers=headers
+        )
+
+        history = response.json()
+        assert response.status_code == 200
+        assert [entry["new_lawyer"]["name"] for entry in history] == [
+            "Marina Dias",
+            "Rui Alves",
+        ]
+        assert history[0]["previous_lawyer"] is None
+        assert history[1]["previous_lawyer"]["name"] == "Marina Dias"
+        assert history[1]["assigned_by"] == {
+            "id": str(operator.id),
+            "name": "Beto Lima",
+        }
+        assert history[0]["assigned_at"] < history[1]["assigned_at"]
+
+    def test_assigning_the_same_lawyer_again_adds_nothing_to_the_history(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+        lawyer: User,
+    ) -> None:
+        """US18-CA02"""
+        agreement_id = register(
+            db_client, operator_headers, new_agreement(mirante.id, jose.id)
+        ).json()["id"]
+        assign_lawyer(db_client, operator_headers, agreement_id, lawyer.id)
+        assign_lawyer(db_client, operator_headers, agreement_id, lawyer.id)
+
+        response = db_client.get(
+            f"/agreements/{agreement_id}/lawyer-history", headers=operator_headers
+        )
+
+        assert len(response.json()) == 1
+
+    def test_unknown_agreement_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        """US18-CA02"""
+        response = db_client.get(
+            f"/agreements/{UNKNOWN_ID}/lawyer-history", headers=operator_headers
+        )
+
+        assert response.status_code == 404
+
+
+class TestAgreementsOfALawyer:
+    def test_lawyer_lists_only_the_agreements_under_their_responsibility(
+        self,
+        db_client: TestClient,
+        create_debtor: CreateDebtor,
+        authenticate_as: AuthenticateAs,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+        lawyer: User,
+    ) -> None:
+        """US18-CA03"""
+        carla = create_debtor(mirante, name="Carla Nunes", unit="Bloco A 101")
+        mine = register(
+            db_client, operator_headers, new_agreement(mirante.id, jose.id)
+        ).json()["id"]
+        register(db_client, operator_headers, new_agreement(mirante.id, carla.id))
+        assign_lawyer(db_client, operator_headers, mine, lawyer.id)
+
+        response = db_client.get(
+            "/agreements",
+            params={"responsible_lawyer_id": str(lawyer.id)},
+            headers=authenticate_as(lawyer),
+        )
+
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()] == [mine]
