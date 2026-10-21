@@ -3,9 +3,9 @@ from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from advocondo.acordos.models import MONEY
+from advocondo.acordos.models import MONEY, Agreement
 from advocondo.common.models import TimestampsMixin, UuidPrimaryKeyMixin
 from advocondo.db import Base
 from advocondo.parcelas.status import InstallmentStatus, calculate_installment_status
@@ -42,6 +42,9 @@ class Installment(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     # Filled when the payment is registered (US26). An installment with a payment
     # date can no longer be edited (US17-CA03).
     payment_date: Mapped[date | None] = mapped_column(Date)
+
+    # Dá à listagem do mês o devedor e o condomínio da parcela (US25-CA01).
+    agreement: Mapped[Agreement] = relationship(back_populates="installments")
 
     @property
     def is_paid(self) -> bool:
