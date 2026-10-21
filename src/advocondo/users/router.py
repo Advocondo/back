@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from advocondo.auth.dependencies import CurrentSession
+from advocondo.auth.dependencies import CurrentSession, require_office_staff
 from advocondo.users.dependencies import (
     CurrentAdmin,
     get_audit_service,
@@ -18,6 +18,7 @@ from advocondo.users.schemas import (
     AcceptInviteRequest,
     FirstAdminRequest,
     InviteUserRequest,
+    LawyerResponse,
     ProfileUpdateRequest,
     UserAuditLogListResponse,
     UserAuditLogResponse,
@@ -105,6 +106,18 @@ def accept_invite(
 ) -> UserResponse:
     user = invite_service.accept_invite(request.token, request.password)
     return UserResponse.model_validate(user)
+
+
+@router.get(
+    "/users/lawyers",
+    tags=["users"],
+    dependencies=[Depends(require_office_staff)],
+)
+def list_lawyers(
+    user_service: Annotated[UserService, Depends(get_user_service)],
+) -> list[LawyerResponse]:
+    lawyers = user_service.list_responsible_lawyers()
+    return [LawyerResponse.model_validate(lawyer) for lawyer in lawyers]
 
 
 @router.patch("/users/{user_id}/status", tags=["users"])

@@ -75,6 +75,10 @@ class UserService:
         self._session.commit()
         return user
 
+    def list_responsible_lawyers(self) -> list[User]:
+        """Advogados que podem ser escolhidos como responsáveis por um acordo."""
+        return self._users.list_active_lawyers()
+
 
 @dataclass(frozen=True)
 class ProfileChanges:
