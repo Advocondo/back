@@ -273,10 +273,12 @@ class UserManagementService:
         session: Session,
         users: UserRepository,
         audit_logs: UserAuditLogRepository,
+        user_condominiums: UserCondominiumRepository,
     ) -> None:
         self._session = session
         self._users = users
         self._audit_logs = audit_logs
+        self._user_condominiums = user_condominiums
 
     def change_status(
         self, admin: User, target_user_id: uuid.UUID, new_status: UserStatus
@@ -316,6 +318,11 @@ class UserManagementService:
 
         old_role = user.role
         user.role = new_role
+
+        if old_role == Role.CLIENT and new_role != Role.CLIENT:
+            # Condominium links only mean something for Clients (US10); dropping them
+            # keeps old access from coming back if the user is made a Client again.
+            self._user_condominiums.clear(user.id)
 
         if old_role != new_role:
             log = UserAuditLog(

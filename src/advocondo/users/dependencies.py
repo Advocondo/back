@@ -76,6 +76,7 @@ def get_user_management_service(
         session=session,
         users=UserRepository(session),
         audit_logs=UserAuditLogRepository(session),
+        user_condominiums=UserCondominiumRepository(session),
     )
 
 

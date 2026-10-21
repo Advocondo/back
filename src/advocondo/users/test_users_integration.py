@@ -1580,6 +1580,50 @@ class TestLinkClientToCondominiums:
         assert missing_field.status_code == 422
         assert extra_field.status_code == 422
 
+    def test_links_are_dropped_when_the_client_changes_role(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """A user made a Client again must not get back the old access."""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="cliente@example.com", role=Role.CLIENT)
+        other = create_user(email="outro@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        put_condominiums(db_client, headers, target, [mirante.id])
+        put_condominiums(db_client, headers, other, [mirante.id])
+
+        to_operator = change_role(db_client, headers, target.id, Role.OPERATOR.value)
+        back_to_client = change_role(db_client, headers, target.id, Role.CLIENT.value)
+
+        assert to_operator.status_code == 200
+        assert back_to_client.status_code == 200
+        links = UserCondominiumRepository(db_session)
+        assert links.condominium_ids_of(target.id) == set()
+        assert links.condominium_ids_of(other.id) == {mirante.id}
+
+    def test_links_are_kept_when_the_role_stays_client(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        put_condominiums(db_client, headers, target, [mirante.id])
+
+        response = change_role(db_client, headers, target.id, Role.CLIENT.value)
+
+        assert response.status_code == 200
+        links = UserCondominiumRepository(db_session)
+        assert links.condominium_ids_of(target.id) == {mirante.id}
+
     def test_links_are_deleted_with_the_user_and_with_the_condominium(
         self,
         db_client: TestClient,

@@ -88,6 +88,11 @@ class UserCondominiumRepository:
             )
         )
 
+    def clear(self, user_id: uuid.UUID) -> None:
+        self._session.execute(
+            delete(UserCondominium).where(UserCondominium.user_id == user_id)
+        )
+
     def replace(self, user_id: uuid.UUID, condominium_ids: set[uuid.UUID]) -> None:
         """Makes `condominium_ids` the user's whole set, changing only the difference."""
         current = self.condominium_ids_of(user_id)

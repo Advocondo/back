@@ -40,7 +40,7 @@ Substitui a lista inteira de condomínios do Cliente (US10-CA01). Corpo: `{"cond
 
 Mostra os condomínios vinculados ao Cliente. Um Cliente sem vínculo recebe `[]`.
 
-Só usuários com perfil Cliente têm vínculos (em qualquer situação: ativo, inativo ou com convite pendente); as duas rotas respondem `422` para os demais perfis.
+Só usuários com perfil Cliente têm vínculos (em qualquer situação: ativo, inativo ou com convite pendente); as duas rotas respondem `422` para os demais perfis. Quando o perfil de um Cliente muda para outro (US09), os vínculos dele são apagados, para que o acesso antigo não volte se ele for feito Cliente de novo. Manter o perfil Cliente não mexe nos vínculos.
 
 Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of(user_id)` (em `users/repository.py`), que devolve o conjunto de IDs; vazio significa "nenhum condomínio".
 
@@ -66,6 +66,7 @@ Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of
 - **Senha atual conferida antes de procurar o e-mail novo.** Assim, quem não sabe a senha não descobre, pela resposta `409`, quais e-mails estão cadastrados.
 - **Trocar a senha encerra as outras sessões, mas não a atual.** Segue a US03-CA03 (a senha antiga deixa de valer em todo lugar) sem obrigar quem acabou de trocar a fazer login de novo.
 - **O `PUT` de condomínios substitui a lista inteira.** Fica simples para um campo de seleção múltipla no front, é idempotente e a lista vazia cobre "sem acesso" sem outra rota. O custo é que dois Administradores editando o mesmo Cliente ao mesmo tempo não se mesclam: vale a última gravação. Uma trava na linha do usuário serializa essas gravações, para que nenhuma falhe por vínculo duplicado.
+- **Mudar o perfil de um Cliente apaga os vínculos, sem entrar no histórico.** A alternativa de manter as linhas faria o acesso antigo reaparecer se o usuário voltasse a ser Cliente. O apagamento não vira linha da US11: o registro da troca de perfil já existe e os vínculos podem ser refeitos pelo Administrador.
 - **Condomínio inexistente na lista responde `422`, não `404`.** O recurso da rota é o usuário, que existe; o erro está no corpo enviado.
 - **O vínculo não depende da situação do usuário.** Um Cliente inativo ou pendente mantém seus condomínios, que voltam a valer ao reativá-lo (US08).
 - **E-mail novo sem confirmação por link.** A história pede só a senha atual; confirmar o endereço novo exigiria uma tabela de pedidos de troca e o envio de e-mail. Um e-mail digitado errado pode ser corrigido pelo próprio usuário enquanto ele estiver logado.
