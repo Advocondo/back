@@ -103,12 +103,4 @@ def require_admin(current_user: CurrentUser) -> User:
         raise PermissionDeniedError()
     return current_user
 
-
-def require_staff(current_user: CurrentUser) -> User:
-    """Administrador ou Equipe Operacional. O Cliente não passa."""
-    if current_user.role not in (Role.ADMIN, Role.OPERATOR):
-        raise PermissionDeniedError()
-    return current_user
-
-
 CurrentAdmin = Annotated[User, Depends(require_admin)]
