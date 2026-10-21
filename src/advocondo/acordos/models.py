@@ -1,10 +1,10 @@
 import enum
 import uuid
-from decimal import Decimal
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey, Numeric, DateTime
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from advocondo.common.models import TimestampsMixin, UuidPrimaryKeyMixin, string_enum
@@ -77,7 +77,28 @@ class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     @property
     def installment_count(self) -> int:
         return len(self.installments)
-        
+
+    def assign_lawyer(self, lawyer: User, assigned_by: User, now: datetime) -> bool:
+        """Passa o acordo para `lawyer` e guarda a troca no histórico (US18).
+
+        Devolve False, sem mudar nada, se ele já é o responsável.
+        """
+        previous = self.responsible_lawyer
+        if previous is not None and previous.id == lawyer.id:
+            return False
+
+        self.lawyer_assignments.append(
+            LawyerAssignment(
+                previous_lawyer=previous,
+                new_lawyer=lawyer,
+                assigned_by=assigned_by,
+                assigned_at=now,
+            )
+        )
+        self.responsible_lawyer = lawyer
+        return True
+
+
 class LawyerAssignment(UuidPrimaryKeyMixin, Base):
     """Uma atribuição do acordo a um advogado. A lista delas é o histórico (US18)."""
 
@@ -87,9 +108,7 @@ class LawyerAssignment(UuidPrimaryKeyMixin, Base):
         ForeignKey("agreements.id", ondelete="CASCADE"), index=True
     )
     # Vazio na primeira atribuição, quando o acordo ainda não tinha responsável.
-    previous_lawyer_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id")
-    )
+    previous_lawyer_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     new_lawyer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     assigned_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     # Vem do Clock da aplicação, e não do banco, para ser testável com data fixa.
@@ -98,9 +117,7 @@ class LawyerAssignment(UuidPrimaryKeyMixin, Base):
     previous_lawyer: Mapped[User | None] = relationship(
         foreign_keys=[previous_lawyer_id], lazy="joined"
     )
-    new_lawyer: Mapped[User] = relationship(
-        foreign_keys=[new_lawyer_id], lazy="joined"
-    )
+    new_lawyer: Mapped[User] = relationship(foreign_keys=[new_lawyer_id], lazy="joined")
     assigned_by: Mapped[User] = relationship(
         foreign_keys=[assigned_by_id], lazy="joined"
     )

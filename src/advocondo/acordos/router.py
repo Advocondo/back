@@ -3,12 +3,21 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from advocondo.acordos.dependencies import get_agreement_service
+from advocondo.acordos.dependencies import (
+    get_agreement_service,
+    get_lawyer_assignment_service,
+)
+from advocondo.acordos.lawyer_assignment import LawyerAssignmentService
 from advocondo.acordos.models import AgreementStatus
 from advocondo.acordos.repository import AgreementFilters
-from advocondo.acordos.schemas import AgreementCreateRequest, AgreementResponse
+from advocondo.acordos.schemas import (
+    AgreementCreateRequest,
+    AgreementResponse,
+    LawyerAssignmentRequest,
+    LawyerAssignmentResponse,
+)
 from advocondo.acordos.service import AgreementService
-from advocondo.auth.dependencies import require_office_staff
+from advocondo.auth.dependencies import CurrentUser, require_office_staff
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
@@ -20,6 +29,9 @@ router = APIRouter(
 )
 
 AgreementServiceDependency = Annotated[AgreementService, Depends(get_agreement_service)]
+LawyerAssignmentServiceDependency = Annotated[
+    LawyerAssignmentService, Depends(get_lawyer_assignment_service)
+]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -50,3 +62,22 @@ def get_agreement(
     agreement_id: uuid.UUID, agreement_service: AgreementServiceDependency
 ) -> AgreementResponse:
     return AgreementResponse.model_validate(agreement_service.get(agreement_id))
+
+
+@router.put("/{agreement_id}/responsible-lawyer")
+def assign_responsible_lawyer(
+    agreement_id: uuid.UUID,
+    request: LawyerAssignmentRequest,
+    current_user: CurrentUser,
+    assignment_service: LawyerAssignmentServiceDependency,
+) -> AgreementResponse:
+    agreement = assignment_service.assign(agreement_id, request.lawyer_id, current_user)
+    return AgreementResponse.model_validate(agreement)
+
+
+@router.get("/{agreement_id}/lawyer-history")
+def list_lawyer_history(
+    agreement_id: uuid.UUID, assignment_service: LawyerAssignmentServiceDependency
+) -> list[LawyerAssignmentResponse]:
+    history = assignment_service.history(agreement_id)
+    return [LawyerAssignmentResponse.model_validate(entry) for entry in history]
