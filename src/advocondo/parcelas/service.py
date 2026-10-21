@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Sequence
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
@@ -12,8 +13,12 @@ from advocondo.parcelas.errors import (
     PaidInstallmentCannotBeEditedError,
 )
 from advocondo.parcelas.models import Installment
-from advocondo.parcelas.plan import absorb_difference, split_fee
-from advocondo.parcelas.repository import InstallmentRepository
+from advocondo.parcelas.plan import (
+    absorb_difference,
+    first_and_last_day_of_month,
+    split_fee,
+)
+from advocondo.parcelas.repository import InstallmentFilters, InstallmentRepository
 from advocondo.parcelas.schemas import InstallmentUpdateRequest
 
 
@@ -33,6 +38,22 @@ class InstallmentService:
         if self._agreements.get(agreement_id) is None:
             raise AgreementNotFoundError()
         return self._installments.list_by_agreement(agreement_id)
+
+    def list_due_in_month(
+        self,
+        year: int,
+        month: int,
+        filters: InstallmentFilters,
+        today: date,
+        limit: int,
+        offset: int,
+    ) -> Sequence[Installment]:
+        """Parcelas que vencem no mês (US25-CA01), com os filtros opcionais
+        (US25-CA02). `today` decide quais parcelas sem pagamento estão atrasadas."""
+        first_day, last_day = first_and_last_day_of_month(year, month)
+        return self._installments.search_due_between(
+            first_day, last_day, filters, today, limit, offset
+        )
 
     def update(
         self, installment_id: uuid.UUID, request: InstallmentUpdateRequest
