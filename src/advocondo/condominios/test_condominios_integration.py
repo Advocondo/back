@@ -448,3 +448,40 @@ class TestRenewalWarning:
 
         assert fetched.status_code == 200
         assert fetched.json()["near_renewal"] is True
+
+
+class TestRegisterRenewal:
+    def test_registering_a_renewal_updates_the_next_reference_date(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        clock: FrozenClock,
+    ) -> None:
+        """US23-CA02"""
+        today = today_in_brazil(clock.now())
+        created = register(
+            db_client,
+            operator_headers,
+            {
+                "name": "Cond. Lake View",
+                "contract_start_date": (today - timedelta(days=335)).isoformat(),
+                "contract_renewal_date": (today + timedelta(days=30)).isoformat(),
+            },
+        )
+        condominium_id = created.json()["id"]
+        new_renewal_date = (today + timedelta(days=365)).isoformat()
+
+        renewed = db_client.patch(
+            f"/condominiums/{condominium_id}",
+            json={
+                "contract_start_date": today.isoformat(),
+                "contract_renewal_date": new_renewal_date,
+            },
+            headers=operator_headers,
+        )
+
+        assert created.json()["near_renewal"] is True
+        assert renewed.status_code == 200
+        assert renewed.json()["contract_start_date"] == today.isoformat()
+        assert renewed.json()["contract_renewal_date"] == new_renewal_date
+        assert renewed.json()["near_renewal"] is False
