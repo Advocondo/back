@@ -5,7 +5,7 @@ from advocondo.auth.models import PasswordResetLink, UserSession
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
 from advocondo.parcelas.models import Installment
-from advocondo.users.models import User
+from advocondo.users.models import User, UserAuditLog, UserCondominium
 
 __all__ = [
     "Agreement",
@@ -15,5 +15,7 @@ __all__ = [
     "LawyerAssignment",
     "PasswordResetLink",
     "User",
+    "UserAuditLog",
+    "UserCondominium",
     "UserSession",
 ]

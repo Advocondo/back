@@ -140,3 +140,19 @@ class UserAuditLogResponse(BaseModel):
 
 class UserAuditLogListResponse(BaseModel):
     logs: list[UserAuditLogResponse]
+
+
+MAX_LINKED_CONDOMINIUMS = 500
+
+
+class UserCondominiumsUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    condominium_ids: list[uuid.UUID] = Field(max_length=MAX_LINKED_CONDOMINIUMS)
+
+
+class UserCondominiumResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
