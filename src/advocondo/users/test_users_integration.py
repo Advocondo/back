@@ -1295,6 +1295,8 @@ class TestUserHistory:
 
         assert response.status_code == 404
         assert response.json() == {"detail": "Usuário não encontrado."}
+
+
 class TestListLawyers:
     def test_lists_only_active_lawyers_ordered_by_name(
         self,

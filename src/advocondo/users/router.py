@@ -114,6 +114,8 @@ def list_lawyers(
 ) -> list[LawyerResponse]:
     lawyers = user_service.list_responsible_lawyers()
     return [LawyerResponse.model_validate(lawyer) for lawyer in lawyers]
+
+
 @router.patch("/users/{user_id}/status", tags=["users"])
 def change_user_status(
     user_id: uuid.UUID,

@@ -103,4 +103,5 @@ def require_admin(current_user: CurrentUser) -> User:
         raise PermissionDeniedError()
     return current_user
 
+
 CurrentAdmin = Annotated[User, Depends(require_admin)]
