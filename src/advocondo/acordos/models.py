@@ -58,7 +58,9 @@ class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     condominium: Mapped[Condominium] = relationship(lazy="joined")
     debtor: Mapped[Debtor] = relationship(lazy="joined")
     installments: Mapped[list["Installment"]] = relationship(
-        order_by="Installment.number", cascade="all, delete-orphan"
+        order_by="Installment.number",
+        cascade="all, delete-orphan",
+        back_populates="agreement",
     )
 
     @property
