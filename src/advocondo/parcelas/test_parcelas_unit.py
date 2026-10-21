@@ -10,6 +10,7 @@ from advocondo.parcelas.errors import (
 )
 from advocondo.parcelas.plan import (
     absorb_difference,
+    first_and_last_day_of_month,
     monthly_due_dates,
     split_amount,
     split_fee,
@@ -45,6 +46,26 @@ class TestSplitAmount:
     def test_installment_below_one_cent_is_refused(self) -> None:
         with pytest.raises(InstallmentBelowOneCentError):
             split_amount(Decimal("0.05"), 6)
+
+
+class TestFirstAndLastDayOfMonth:
+    @pytest.mark.parametrize(
+        ("year", "month", "last_day"),
+        [
+            pytest.param(2026, 3, date(2026, 3, 31), id="31-day-month"),
+            pytest.param(2026, 4, date(2026, 4, 30), id="30-day-month"),
+            pytest.param(2026, 2, date(2026, 2, 28), id="february"),
+            pytest.param(2028, 2, date(2028, 2, 29), id="leap-february"),
+        ],
+    )
+    def test_month_goes_from_the_first_to_its_last_day(
+        self, year: int, month: int, last_day: date
+    ) -> None:
+        """US25-CA01"""
+        assert first_and_last_day_of_month(year, month) == (
+            date(year, month, 1),
+            last_day,
+        )
 
 
 class TestMonthlyDueDates:
