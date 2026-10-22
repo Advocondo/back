@@ -21,6 +21,7 @@ from advocondo.parcelas.models import Installment
 from advocondo.parcelas.plan import monthly_due_dates, split_amount, split_fee
 from advocondo.users.models import User
 
+
 class AgreementService:
     def __init__(
         self,
@@ -49,7 +50,7 @@ class AgreementService:
         agreement = Agreement(
             condominium=condominium,
             debtor=debtor,
-            closed_by_id=closed_by.id, 
+            closed_by_id=closed_by.id,
             total_amount=request.total_amount,
             fee_amount=fee,
             fee_percentage=request.fee_percentage,
