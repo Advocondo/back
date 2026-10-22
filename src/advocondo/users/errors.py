@@ -1,3 +1,5 @@
+import uuid
+
 from advocondo.common.errors import (
     BusinessRuleError,
     ConflictError,
@@ -61,3 +63,17 @@ class CannotDeactivateSelfError(BusinessRuleError):
 
 class UserIsPendingError(BusinessRuleError):
     message = "Usuário com convite pendente precisa aceitar o convite antes."
+
+
+class TargetNotClientError(BusinessRuleError):
+    message = "Somente usuários com perfil Cliente têm condomínios vinculados."
+
+
+class UnknownCondominiumsError(BusinessRuleError):
+    def __init__(self, missing_ids: list[uuid.UUID]) -> None:
+        listed = ", ".join(str(missing_id) for missing_id in missing_ids)
+        super().__init__(f"Condomínios inexistentes na lista: {listed}.")
+
+
+class CannotChangeOwnRoleError(BusinessRuleError):
+    message = "Você não pode alterar o seu próprio perfil."

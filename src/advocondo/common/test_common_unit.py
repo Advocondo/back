@@ -1,12 +1,12 @@
 import logging
 import smtplib
-from datetime import UTC
+from datetime import UTC, date, datetime
 from typing import Any, ClassVar, Self
 
 import pytest
 
 from advocondo.common import email as email_module
-from advocondo.common.clock import get_clock
+from advocondo.common.clock import get_clock, today_in_brazil
 from advocondo.common.email import (
     EmailMessage,
     LogEmailSender,
@@ -22,6 +22,7 @@ from advocondo.common.errors import (
     NotFoundError,
     PermissionDeniedError,
 )
+from advocondo.common.normalization import comparable_text, keep_only_digits
 from advocondo.common.passwords import PasswordHasher
 from advocondo.common.tokens import generate_opaque_token, hash_token
 from tests.support.settings import make_settings
@@ -222,3 +223,48 @@ class TestEmail:
         monkeypatch.setattr(email_module, "get_settings", make_settings)
 
         assert isinstance(email_module.get_email_sender(), LogEmailSender)
+
+
+class TestTodayInBrazil:
+    @pytest.mark.parametrize(
+        ("moment", "expected"),
+        [
+            pytest.param(
+                datetime(2026, 10, 15, 12, 0, tzinfo=UTC),
+                date(2026, 10, 15),
+                id="midday",
+            ),
+            pytest.param(
+                datetime(2026, 10, 15, 3, 0, tzinfo=UTC),
+                date(2026, 10, 15),
+                id="midnight-in-brazil",
+            ),
+            pytest.param(
+                datetime(2026, 10, 15, 2, 59, tzinfo=UTC),
+                date(2026, 10, 14),
+                id="one-minute-before-midnight-in-brazil",
+            ),
+        ],
+    )
+    def test_date_follows_brasilia_time(self, moment: datetime, expected: date) -> None:
+        """US27-CA01"""
+        assert today_in_brazil(moment) == expected
+
+
+class TestNormalization:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param("(61) 91234-5678", "61912345678", id="phone-mask"),
+            pytest.param("14.447.918/0001-98", "14447918000198", id="cnpj-mask"),
+            pytest.param(None, None, id="none"),
+            pytest.param(61912345678, 61912345678, id="not-text"),
+        ],
+    )
+    def test_only_digits_are_kept_in_text(
+        self, value: object, expected: object
+    ) -> None:
+        assert keep_only_digits(value) == expected
+
+    def test_comparable_text_ignores_accents_case_and_spaces(self) -> None:
+        assert comparable_text("  José   SIMÃO ") == "jose simao"

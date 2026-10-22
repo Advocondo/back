@@ -12,7 +12,14 @@ from advocondo.users.errors import (
     OabNumberNotAllowedError,
     OabNumberRequiredError,
 )
-from advocondo.users.models import Role, User, UserInvite, UserStatus
+from advocondo.users.models import (
+    AuditAction,
+    Role,
+    User,
+    UserAuditLog,
+    UserInvite,
+    UserStatus,
+)
 from advocondo.users.service import InviteDetails, InviteService
 
 
@@ -33,6 +40,29 @@ class TestUser:
         )
 
         assert user.can_log_in is expected
+
+    @pytest.mark.parametrize(
+        ("is_lawyer", "status", "expected"),
+        [
+            pytest.param(True, UserStatus.ACTIVE, True, id="active-lawyer"),
+            pytest.param(True, UserStatus.PENDING, False, id="pending-lawyer"),
+            pytest.param(True, UserStatus.INACTIVE, False, id="inactive-lawyer"),
+            pytest.param(False, UserStatus.ACTIVE, False, id="active-non-lawyer"),
+        ],
+    )
+    def test_only_active_lawyers_can_be_responsible_for_an_acordo(
+        self, is_lawyer: bool, status: UserStatus, expected: bool
+    ) -> None:
+        """US18-CA01"""
+        user = User(
+            email="ana@example.com",
+            name="Ana",
+            role=Role.OPERATOR,
+            status=status,
+            is_lawyer=is_lawyer,
+        )
+
+        assert user.can_be_responsible_lawyer is expected
 
 
 class TestUserInvite:
@@ -88,6 +118,14 @@ class FakeEmailSender:
         self.sent.append(message)
 
 
+class FakeAuditLogRepository:
+    def __init__(self) -> None:
+        self.added: list[UserAuditLog] = []
+
+    def add(self, log: UserAuditLog) -> None:
+        self.added.append(log)
+
+
 class FrozenNow:
     def now(self) -> datetime:
         return datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
@@ -95,21 +133,29 @@ class FrozenNow:
 
 def build_invite_service(
     existing: dict[str, User] | None = None,
-) -> tuple[InviteService, FakeUserRepository, FakeInviteRepository, FakeEmailSender]:
+) -> tuple[
+    InviteService,
+    FakeUserRepository,
+    FakeInviteRepository,
+    FakeEmailSender,
+    FakeAuditLogRepository,
+]:
     users = FakeUserRepository(existing)
     invites = FakeInviteRepository()
     sender = FakeEmailSender()
+    audit_logs = FakeAuditLogRepository()
     service = InviteService(
         session=FakeSession(),  # type: ignore[arg-type]
         users=users,  # type: ignore[arg-type]
         invites=invites,  # type: ignore[arg-type]
+        audit_logs=audit_logs,  # type: ignore[arg-type]
         password_hasher=get_password_hasher(),
         email_sender=sender,
         clock=FrozenNow(),
         invite_link_duration=timedelta(hours=24),
         frontend_url="http://localhost:3000",
     )
-    return service, users, invites, sender
+    return service, users, invites, sender, audit_logs
 
 
 def build_admin() -> User:
@@ -136,7 +182,7 @@ def build_details(**overrides: Any) -> InviteDetails:
 
 class TestInviteServiceRules:
     def test_cannot_invite_another_administrator(self) -> None:
-        service, users, _, _ = build_invite_service()
+        service, users, _, _, _ = build_invite_service()
 
         with pytest.raises(AdminRoleNotAllowedError):
             service.invite(build_admin(), build_details(role=Role.ADMIN))
@@ -144,7 +190,7 @@ class TestInviteServiceRules:
         assert users.added == []
 
     def test_lawyer_must_inform_the_oab_number(self) -> None:
-        service, users, _, _ = build_invite_service()
+        service, users, _, _, _ = build_invite_service()
 
         with pytest.raises(OabNumberRequiredError):
             service.invite(build_admin(), build_details(is_lawyer=True))
@@ -152,7 +198,7 @@ class TestInviteServiceRules:
         assert users.added == []
 
     def test_non_lawyer_cannot_inform_the_oab_number(self) -> None:
-        service, users, _, _ = build_invite_service()
+        service, users, _, _, _ = build_invite_service()
 
         with pytest.raises(OabNumberNotAllowedError):
             service.invite(
@@ -163,7 +209,7 @@ class TestInviteServiceRules:
         assert users.added == []
 
     def test_email_already_registered_is_refused(self) -> None:
-        service, users, _, _ = build_invite_service(
+        service, users, _, _, _ = build_invite_service(
             existing={"novo@example.com": build_admin()}
         )
 
@@ -173,10 +219,11 @@ class TestInviteServiceRules:
         assert users.added == []
 
     def test_invite_stores_pending_user_and_sends_email(self) -> None:
-        service, users, invites, sender = build_invite_service()
+        service, users, invites, sender, audit_logs = build_invite_service()
+        admin = build_admin()
 
         user = service.invite(
-            build_admin(),
+            admin,
             build_details(
                 email="Novo@Example.com",
                 name="  Novo Colaborador  ",
@@ -196,3 +243,11 @@ class TestInviteServiceRules:
         assert invites.added[0].user is user
         assert len(sender.sent) == 1
         assert sender.sent[0].to == "novo@example.com"
+
+        assert len(audit_logs.added) == 1
+        log = audit_logs.added[0]
+        assert log.user is user
+        assert log.actor is admin
+        assert log.action == AuditAction.INVITED
+        assert log.old_value is None
+        assert log.new_value == Role.OPERATOR.value

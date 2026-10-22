@@ -15,10 +15,11 @@ from advocondo.auth.service import (
 )
 from advocondo.common.clock import Clock, get_clock
 from advocondo.common.email import EmailSender, get_email_sender
+from advocondo.common.errors import PermissionDeniedError
 from advocondo.common.passwords import PasswordHasher, get_password_hasher
 from advocondo.config import Settings, get_settings
 from advocondo.db import get_session
-from advocondo.users.models import User
+from advocondo.users.models import Role, User
 from advocondo.users.repository import UserRepository
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -84,3 +85,29 @@ def get_current_user(current_session: CurrentSession) -> User:
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+OFFICE_STAFF_ROLES = frozenset({Role.ADMIN, Role.OPERATOR})
+
+
+def require_office_staff(current_user: CurrentUser) -> User:
+    """Internal routes (condominiums, debtors, agreements) belong to the office.
+
+    Client users see only their own panel (EP06), without the office's fees.
+    """
+    if current_user.role not in OFFICE_STAFF_ROLES:
+        raise PermissionDeniedError()
+    return current_user
+
+
+CurrentOfficeStaff = Annotated[User, Depends(require_office_staff)]
+
+
+def require_client(current_user: CurrentUser) -> User:
+    """The Client panel (EP06) is only for Client users; it shows their own condominiums."""
+    if current_user.role != Role.CLIENT:
+        raise PermissionDeniedError()
+    return current_user
+
+
+CurrentClient = Annotated[User, Depends(require_client)]

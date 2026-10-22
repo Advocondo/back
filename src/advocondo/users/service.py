@@ -1,4 +1,6 @@
+import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlencode
@@ -11,8 +13,10 @@ from advocondo.common.clock import Clock
 from advocondo.common.email import EmailMessage, EmailSender
 from advocondo.common.passwords import MIN_PASSWORD_LENGTH, PasswordHasher
 from advocondo.common.tokens import generate_opaque_token, hash_token
+from advocondo.condominios.models import Condominium
 from advocondo.users.errors import (
     AdminRoleNotAllowedError,
+    CannotChangeOwnRoleError,
     CannotDeactivateSelfError,
     CurrentPasswordRequiredError,
     EmailAlreadyInUseError,
@@ -21,14 +25,29 @@ from advocondo.users.errors import (
     OabNumberNotAllowedError,
     OabNumberRequiredError,
     PasswordTooShortError,
+    TargetNotClientError,
+    UnknownCondominiumsError,
     UserIsPendingError,
     UserNotFoundError,
     WrongCurrentPasswordError,
 )
-from advocondo.users.models import Role, User, UserInvite, UserStatus
-from advocondo.users.repository import UserInviteRepository, UserRepository
+from advocondo.users.models import (
+    AuditAction,
+    Role,
+    User,
+    UserAuditLog,
+    UserInvite,
+    UserStatus,
+)
+from advocondo.users.repository import (
+    UserAuditLogRepository,
+    UserCondominiumRepository,
+    UserInviteRepository,
+    UserRepository,
+)
 
 INVITE_PAGE = "/convite"
+logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -55,6 +74,10 @@ class UserService:
         self._users.add(user)
         self._session.commit()
         return user
+
+    def list_responsible_lawyers(self) -> list[User]:
+        """Advogados que podem ser escolhidos como responsáveis por um acordo."""
+        return self._users.list_active_lawyers()
 
 
 @dataclass(frozen=True)
@@ -139,6 +162,7 @@ class InviteService:
         session: Session,
         users: UserRepository,
         invites: UserInviteRepository,
+        audit_logs: UserAuditLogRepository,
         password_hasher: PasswordHasher,
         email_sender: EmailSender,
         clock: Clock,
@@ -148,6 +172,7 @@ class InviteService:
         self._session = session
         self._users = users
         self._invites = invites
+        self._audit_logs = audit_logs
         self._password_hasher = password_hasher
         self._email_sender = email_sender
         self._clock = clock
@@ -181,6 +206,16 @@ class InviteService:
             expires_at=self._clock.now() + self._invite_link_duration,
         )
         self._invites.add(invite)
+
+        log = UserAuditLog(
+            user=invited,
+            actor=invited_by,
+            action=AuditAction.INVITED,
+            old_value=None,
+            new_value=invited.role.value,
+        )
+        self._audit_logs.add(log)
+
         self._session.commit()
 
         self._send_invite_email(invited, token)
@@ -215,11 +250,7 @@ class InviteService:
         try:
             self._email_sender.send(message)
         except Exception:
-            # O convite já está no banco; a falha de e-mail não pode derrubar a
-            # requisição. Vai para o log e para o Sentry (US07 não define retry).
-            import logging
-
-            logging.getLogger(__name__).exception("Falha ao enviar o e-mail de convite")
+            logger.exception("Falha ao enviar o e-mail de convite")
 
     def _invite_url(self, token: str) -> str:
         base_url = self._frontend_url.rstrip("/")
@@ -241,9 +272,17 @@ def build_invite_email(
 
 
 class UserManagementService:
-    def __init__(self, session: Session, users: UserRepository) -> None:
+    def __init__(
+        self,
+        session: Session,
+        users: UserRepository,
+        audit_logs: UserAuditLogRepository,
+        user_condominiums: UserCondominiumRepository,
+    ) -> None:
         self._session = session
         self._users = users
+        self._audit_logs = audit_logs
+        self._user_condominiums = user_condominiums
 
     def change_status(
         self, admin: User, target_user_id: uuid.UUID, new_status: UserStatus
@@ -256,6 +295,103 @@ class UserManagementService:
         if user.id == admin.id and new_status == UserStatus.INACTIVE:
             raise CannotDeactivateSelfError()
 
+        old_status = user.status
         user.status = new_status
+
+        if old_status != new_status:
+            log = UserAuditLog(
+                user=user,
+                actor=admin,
+                action=AuditAction.STATUS_CHANGED,
+                old_value=old_status.value,
+                new_value=new_status.value,
+            )
+            self._audit_logs.add(log)
+
         self._session.commit()
         return user
+
+    def change_role(
+        self, admin: User, target_user_id: uuid.UUID, new_role: Role
+    ) -> User:
+        # Same row lock as replace_condominiums, so a role change and a links edit of
+        # the same user cannot interleave and leave links on a non-Client.
+        user = self._users.get_by_id_for_update(target_user_id)
+        if user is None:
+            raise UserNotFoundError()
+        if user.id == admin.id and user.role != new_role:
+            raise CannotChangeOwnRoleError()
+
+        old_role = user.role
+        user.role = new_role
+
+        if old_role == Role.CLIENT and new_role != Role.CLIENT:
+            # Condominium links only mean something for Clients (US10); dropping them
+            # keeps old access from coming back if the user is made a Client again.
+            self._user_condominiums.clear(user.id)
+
+        if old_role != new_role:
+            log = UserAuditLog(
+                user=user,
+                actor=admin,
+                action=AuditAction.ROLE_CHANGED,
+                old_value=old_role.value,
+                new_value=new_role.value,
+            )
+            self._audit_logs.add(log)
+
+        self._session.commit()
+        return user
+
+
+class AuditService:
+    def __init__(
+        self,
+        users: UserRepository,
+        audit_logs: UserAuditLogRepository,
+    ) -> None:
+        self._users = users
+        self._audit_logs = audit_logs
+
+    def list_user_history(self, user_id: uuid.UUID) -> list[UserAuditLog]:
+        user = self._users.get_by_id(user_id)
+        if user is None:
+            raise UserNotFoundError()
+        return self._audit_logs.list_by_user(user_id)
+
+
+class UserCondominiumService:
+    def __init__(
+        self,
+        session: Session,
+        users: UserRepository,
+        user_condominiums: UserCondominiumRepository,
+    ) -> None:
+        self._session = session
+        self._users = users
+        self._user_condominiums = user_condominiums
+
+    def list_condominiums(self, user_id: uuid.UUID) -> Sequence[Condominium]:
+        self._ensure_is_client(self._users.get_by_id(user_id))
+        return self._user_condominiums.list_condominiums_of(user_id)
+
+    def replace_condominiums(
+        self, user_id: uuid.UUID, condominium_ids: list[uuid.UUID]
+    ) -> Sequence[Condominium]:
+        """Sets the whole list of condominiums of a Client; an empty list unlinks all."""
+        # The row lock serializes simultaneous edits of the same user's links.
+        self._ensure_is_client(self._users.get_by_id_for_update(user_id))
+        wanted = set(condominium_ids)
+        missing = wanted - self._user_condominiums.existing_condominium_ids(wanted)
+        if missing:
+            raise UnknownCondominiumsError(sorted(missing, key=str))
+
+        self._user_condominiums.replace(user_id, wanted)
+        self._session.commit()
+        return self._user_condominiums.list_condominiums_of(user_id)
+
+    def _ensure_is_client(self, user: User | None) -> None:
+        if user is None:
+            raise UserNotFoundError()
+        if user.role != Role.CLIENT:
+            raise TargetNotClientError()
