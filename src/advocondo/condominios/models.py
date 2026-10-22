@@ -4,6 +4,7 @@ from sqlalchemy import CheckConstraint, Date, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from advocondo.common.models import TimestampsMixin, UuidPrimaryKeyMixin
+from advocondo.condominios import renewal
 from advocondo.db import Base
 
 MAX_NAME_LENGTH = 200
@@ -44,3 +45,10 @@ class Condominium(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     # Service contract with the office; the renewal is followed in US23.
     contract_start_date: Mapped[date | None] = mapped_column(Date)
     contract_renewal_date: Mapped[date | None] = mapped_column(Date)
+
+    def is_near_renewal(self, today: date) -> bool:
+        """Sem data de renovação cadastrada, não há o que sinalizar."""
+        if self.contract_renewal_date is None:
+            return False
+
+        return renewal.is_near_renewal(self.contract_renewal_date, today)
