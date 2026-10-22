@@ -4,7 +4,12 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from advocondo.acordos.schemas import MoneyAmount, MoneyResponse
+from advocondo.acordos.schemas import (
+    CondominiumSummary,
+    DebtorSummary,
+    MoneyAmount,
+    MoneyResponse,
+)
 from advocondo.parcelas.models import Installment
 from advocondo.parcelas.status import InstallmentStatus
 
@@ -34,6 +39,24 @@ class InstallmentResponse(BaseModel):
             fee_amount=installment.fee_amount,
             payment_date=installment.payment_date,
             status=installment.status_on(today),
+        )
+
+
+class InstallmentWithDebtorResponse(InstallmentResponse):
+    """Parcela da listagem do mês, com quem deve e de qual condomínio
+    (US25-CA01)."""
+
+    condominium: CondominiumSummary
+    debtor: DebtorSummary
+
+    @classmethod
+    def from_installment(cls, installment: Installment, today: date) -> Self:
+        installment_fields = InstallmentResponse.from_installment(installment, today)
+        agreement = installment.agreement
+        return cls(
+            **dict(installment_fields),
+            condominium=CondominiumSummary.model_validate(agreement.condominium),
+            debtor=DebtorSummary.model_validate(agreement.debtor),
         )
 
 
