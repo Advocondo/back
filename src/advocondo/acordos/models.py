@@ -71,7 +71,9 @@ class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
         order_by="LawyerAssignment.assigned_at", cascade="all, delete-orphan"
     )
     installments: Mapped[list["Installment"]] = relationship(
-        order_by="Installment.number", cascade="all, delete-orphan"
+        order_by="Installment.number",
+        cascade="all, delete-orphan",
+        back_populates="agreement",
     )
 
     @property
