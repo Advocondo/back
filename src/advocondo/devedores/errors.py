@@ -21,3 +21,7 @@ class SimilarDebtorsFoundError(ConflictError):
     def __init__(self, similar_debtors: list[Debtor]) -> None:
         super().__init__()
         self.similar_debtors = similar_debtors
+
+
+class InvalidSpreadsheetError(BusinessRuleError):
+    message = "Não foi possível ler a planilha. Envie um arquivo .xlsx."
