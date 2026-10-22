@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from sqlalchemy.orm import Session
 
 from advocondo.acordos.errors import (
+    AgreementCancelledError,
     AgreementNotFoundError,
     LawyerNotEligibleError,
     LawyerNotFoundError,
@@ -40,6 +41,8 @@ class LawyerAssignmentService:
         agreement = self._agreements.get(agreement_id)
         if agreement is None:
             raise AgreementNotFoundError()
+        if agreement.is_cancelled:
+            raise AgreementCancelledError()
         lawyer = self._users.get_by_id(lawyer_id)
         if lawyer is None:
             raise LawyerNotFoundError()

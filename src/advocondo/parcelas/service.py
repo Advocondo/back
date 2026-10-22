@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from advocondo.acordos.errors import AgreementNotFoundError
+from advocondo.acordos.errors import AgreementCancelledError, AgreementNotFoundError
 from advocondo.acordos.repository import AgreementRepository
 from advocondo.parcelas.errors import (
     InstallmentAlreadyPaidError,
@@ -63,6 +63,7 @@ class InstallmentService:
     ) -> Installment:
         """Dá baixa na parcela em aberto: ela passa a constar como paga (US26-CA01)."""
         installment = self._get_installment_for_update(installment_id)
+        ensure_agreement_is_not_cancelled(installment)
         if installment.is_paid:
             raise InstallmentAlreadyPaidError()
         ensure_payment_date_is_not_in_the_future(payment_date, today)
@@ -98,6 +99,7 @@ class InstallmentService:
         """Edits one installment before its payment (US17-CA03) and returns the
         whole plan, since a new amount also changes the following installments."""
         installment = self._get_installment_for_update(installment_id)
+        ensure_agreement_is_not_cancelled(installment)
         if installment.is_paid:
             raise PaidInstallmentCannotBeEditedError()
 
@@ -157,6 +159,14 @@ class InstallmentService:
         if installment is None:
             raise InstallmentNotFoundError()
         return installment
+
+
+def ensure_agreement_is_not_cancelled(installment: Installment) -> None:
+    """Um acordo cancelado não recebe baixa nem edição de parcela (US20). A correção
+    e o estorno de uma baixa continuam permitidos ao Administrador: sem reativação,
+    são o único jeito de consertar um pagamento lançado por engano."""
+    if installment.agreement.is_cancelled:
+        raise AgreementCancelledError()
 
 
 def ensure_payment_date_is_not_in_the_future(payment_date: date, today: date) -> None:
