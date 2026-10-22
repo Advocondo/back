@@ -14,9 +14,17 @@ Todas as rotas exigem o cabeçalho `Authorization: Bearer <token>` de um usuári
 | `street`, `neighborhood`, `city` | Logradouro, bairro e cidade, até 200 caracteres. |
 | `state` | UF com 2 letras; gravada em maiúsculas. |
 | `manager_name`, `manager_email`, `manager_phone` | Síndico ou administradora. Telefone com DDD, 10 ou 11 dígitos, com ou sem máscara. |
-| `contract_start_date`, `contract_renewal_date` | Datas do contrato de prestação de serviço (`AAAA-MM-DD`). A renovação não pode ser anterior ao início. O acompanhamento da renovação é a US23. |
+| `contract_start_date`, `contract_renewal_date` | Datas do contrato de prestação de serviço (`AAAA-MM-DD`). A renovação não pode ser anterior ao início. A sinalização de renovação próxima é a US23 (veja abaixo). |
 
 Qualquer campo fora desta lista é recusado com `422`.
+
+## Renovação do contrato (US23)
+
+Toda resposta de condomínio traz `near_renewal`. É `true` quando faltam 60 dias ou menos para `contract_renewal_date`, ou quando essa data já passou, porque o prazo de renegociação ainda exige uma ação. É `false` nos demais casos e quando o condomínio não tem data de renovação. O valor é calculado a cada consulta, com a data de hoje no Brasil, e nada é gravado. A janela de 60 dias é fixa por enquanto. A sinalização visual fica no front.
+
+### Registrar uma renovação (US23-CA02)
+
+Quando o contrato é renovado, a equipe altera as datas do condomínio em `PATCH /condominiums/{id}`: `contract_start_date` recebe o dia em que a renovação começou e `contract_renewal_date` recebe a nova data de referência. A sinalização `near_renewal` se ajusta na mesma hora. O sistema ainda não guarda um histórico das renovações.
 
 ## Rotas
 
