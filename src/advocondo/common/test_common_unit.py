@@ -278,8 +278,8 @@ class TestFormatBrl:
         [
             pytest.param(Decimal("1234.56"), "R$ 1.234,56", id="thousands"),
             pytest.param(Decimal("1234567.8"), "R$ 1.234.567,80", id="millions"),
-            pytest.param(Decimal("0"), "R$ 0,00", id="zero"),
-            pytest.param(Decimal("5"), "R$ 5,00", id="whole-number"),
+            pytest.param(Decimal(0), "R$ 0,00", id="zero"),
+            pytest.param(Decimal(5), "R$ 5,00", id="whole-number"),
             pytest.param(Decimal("999.99"), "R$ 999,99", id="below-a-thousand"),
         ],
     )

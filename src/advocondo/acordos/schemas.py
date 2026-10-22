@@ -3,9 +3,16 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Self
 
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    field_validator,
+    model_validator,
+)
 
-from advocondo.acordos.models import AgreementStatus
+from advocondo.acordos.models import MAX_CANCELLATION_REASON_LENGTH, AgreementStatus
 from advocondo.users.schemas import LawyerResponse
 
 MAX_INSTALLMENTS = 120
@@ -47,6 +54,22 @@ class AgreementCreateRequest(BaseModel):
                 "Informe os honorários em percentual ou em valor, não os dois."
             )
         return self
+
+
+class AgreementCancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Annotated[str | None, Field(max_length=MAX_CANCELLATION_REASON_LENGTH)] = (
+        None
+    )
+    # Obrigatório como `true` para cancelar um acordo que ainda tem parcelas sem
+    # pagamento (US20): o aviso é imposto pela API, e não só pela tela.
+    confirm_open_installments: bool = False
+
+    @field_validator("reason")
+    @classmethod
+    def _blank_reason_is_no_reason(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
 
 
 class CondominiumSummary(BaseModel):
@@ -99,3 +122,5 @@ class AgreementResponse(BaseModel):
     condominium: CondominiumSummary
     debtor: DebtorSummary
     responsible_lawyer: LawyerResponse | None
+    cancelled_at: datetime | None
+    cancellation_reason: str | None

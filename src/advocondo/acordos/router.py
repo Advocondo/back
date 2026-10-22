@@ -11,6 +11,7 @@ from advocondo.acordos.lawyer_assignment import LawyerAssignmentService
 from advocondo.acordos.models import AgreementStatus
 from advocondo.acordos.repository import AgreementFilters
 from advocondo.acordos.schemas import (
+    AgreementCancelRequest,
     AgreementCreateRequest,
     AgreementResponse,
     LawyerAssignmentRequest,
@@ -66,6 +67,17 @@ def get_agreement(
     agreement_id: uuid.UUID, agreement_service: AgreementServiceDependency
 ) -> AgreementResponse:
     return AgreementResponse.model_validate(agreement_service.get(agreement_id))
+
+
+@router.post("/{agreement_id}/cancel")
+def cancel_agreement(
+    agreement_id: uuid.UUID,
+    request: AgreementCancelRequest,
+    agreement_service: AgreementServiceDependency,
+) -> AgreementResponse:
+    return AgreementResponse.model_validate(
+        agreement_service.cancel(agreement_id, request)
+    )
 
 
 @router.put("/{agreement_id}/responsible-lawyer")

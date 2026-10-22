@@ -5,14 +5,17 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from advocondo.acordos.errors import (
+    AgreementAlreadyCancelledError,
     AgreementNotFoundError,
     DebtorFromAnotherCondominiumError,
     FeeAboveTotalError,
+    OpenInstallmentsNotConfirmedError,
 )
 from advocondo.acordos.fees import fee_from_percentage
-from advocondo.acordos.models import Agreement
+from advocondo.acordos.models import Agreement, AgreementStatus
 from advocondo.acordos.repository import AgreementFilters, AgreementRepository
-from advocondo.acordos.schemas import AgreementCreateRequest
+from advocondo.acordos.schemas import AgreementCancelRequest, AgreementCreateRequest
+from advocondo.common.clock import Clock
 from advocondo.condominios.errors import CondominiumNotFoundError
 from advocondo.condominios.repository import CondominiumRepository
 from advocondo.devedores.errors import DebtorNotFoundError
@@ -28,11 +31,13 @@ class AgreementService:
         agreements: AgreementRepository,
         condominiums: CondominiumRepository,
         debtors: DebtorRepository,
+        clock: Clock,
     ) -> None:
         self._session = session
         self._agreements = agreements
         self._condominiums = condominiums
         self._debtors = debtors
+        self._clock = clock
 
     def register(self, request: AgreementCreateRequest) -> Agreement:
         """Registers an agreement of a debtor with their condominium (US15)."""
@@ -54,6 +59,26 @@ class AgreementService:
             fee_percentage=request.fee_percentage,
             installments=build_installments(request, fee),
         )
+        self._agreements.save(agreement)
+        self._session.commit()
+        return agreement
+
+    def cancel(
+        self, agreement_id: uuid.UUID, request: AgreementCancelRequest
+    ) -> Agreement:
+        """Cancela o acordo (US20). As parcelas sem pagamento são guardadas, mas
+        saem da cobrança; se houver alguma, o usuário precisa confirmar."""
+        agreement = self.get(agreement_id)
+        if agreement.status == AgreementStatus.CANCELLED:
+            raise AgreementAlreadyCancelledError()
+
+        unpaid = agreement.unpaid_installments
+        if unpaid and not request.confirm_open_installments:
+            raise OpenInstallmentsNotConfirmedError(
+                len(unpaid), sum((item.amount for item in unpaid), Decimal(0))
+            )
+
+        agreement.cancel(request.reason, self._clock.now())
         self._agreements.save(agreement)
         self._session.commit()
         return agreement
