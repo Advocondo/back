@@ -22,6 +22,7 @@ from advocondo.common.errors import (
     NotFoundError,
     PermissionDeniedError,
 )
+from advocondo.common.normalization import comparable_text, keep_only_digits
 from advocondo.common.passwords import PasswordHasher
 from advocondo.common.tokens import generate_opaque_token, hash_token
 from tests.support.settings import make_settings
@@ -248,3 +249,22 @@ class TestTodayInBrazil:
     def test_date_follows_brasilia_time(self, moment: datetime, expected: date) -> None:
         """US27-CA01"""
         assert today_in_brazil(moment) == expected
+
+
+class TestNormalization:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param("(61) 91234-5678", "61912345678", id="phone-mask"),
+            pytest.param("14.447.918/0001-98", "14447918000198", id="cnpj-mask"),
+            pytest.param(None, None, id="none"),
+            pytest.param(61912345678, 61912345678, id="not-text"),
+        ],
+    )
+    def test_only_digits_are_kept_in_text(
+        self, value: object, expected: object
+    ) -> None:
+        assert keep_only_digits(value) == expected
+
+    def test_comparable_text_ignores_accents_case_and_spaces(self) -> None:
+        assert comparable_text("  José   SIMÃO ") == "jose simao"
