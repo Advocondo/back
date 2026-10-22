@@ -1,15 +1,18 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from advocondo.common.clock import today_in_brazil
+from advocondo.condominios.renewal import DEFAULT_RENEWAL_WARNING_DAYS
 from advocondo.condominios.repository import CondominiumRepository
 from advocondo.users.models import Role
 from tests.fixtures.auth import AuthenticateAs
 from tests.fixtures.condominios import CreateCondominium
 from tests.fixtures.users import CreateUser
+from tests.support.clock import FrozenClock
 
 MIRANTE = {
     "name": "Residencial Mirante",
@@ -339,3 +342,146 @@ class TestUpdateCondominium:
         )
 
         assert response.status_code == 404
+
+
+class TestRenewalWarning:
+    @pytest.mark.parametrize(
+        ("days_until_renewal", "expected"),
+        [
+            pytest.param(365, False, id="renewal-in-a-year"),
+            pytest.param(
+                DEFAULT_RENEWAL_WARNING_DAYS + 1, False, id="one-day-outside-the-window"
+            ),
+            pytest.param(
+                DEFAULT_RENEWAL_WARNING_DAYS, True, id="last-day-of-the-window"
+            ),
+            pytest.param(0, True, id="renewal-today"),
+            pytest.param(-1, True, id="renewal-date-already-passed"),
+        ],
+    )
+    def test_condominium_is_flagged_by_its_renewal_date(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        clock: FrozenClock,
+        days_until_renewal: int,
+        expected: bool,
+    ) -> None:
+        """US23-CA01"""
+        today = today_in_brazil(clock.now())
+        renewal_date = today + timedelta(days=days_until_renewal)
+        payload = {
+            "name": "Residencial Mirante",
+            "contract_renewal_date": renewal_date.isoformat(),
+        }
+
+        response = register(db_client, operator_headers, payload)
+
+        assert response.status_code == 201
+        assert response.json()["near_renewal"] is expected
+
+    def test_condominium_without_a_renewal_date_is_not_flagged(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        """US23-CA01"""
+        response = register(db_client, operator_headers, {"name": "Cond. Lake View"})
+
+        assert response.json()["near_renewal"] is False
+
+    def test_flag_is_returned_by_every_route(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        clock: FrozenClock,
+    ) -> None:
+        """US23-CA01"""
+        today = today_in_brazil(clock.now())
+        soon = (today + timedelta(days=10)).isoformat()
+        created = register(
+            db_client,
+            operator_headers,
+            {"name": "Cond. Lake View", "contract_renewal_date": soon},
+        )
+        condominium_id = created.json()["id"]
+
+        fetched = db_client.get(
+            f"/condominiums/{condominium_id}", headers=operator_headers
+        )
+        listed = db_client.get("/condominiums", headers=operator_headers)
+        far = (today + timedelta(days=365)).isoformat()
+        updated = db_client.patch(
+            f"/condominiums/{condominium_id}",
+            json={"contract_renewal_date": far},
+            headers=operator_headers,
+        )
+
+        assert fetched.json()["near_renewal"] is True
+        assert [item["near_renewal"] for item in listed.json()] == [True]
+        assert updated.json()["near_renewal"] is False
+
+    def test_condominium_gets_flagged_as_the_renewal_date_gets_closer(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        clock: FrozenClock,
+    ) -> None:
+        """US23-CA01: sem job, a sinalização muda sozinha com o passar dos dias."""
+        operator = create_user(role=Role.OPERATOR)
+        today = today_in_brazil(clock.now())
+        renewal_date = today + timedelta(days=DEFAULT_RENEWAL_WARNING_DAYS + 1)
+        created = register(
+            db_client,
+            authenticate_as(operator),
+            {
+                "name": "Cond. Lake View",
+                "contract_renewal_date": renewal_date.isoformat(),
+            },
+        )
+        assert created.json()["near_renewal"] is False
+
+        # A sessão dura 12 horas: depois de avançar um dia, é preciso entrar de novo.
+        clock.advance(timedelta(days=1))
+        fetched = db_client.get(
+            f"/condominiums/{created.json()['id']}", headers=authenticate_as(operator)
+        )
+
+        assert fetched.status_code == 200
+        assert fetched.json()["near_renewal"] is True
+
+
+class TestRegisterRenewal:
+    def test_registering_a_renewal_updates_the_next_reference_date(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        clock: FrozenClock,
+    ) -> None:
+        """US23-CA02"""
+        today = today_in_brazil(clock.now())
+        created = register(
+            db_client,
+            operator_headers,
+            {
+                "name": "Cond. Lake View",
+                "contract_start_date": (today - timedelta(days=335)).isoformat(),
+                "contract_renewal_date": (today + timedelta(days=30)).isoformat(),
+            },
+        )
+        condominium_id = created.json()["id"]
+        new_renewal_date = (today + timedelta(days=365)).isoformat()
+
+        renewed = db_client.patch(
+            f"/condominiums/{condominium_id}",
+            json={
+                "contract_start_date": today.isoformat(),
+                "contract_renewal_date": new_renewal_date,
+            },
+            headers=operator_headers,
+        )
+
+        assert created.json()["near_renewal"] is True
+        assert renewed.status_code == 200
+        assert renewed.json()["contract_start_date"] == today.isoformat()
+        assert renewed.json()["contract_renewal_date"] == new_renewal_date
+        assert renewed.json()["near_renewal"] is False
