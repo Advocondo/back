@@ -14,8 +14,17 @@ from advocondo.common.passwords import MAX_PASSWORD_LENGTH
 from advocondo.common.tokens import hash_token
 from advocondo.config import Settings, get_settings
 from advocondo.main import app
-from advocondo.users.models import AuditAction, Role, User, UserInvite, UserStatus
+from advocondo.users.models import (
+    AuditAction,
+    Role,
+    User,
+    UserCondominium,
+    UserInvite,
+    UserStatus,
+)
+from advocondo.users.repository import UserCondominiumRepository
 from tests.fixtures.auth import AuthenticateAs
+from tests.fixtures.condominios import CreateCondominium
 from tests.fixtures.users import DEFAULT_PASSWORD, CreateUser
 from tests.support.clock import FrozenClock
 from tests.support.email import Outbox
@@ -1295,3 +1304,451 @@ class TestUserHistory:
 
         assert response.status_code == 404
         assert response.json() == {"detail": "Usuário não encontrado."}
+
+
+def put_condominiums(
+    client: TestClient, headers: dict[str, str], user: User, ids: list[uuid.UUID]
+) -> httpx.Response:
+    response: httpx.Response = client.put(
+        f"/users/{user.id}/condominiums",
+        json={"condominium_ids": [str(item) for item in ids]},
+        headers=headers,
+    )
+    return response
+
+
+def get_condominiums(
+    client: TestClient, headers: dict[str, str], user: User
+) -> httpx.Response:
+    response: httpx.Response = client.get(
+        f"/users/{user.id}/condominiums", headers=headers
+    )
+    return response
+
+
+class TestLinkClientToCondominiums:
+    def test_admin_links_a_client_to_condominiums(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US10-CA01"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        bosque = create_condominium(name="Bosque")
+
+        response = put_condominiums(
+            db_client, headers, client_user, [mirante.id, bosque.id]
+        )
+
+        assert response.status_code == 200
+        expected = [
+            {"id": str(bosque.id), "name": "Bosque"},
+            {"id": str(mirante.id), "name": "Mirante"},
+        ]
+        assert response.json() == expected
+        assert get_condominiums(db_client, headers, client_user).json() == expected
+
+    def test_replacing_the_list_keeps_only_the_new_set(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US10-CA01"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        first = create_condominium(name="Primeiro")
+        second = create_condominium(name="Segundo")
+        third = create_condominium(name="Terceiro")
+        put_condominiums(db_client, headers, client_user, [first.id, second.id])
+
+        response = put_condominiums(
+            db_client, headers, client_user, [second.id, third.id]
+        )
+
+        assert [item["name"] for item in response.json()] == ["Segundo", "Terceiro"]
+
+    def test_empty_list_unlinks_every_condominium(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US10-CA02"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        put_condominiums(
+            db_client, headers, client_user, [create_condominium(name="Mirante").id]
+        )
+
+        response = put_condominiums(db_client, headers, client_user, [])
+
+        assert response.status_code == 200
+        assert response.json() == []
+        links = UserCondominiumRepository(db_session)
+        assert links.condominium_ids_of(client_user.id) == set()
+
+    def test_client_without_links_has_no_condominiums(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US10-CA02"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+
+        response = get_condominiums(db_client, headers, client_user)
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_client_sees_only_linked_condominiums(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US10-CA01 and US10-CA02: the set the Client panel (US37) filters by."""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        ana = create_user(email="ana.cliente@example.com", role=Role.CLIENT)
+        beto = create_user(email="beto.cliente@example.com", role=Role.CLIENT)
+        sem_vinculo = create_user(email="sem@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        bosque = create_condominium(name="Bosque")
+        put_condominiums(db_client, headers, ana, [mirante.id])
+        put_condominiums(db_client, headers, beto, [mirante.id, bosque.id])
+
+        links = UserCondominiumRepository(db_session)
+
+        assert links.condominium_ids_of(ana.id) == {mirante.id}
+        assert links.condominium_ids_of(beto.id) == {mirante.id, bosque.id}
+        assert links.condominium_ids_of(sem_vinculo.id) == set()
+
+    def test_duplicated_ids_are_linked_once(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+
+        response = put_condominiums(
+            db_client, headers, client_user, [mirante.id, mirante.id]
+        )
+
+        assert response.status_code == 200
+        assert response.json() == [{"id": str(mirante.id), "name": "Mirante"}]
+
+    def test_replace_condominiums_rejects_unknown_condominium_without_saving(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        kept = create_condominium(name="Mirante")
+        put_condominiums(db_client, headers, client_user, [kept.id])
+        unknown = uuid.uuid4()
+
+        response = put_condominiums(
+            db_client, headers, client_user, [create_condominium().id, unknown]
+        )
+
+        assert response.status_code == 422
+        assert str(unknown) in response.json()["detail"]
+        links = UserCondominiumRepository(db_session)
+        assert links.condominium_ids_of(client_user.id) == {kept.id}
+
+    @pytest.mark.parametrize("role", [Role.ADMIN, Role.OPERATOR])
+    def test_only_clients_can_be_linked(
+        self,
+        role: Role,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="outro@example.com", role=role)
+
+        put_response = put_condominiums(
+            db_client, headers, target, [create_condominium().id]
+        )
+        get_response = get_condominiums(db_client, headers, target)
+
+        expected = {
+            "detail": "Somente usuários com perfil Cliente têm condomínios vinculados."
+        }
+        assert put_response.status_code == 422
+        assert put_response.json() == expected
+        assert get_response.status_code == 422
+        assert get_response.json() == expected
+
+    @pytest.mark.parametrize("status", [UserStatus.INACTIVE, UserStatus.PENDING])
+    def test_inactive_and_pending_clients_can_be_linked(
+        self,
+        status: UserStatus,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(
+            email="cliente@example.com",
+            role=Role.CLIENT,
+            status=status,
+            password=None if status == UserStatus.PENDING else DEFAULT_PASSWORD,
+        )
+
+        response = put_condominiums(
+            db_client, headers, client_user, [create_condominium().id]
+        )
+
+        assert response.status_code == 200
+
+    def test_unknown_user_is_not_found(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        ghost = User(id=uuid.uuid4())
+
+        assert put_condominiums(db_client, headers, ghost, []).status_code == 404
+        assert get_condominiums(db_client, headers, ghost).status_code == 404
+
+    @pytest.mark.parametrize("role", [Role.OPERATOR, Role.CLIENT])
+    def test_only_the_admin_can_manage_the_links(
+        self,
+        role: Role,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        caller = create_user(email="chamador@example.com", role=role)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        headers = authenticate_as(caller)
+
+        assert put_condominiums(db_client, headers, client_user, []).status_code == 403
+        assert get_condominiums(db_client, headers, client_user).status_code == 403
+
+    def test_requests_without_login_are_refused(
+        self, db_client: TestClient, create_user: CreateUser
+    ) -> None:
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+
+        assert put_condominiums(db_client, {}, client_user, []).status_code == 401
+        assert get_condominiums(db_client, {}, client_user).status_code == 401
+
+    def test_invalid_payload_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        url = f"/users/{client_user.id}/condominiums"
+
+        not_a_uuid = db_client.put(
+            url, json={"condominium_ids": ["abc"]}, headers=headers
+        )
+        missing_field = db_client.put(url, json={}, headers=headers)
+        extra_field = db_client.put(
+            url, json={"condominium_ids": [], "role": "admin"}, headers=headers
+        )
+
+        assert not_a_uuid.status_code == 422
+        assert missing_field.status_code == 422
+        assert extra_field.status_code == 422
+
+    def test_links_are_dropped_when_the_client_changes_role(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """A user made a Client again must not get back the old access."""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="cliente@example.com", role=Role.CLIENT)
+        other = create_user(email="outro@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        put_condominiums(db_client, headers, target, [mirante.id])
+        put_condominiums(db_client, headers, other, [mirante.id])
+
+        to_operator = change_role(db_client, headers, target.id, Role.OPERATOR.value)
+        back_to_client = change_role(db_client, headers, target.id, Role.CLIENT.value)
+
+        assert to_operator.status_code == 200
+        assert back_to_client.status_code == 200
+        links = UserCondominiumRepository(db_session)
+        assert links.condominium_ids_of(target.id) == set()
+        assert links.condominium_ids_of(other.id) == {mirante.id}
+
+    def test_links_are_kept_when_the_role_stays_client(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        put_condominiums(db_client, headers, target, [mirante.id])
+
+        response = change_role(db_client, headers, target.id, Role.CLIENT.value)
+
+        assert response.status_code == 200
+        links = UserCondominiumRepository(db_session)
+        assert links.condominium_ids_of(target.id) == {mirante.id}
+
+    def test_links_are_kept_when_the_client_is_deactivated_and_reactivated(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        put_condominiums(db_client, headers, target, [mirante.id])
+        url = f"/users/{target.id}/status"
+
+        deactivated = db_client.patch(
+            url, json={"status": UserStatus.INACTIVE.value}, headers=headers
+        )
+        reactivated = db_client.patch(
+            url, json={"status": UserStatus.ACTIVE.value}, headers=headers
+        )
+
+        assert deactivated.status_code == 200
+        assert reactivated.status_code == 200
+        links = UserCondominiumRepository(db_session)
+        assert links.condominium_ids_of(target.id) == {mirante.id}
+
+    def test_links_are_deleted_with_the_user_and_with_the_condominium(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        gone_user = create_user(email="saiu@example.com", role=Role.CLIENT)
+        kept_user = create_user(email="ficou@example.com", role=Role.CLIENT)
+        gone_condominium = create_condominium(name="Demolido")
+        kept_condominium = create_condominium(name="Mirante")
+        both = [gone_condominium.id, kept_condominium.id]
+        put_condominiums(db_client, headers, gone_user, both)
+        put_condominiums(db_client, headers, kept_user, both)
+
+        db_session.delete(gone_user)
+        db_session.delete(gone_condominium)
+        db_session.flush()
+        db_session.expire_all()
+
+        remaining = db_session.scalars(select(UserCondominium)).all()
+        assert [(link.user_id, link.condominium_id) for link in remaining] == [
+            (kept_user.id, kept_condominium.id)
+        ]
+
+
+class TestListLawyers:
+    def test_lists_only_active_lawyers_ordered_by_name(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US18-CA01"""
+        operator = create_user(email="operador@example.com", name="Operador")
+        zeca = create_user(
+            email="zeca@example.com",
+            name="Zeca Lima",
+            is_lawyer=True,
+            oab_number="123456/SP",
+        )
+        bia = create_user(
+            email="bia@example.com",
+            name="Bia Costa",
+            is_lawyer=True,
+            oab_number="654321/DF",
+        )
+        create_user(email="ana@example.com", name="Ana Souza")
+        create_user(
+            email="pendente@example.com",
+            name="Pendente",
+            is_lawyer=True,
+            oab_number="111111/GO",
+            status=UserStatus.PENDING,
+            password=None,
+        )
+        create_user(
+            email="inativo@example.com",
+            name="Inativo",
+            is_lawyer=True,
+            oab_number="222222/MG",
+            status=UserStatus.INACTIVE,
+        )
+
+        response = db_client.get("/users/lawyers", headers=authenticate_as(operator))
+
+        assert response.status_code == 200
+        assert response.json() == [
+            {"id": str(bia.id), "name": "Bia Costa", "oab_number": "654321/DF"},
+            {"id": str(zeca.id), "name": "Zeca Lima", "oab_number": "123456/SP"},
+        ]
+
+    @pytest.mark.parametrize(
+        ("role", "expected_status"),
+        [
+            pytest.param(Role.ADMIN, 200, id="admin"),
+            pytest.param(Role.OPERATOR, 200, id="operator"),
+            pytest.param(Role.CLIENT, 403, id="client"),
+        ],
+    )
+    def test_only_administrators_and_operators_can_list_lawyers(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        role: Role,
+        expected_status: int,
+    ) -> None:
+        """US18-CA01"""
+        user = create_user(role=role)
+
+        response = db_client.get("/users/lawyers", headers=authenticate_as(user))
+
+        assert response.status_code == expected_status
+
+    def test_request_without_a_token_is_refused(self, db_client: TestClient) -> None:
+        """US18-CA01"""
+        response = db_client.get("/users/lawyers")
+
+        assert response.status_code == 401

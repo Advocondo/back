@@ -46,6 +46,9 @@ class TestIsValidCnpj:
     def test_mask_is_removed_and_letters_are_uppercased(self) -> None:
         assert normalize_cnpj(" 12.abc.345/01de-35 ") == VALID_ALPHANUMERIC_CNPJ
 
+    def test_value_that_is_not_text_is_left_for_pydantic_to_refuse(self) -> None:
+        assert normalize_cnpj(14447918000198) == 14447918000198
+
 
 class TestCondominiumCreateRequest:
     def test_masked_fields_are_stored_as_digits(self) -> None:

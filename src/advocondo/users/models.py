@@ -68,6 +68,11 @@ class User(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     def can_log_in(self) -> bool:
         return self.status == UserStatus.ACTIVE
 
+    @property
+    def can_be_responsible_lawyer(self) -> bool:
+        """Só advogado ativo pode responder por um acordo (US18)."""
+        return self.is_lawyer and self.status == UserStatus.ACTIVE
+
 
 class UserInvite(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
     """A pending invitation (US07). One per user: the invited user starts as PENDING
@@ -89,6 +94,20 @@ class UserInvite(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
 
     def is_expired(self, now: datetime) -> bool:
         return now >= self.expires_at
+
+
+class UserCondominium(CreatedAtMixin, Base):
+    """Links a Client user to a condominium they follow (US10). A Client sees only
+    the data of the condominiums linked to them; with no link they see nothing."""
+
+    __tablename__ = "user_condominiums"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    condominium_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("condominiums.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
 
 
 class UserAuditLog(UuidPrimaryKeyMixin, Base):

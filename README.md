@@ -65,7 +65,7 @@ curl http://localhost:8000/health/ready
 
 O login é feito em `POST /auth/login` e as demais rotas recebem o token no cabeçalho `Authorization: Bearer <token>`. Veja [Autenticação](docs/auth.md).
 
-O usuário logado edita o próprio nome, e-mail e senha em `PATCH /users/me`. Veja [Usuários](docs/users.md).
+O usuário logado edita o próprio nome, e-mail e senha em `PATCH /users/me`. O Administrador define os condomínios de cada Cliente em `PUT /users/{id}/condominiums`. Veja [Usuários](docs/users.md).
 
 A equipe do escritório cadastra, busca e edita condomínios em `/condominiums`. Veja [Condomínios](docs/condominios.md).
 
@@ -73,7 +73,7 @@ Os devedores de cada condomínio ficam em `/debtors`, com alerta de cadastro dup
 
 Os acordos com cada devedor ficam em `/agreements`. Veja [Acordos](docs/acordos.md).
 
-O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`. Veja [Parcelas](docs/parcelas.md).
+O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`, onde também ficam as faturas do mês (`GET /installments`) e a baixa de cada parcela (`/installments/{id}/payment`). Veja [Parcelas](docs/parcelas.md).
 
 ### Migrations
 

@@ -25,7 +25,46 @@ Cada parcela traz `status`, calculado a cada consulta a partir de `due_date`, `p
 | `open` | Sem `payment_date` e com vencimento hoje ou no futuro. |
 | `overdue` | Sem `payment_date` e com vencimento anterior a hoje: atrasa no dia seguinte ao vencimento. |
 
+## Faturas do mês (US25)
+
+A equipe vê as parcelas que vencem no mês, de todos os acordos, para saber o que conferir e dar baixa ([US25](https://advocondo.github.io/docs/historias/ep04-parcelas/#us25)):
+
+- **Mês:** por padrão, o mês atual no Brasil. `year` e `month` escolhem outro mês.
+- **O que aparece:** cada parcela traz, além dos campos acima, o devedor (`debtor`, com nome e unidade) e o condomínio (`condominium`) do acordo (US25-CA01).
+- **Filtros (US25-CA02):** `condominium_id`, `responsible_lawyer_id` (o advogado responsável pelo acordo, [US18](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us18)) e `status` (`open`, `paid` ou `overdue`). O filtro de status usa a mesma regra da [situação da parcela](#situacao-da-parcela-us27), aplicada no banco.
+- **Ordem:** pelo vencimento, do mais antigo para o mais novo.
+- Parcelas atrasadas de meses anteriores não aparecem no mês atual, porque a lista é das parcelas com vencimento no mês. Para vê-las, consulte o mês delas.
+
+## Baixa da parcela (US26)
+
+A baixa registra que a parcela foi paga, com a data do pagamento ([US26](https://advocondo.github.io/docs/historias/ep04-parcelas/#us26)):
+
+- **Dar baixa (US26-CA01):** Equipe Operacional e Administrador informam a data do pagamento, e a parcela passa a `paid`. O pagamento pode ser antes do vencimento, mas a data não pode ser futura.
+- **Corrigir ou estornar (US26-CA02):** só o **Administrador**. Corrigir troca a data do pagamento; estornar apaga a data, e a parcela volta a `open`, ou a `overdue` se já venceu.
+- Uma parcela paga não pode receber outra baixa: para mudar a data, o caminho é corrigir.
+- **Comissão:** a baixa não grava comissão. Ela será calculada sobre os honorários (`fee_amount`) das parcelas pagas, na [US32](https://advocondo.github.io/docs/historias/ep05-comissoes-metas/#us32), então já considera cada baixa, correção ou estorno.
+
 ## Rotas
+
+### `GET /installments`
+
+Lista as faturas do mês. Parâmetros, todos opcionais:
+
+| Parâmetro | Padrão | Descrição |
+| --- | --- | --- |
+| `year` | ano atual | Ano do vencimento |
+| `month` | mês atual | Mês do vencimento, de 1 a 12 |
+| `condominium_id` | — | Só as parcelas de acordos deste condomínio |
+| `responsible_lawyer_id` | — | Só as parcelas de acordos deste advogado responsável |
+| `status` | — | `open`, `paid` ou `overdue` |
+| `limit` | 50 | Quantas parcelas devolver, até 200 |
+| `offset` | 0 | Quantas parcelas pular, para paginar |
+
+```json
+[
+  {"id": "…", "agreement_id": "…", "number": 2, "due_date": "2026-03-10", "amount": "100.00", "condominium_amount": "90.00", "fee_amount": "10.00", "payment_date": null, "status": "open", "condominium": {"id": "…", "name": "Residencial Mirante"}, "debtor": {"id": "…", "name": "José Simão", "unit": "Bloco B 304"}}
+]
+```
 
 ### `GET /agreements/{id}/installments`
 
@@ -52,15 +91,38 @@ Edita o vencimento ou o valor de uma parcela **antes da baixa** (US17-CA03). Só
 
 A resposta é o plano inteiro do acordo, já atualizado, porque a mudança de valor altera outras parcelas.
 
+### `POST /installments/{id}/payment`
+
+Dá baixa na parcela em aberto:
+
+```json
+{"payment_date": "2026-02-12"}
+```
+
+A resposta é a parcela, já com `payment_date` e `status: "paid"`.
+
+### `PUT /installments/{id}/payment`
+
+Corrige a data do pagamento de uma parcela paga. Só o Administrador. Mesmo corpo do `POST`.
+
+### `DELETE /installments/{id}/payment`
+
+Estorna a baixa. Só o Administrador. A resposta é a parcela, com `payment_date: null` e o `status` recalculado.
+
 ## Respostas de erro
 
 | Situação | Status | `detail` |
 | --- | --- | --- |
 | Sem token, token desconhecido ou expirado | `401` | `Sua sessão expirou. Faça login novamente.` |
-| Usuário Cliente | `403` | `Você não tem permissão para esta operação.` |
+| Usuário Cliente; Equipe Operacional corrigindo ou estornando uma baixa | `403` | `Você não tem permissão para esta operação.` |
 | Acordo ou parcela inexistente | `404` | `Acordo não encontrado.` / `Parcela não encontrada.` |
 | Parcela já paga | `422` | `Parcela já paga não pode ser editada.` |
 | Novo valor na última parcela em aberto | `422` | `Não há parcela seguinte em aberto para absorver a diferença de valor. Para mudar o total, edite o acordo.` |
 | Diferença maior que o valor das parcelas seguintes | `422` | `A diferença deixaria alguma parcela seguinte sem valor.` |
 | Parcelas abaixo de R$ 0,01 no cadastro | `422` | `Cada parcela precisa ter pelo menos R$ 0,01. Diminua o número de parcelas.` |
 | Edição sem campos, valor zero, negativo ou com fração de centavo, campo desconhecido | `422` | erros de validação do FastAPI |
+| Listagem com `month` fora de 1 a 12, `status` desconhecido ou `limit` acima de 200 | `422` | erros de validação do FastAPI |
+| Baixa em parcela já paga | `422` | `Parcela já paga. Para mudar a data do pagamento, corrija a baixa.` |
+| Correção ou estorno de parcela ainda não paga | `422` | `A parcela ainda não foi paga.` |
+| Data do pagamento futura | `422` | `A data do pagamento não pode ser futura.` |
+| Baixa sem data, com data fora do formato `AAAA-MM-DD` ou com campo desconhecido | `422` | erros de validação do FastAPI |
