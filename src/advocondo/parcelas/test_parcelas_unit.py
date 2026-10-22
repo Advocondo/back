@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from advocondo.parcelas.errors import (
     FollowingInstallmentWouldBeEmptyError,
     InstallmentBelowOneCentError,
+    PaymentDateInTheFutureError,
 )
 from advocondo.parcelas.plan import (
     absorb_difference,
@@ -16,6 +17,7 @@ from advocondo.parcelas.plan import (
     split_fee,
 )
 from advocondo.parcelas.schemas import InstallmentUpdateRequest
+from advocondo.parcelas.service import ensure_payment_date_is_not_in_the_future
 from advocondo.parcelas.status import (
     InstallmentStatus,
     calculate_installment_status,
@@ -221,3 +223,20 @@ class TestInstallmentUpdateRequest:
     ) -> None:
         with pytest.raises(ValidationError, match=message):
             InstallmentUpdateRequest.model_validate(fields)
+
+
+class TestPaymentDate:
+    @pytest.mark.parametrize(
+        "payment_date",
+        [
+            pytest.param(TODAY, id="today"),
+            pytest.param(TODAY - timedelta(days=30), id="in-the-past"),
+        ],
+    )
+    def test_payment_already_made_is_accepted(self, payment_date: date) -> None:
+        """US26-CA01"""
+        ensure_payment_date_is_not_in_the_future(payment_date, TODAY)
+
+    def test_payment_in_the_future_is_refused(self) -> None:
+        with pytest.raises(PaymentDateInTheFutureError):
+            ensure_payment_date_is_not_in_the_future(TODAY + timedelta(days=1), TODAY)

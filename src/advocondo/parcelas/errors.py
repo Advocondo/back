@@ -24,3 +24,15 @@ class NoOpenInstallmentAfterError(BusinessRuleError):
 
 class FollowingInstallmentWouldBeEmptyError(BusinessRuleError):
     message = "A diferença deixaria alguma parcela seguinte sem valor."
+
+
+class InstallmentAlreadyPaidError(BusinessRuleError):
+    message = "Parcela já paga. Para mudar a data do pagamento, corrija a baixa."
+
+
+class InstallmentNotPaidError(BusinessRuleError):
+    message = "A parcela ainda não foi paga."
+
+
+class PaymentDateInTheFutureError(BusinessRuleError):
+    message = "A data do pagamento não pode ser futura."

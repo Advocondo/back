@@ -60,6 +60,14 @@ class InstallmentWithDebtorResponse(InstallmentResponse):
         )
 
 
+class PaymentRequest(BaseModel):
+    """Data em que a parcela foi paga (US26)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    payment_date: date
+
+
 class InstallmentUpdateRequest(BaseModel):
     """Only the fields sent are changed."""
 

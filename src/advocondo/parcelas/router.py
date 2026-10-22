@@ -12,9 +12,11 @@ from advocondo.parcelas.schemas import (
     InstallmentResponse,
     InstallmentUpdateRequest,
     InstallmentWithDebtorResponse,
+    PaymentRequest,
 )
 from advocondo.parcelas.service import InstallmentService
 from advocondo.parcelas.status import InstallmentStatus
+from advocondo.users.dependencies import require_admin
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
@@ -80,3 +82,44 @@ def update_installment(
 ) -> list[InstallmentResponse]:
     plan = installment_service.update(installment_id, request)
     return [InstallmentResponse.from_installment(item, today) for item in plan]
+
+
+@router.post("/installments/{installment_id}/payment")
+def record_payment(
+    installment_id: uuid.UUID,
+    request: PaymentRequest,
+    installment_service: InstallmentServiceDependency,
+    today: Today,
+) -> InstallmentResponse:
+    installment = installment_service.record_payment(
+        installment_id, request.payment_date, today
+    )
+    return InstallmentResponse.from_installment(installment, today)
+
+
+# Corrigir ou estornar uma baixa é restrito ao Administrador (US26-CA02).
+@router.put(
+    "/installments/{installment_id}/payment", dependencies=[Depends(require_admin)]
+)
+def correct_payment(
+    installment_id: uuid.UUID,
+    request: PaymentRequest,
+    installment_service: InstallmentServiceDependency,
+    today: Today,
+) -> InstallmentResponse:
+    installment = installment_service.correct_payment(
+        installment_id, request.payment_date, today
+    )
+    return InstallmentResponse.from_installment(installment, today)
+
+
+@router.delete(
+    "/installments/{installment_id}/payment", dependencies=[Depends(require_admin)]
+)
+def reverse_payment(
+    installment_id: uuid.UUID,
+    installment_service: InstallmentServiceDependency,
+    today: Today,
+) -> InstallmentResponse:
+    installment = installment_service.reverse_payment(installment_id)
+    return InstallmentResponse.from_installment(installment, today)
