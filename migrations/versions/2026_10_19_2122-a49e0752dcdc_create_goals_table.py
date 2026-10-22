@@ -1,7 +1,7 @@
 """create goals table
 
 Revision ID: a49e0752dcdc
-Revises: 1ffb2dbe4380
+Revises: a3c5e8d19b72
 Create Date: 2026-10-19 21:22:30.139579
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a49e0752dcdc"
-down_revision: str | Sequence[str] | None = "1ffb2dbe4380"
+down_revision: str | Sequence[str] | None = "a3c5e8d19b72"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
