@@ -24,6 +24,7 @@ from advocondo.users.schemas import (
     UserAuditLogResponse,
     UserCondominiumResponse,
     UserCondominiumsUpdateRequest,
+    UserMonthlyGoalUpdateRequest,
     UserResponse,
     UserRoleUpdateRequest,
     UserStatusUpdateRequest,
@@ -130,6 +131,19 @@ def change_user_status(
     ],
 ) -> UserResponse:
     user = user_management.change_status(current_admin, user_id, request.status)
+    return UserResponse.model_validate(user)
+
+
+@router.patch("/users/{user_id}/monthly-goal", tags=["users"])
+def change_user_monthly_goal(
+    user_id: uuid.UUID,
+    request: UserMonthlyGoalUpdateRequest,
+    current_admin: CurrentAdmin,
+    user_management: Annotated[
+        UserManagementService, Depends(get_user_management_service)
+    ],
+) -> UserResponse:
+    user = user_management.change_monthly_goal(user_id, request.monthly_goal)
     return UserResponse.model_validate(user)
 
 

@@ -101,3 +101,13 @@ def require_office_staff(current_user: CurrentUser) -> User:
 
 
 CurrentOfficeStaff = Annotated[User, Depends(require_office_staff)]
+
+
+def require_operational_staff(current_user: CurrentUser) -> User:
+    """Access to a personal operational panel is limited to Operators."""
+    if current_user.role != Role.OPERATOR:
+        raise PermissionDeniedError()
+    return current_user
+
+
+CurrentOperator = Annotated[User, Depends(require_operational_staff)]
