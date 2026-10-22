@@ -4,6 +4,8 @@ Cadastro e consulta dos acordos extrajudiciais ([US15](https://advocondo.github.
 
 Todas as rotas exigem o cabeçalho `Authorization: Bearer <token>` de um usuário **Administrador** ou **Equipe Operacional**. Usuários Cliente recebem `403`; a visão deles é o painel do Cliente (US37), que não pode mostrar honorários.
 
+O PDF do acordo (US24) fica em `/agreements/{id}/pdfs`, onde o Cliente também baixa os PDFs dos acordos dos seus condomínios. Veja [Documentos](documentos.md).
+
 ## Campos
 
 | Campo | Regra |
