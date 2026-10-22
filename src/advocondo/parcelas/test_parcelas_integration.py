@@ -761,3 +761,144 @@ class TestInstallmentPayment:
         )
 
         assert response.status_code == 403
+
+
+class TestCancelledAgreement:
+    """US20. O relógio dos testes está em 2 de março de 2026."""
+
+    @pytest.fixture
+    def admin_headers(
+        self, create_user: CreateUser, authenticate_as: AuthenticateAs
+    ) -> dict[str, str]:
+        return authenticate_as(
+            create_user(email="admin_cancel@advocondo.test", role=Role.ADMIN)
+        )
+
+    @pytest.fixture
+    def cancelled_agreement_id(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+    ) -> str:
+        """Três parcelas de R$ 100,00 (10/02, 10/03 e 10/04), a primeira paga, e o
+        acordo cancelado depois disso."""
+        agreement_id = register_agreement("300.00", 3, "2026-02-10")
+        first = get_plan(db_client, operator_headers, agreement_id)[0]
+        db_client.post(
+            payment_url(first["id"]),
+            json={"payment_date": "2026-02-12"},
+            headers=operator_headers,
+        )
+        response = db_client.post(
+            f"/agreements/{agreement_id}/cancel",
+            json={"confirm_open_installments": True},
+            headers=operator_headers,
+        )
+        assert response.status_code == 200
+        return agreement_id
+
+    def test_unpaid_installments_leave_the_month_list_but_paid_ones_stay(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        """US20-CA01 e CA02"""
+        march = list_due_in_month(db_client, operator_headers, year="2026", month="3")
+        february = list_due_in_month(
+            db_client, operator_headers, year="2026", month="2"
+        )
+
+        assert march == []
+        assert [(item["number"], item["status"]) for item in february] == [(1, "paid")]
+
+    def test_active_agreements_keep_their_installments_in_the_list(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+        cancelled_agreement_id: str,
+    ) -> None:
+        active_id = register_agreement("100.00", 1, "2026-03-20")
+
+        march = list_due_in_month(db_client, operator_headers, year="2026", month="3")
+
+        assert [item["agreement_id"] for item in march] == [active_id]
+
+    def test_plan_still_shows_every_installment(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        """US20-CA02: o histórico fica consultável, as pagas e as sem pagamento."""
+        plan = get_plan(db_client, operator_headers, cancelled_agreement_id)
+
+        assert [item["number"] for item in plan] == [1, 2, 3]
+        assert plan[0]["status"] == "paid"
+        assert plan[0]["payment_date"] == "2026-02-12"
+
+    def test_unpaid_installment_cannot_be_paid(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        second = get_plan(db_client, operator_headers, cancelled_agreement_id)[1]
+
+        response = db_client.post(
+            payment_url(second["id"]),
+            json={"payment_date": "2026-03-01"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Acordo cancelado não aceita esta operação."
+        }
+        plan = get_plan(db_client, operator_headers, cancelled_agreement_id)
+        assert plan[1]["payment_date"] is None
+
+    def test_unpaid_installment_cannot_be_edited(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        second = get_plan(db_client, operator_headers, cancelled_agreement_id)[1]
+
+        response = db_client.patch(
+            f"/installments/{second['id']}",
+            json={"due_date": "2026-03-15"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Acordo cancelado não aceita esta operação."
+        }
+
+    def test_administrator_can_still_fix_a_payment_made_by_mistake(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        """Sem reativação, é o único jeito de consertar uma baixa errada."""
+        first = get_plan(db_client, operator_headers, cancelled_agreement_id)[0]
+
+        corrected = db_client.put(
+            payment_url(first["id"]),
+            json={"payment_date": "2026-02-11"},
+            headers=admin_headers,
+        )
+        reversed_payment = db_client.delete(
+            payment_url(first["id"]), headers=admin_headers
+        )
+
+        assert corrected.status_code == 200
+        assert corrected.json()["payment_date"] == "2026-02-11"
+        assert reversed_payment.status_code == 200
+        assert reversed_payment.json()["payment_date"] is None

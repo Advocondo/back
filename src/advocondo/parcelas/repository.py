@@ -3,10 +3,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import ColumnElement, and_, select
+from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.orm import Session, contains_eager
 
-from advocondo.acordos.models import Agreement
+from advocondo.acordos.models import Agreement, AgreementStatus
 from advocondo.parcelas.models import Installment
 from advocondo.parcelas.status import InstallmentStatus
 
@@ -51,12 +51,19 @@ class InstallmentRepository:
     ) -> Sequence[Installment]:
         """Parcelas que vencem entre os dois dias, inclusive, da que vence primeiro
         para a última. O acordo vem na mesma consulta, com o devedor e o
-        condomínio."""
+        condomínio. As parcelas sem pagamento de acordo cancelado ficam de fora
+        (US20); as pagas continuam, porque o histórico segue consultável."""
         query = (
             select(Installment)
             .join(Installment.agreement)
             .options(contains_eager(Installment.agreement))
             .where(Installment.due_date.between(first_day, last_day))
+            .where(
+                or_(
+                    Installment.payment_date.is_not(None),
+                    Agreement.status != AgreementStatus.CANCELLED,
+                )
+            )
             .order_by(Installment.due_date, Installment.id)
         )
         if filters.condominium_id is not None:
