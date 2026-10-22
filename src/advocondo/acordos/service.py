@@ -12,7 +12,7 @@ from advocondo.acordos.errors import (
     OpenInstallmentsNotConfirmedError,
 )
 from advocondo.acordos.fees import fee_from_percentage
-from advocondo.acordos.models import Agreement, AgreementStatus
+from advocondo.acordos.models import Agreement
 from advocondo.acordos.repository import AgreementFilters, AgreementRepository
 from advocondo.acordos.schemas import AgreementCancelRequest, AgreementCreateRequest
 from advocondo.common.clock import Clock
@@ -68,8 +68,11 @@ class AgreementService:
     ) -> Agreement:
         """Cancela o acordo (US20). As parcelas sem pagamento são guardadas, mas
         saem da cobrança; se houver alguma, o usuário precisa confirmar."""
-        agreement = self.get(agreement_id)
-        if agreement.status == AgreementStatus.CANCELLED:
+        # Travado para dois cancelamentos simultâneos não se sobrescreverem.
+        agreement = self._agreements.get_for_update(agreement_id)
+        if agreement is None:
+            raise AgreementNotFoundError()
+        if agreement.is_cancelled:
             raise AgreementAlreadyCancelledError()
 
         unpaid = agreement.unpaid_installments

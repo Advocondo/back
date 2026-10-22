@@ -14,7 +14,7 @@ from advocondo.acordos.errors import (
     LawyerNotEligibleError,
     LawyerNotFoundError,
 )
-from advocondo.acordos.models import Agreement, AgreementStatus, LawyerAssignment
+from advocondo.acordos.models import Agreement, LawyerAssignment
 from advocondo.acordos.repository import AgreementRepository
 from advocondo.common.clock import Clock
 from advocondo.users.models import User
@@ -41,7 +41,7 @@ class LawyerAssignmentService:
         agreement = self._agreements.get(agreement_id)
         if agreement is None:
             raise AgreementNotFoundError()
-        if agreement.status == AgreementStatus.CANCELLED:
+        if agreement.is_cancelled:
             raise AgreementCancelledError()
         lawyer = self._users.get_by_id(lawyer_id)
         if lawyer is None:

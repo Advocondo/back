@@ -89,6 +89,10 @@ class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
         return len(self.installments)
 
     @property
+    def is_cancelled(self) -> bool:
+        return self.status == AgreementStatus.CANCELLED
+
+    @property
     def unpaid_installments(self) -> list["Installment"]:
         return [item for item in self.installments if not item.is_paid]
 

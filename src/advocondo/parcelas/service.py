@@ -6,7 +6,6 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from advocondo.acordos.errors import AgreementCancelledError, AgreementNotFoundError
-from advocondo.acordos.models import AgreementStatus
 from advocondo.acordos.repository import AgreementRepository
 from advocondo.parcelas.errors import (
     InstallmentAlreadyPaidError,
@@ -166,7 +165,7 @@ def ensure_agreement_is_not_cancelled(installment: Installment) -> None:
     """Um acordo cancelado não recebe baixa nem edição de parcela (US20). A correção
     e o estorno de uma baixa continuam permitidos ao Administrador: sem reativação,
     são o único jeito de consertar um pagamento lançado por engano."""
-    if installment.agreement.status == AgreementStatus.CANCELLED:
+    if installment.agreement.is_cancelled:
         raise AgreementCancelledError()
 
 

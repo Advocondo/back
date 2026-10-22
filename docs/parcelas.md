@@ -48,9 +48,9 @@ A baixa registra que a parcela foi paga, com a data do pagamento ([US26](https:/
 
 Quando o acordo é cancelado ([Acordos](acordos.md)), nenhuma parcela é apagada, mas as que ainda **não foram pagas** saem da cobrança:
 
-- somem de `GET /installments`, a listagem do mês (US25), e do painel do Cliente;
+- somem de `GET /installments`, a listagem do mês (US25). O acordo inteiro, pagas incluídas, também sai do painel do Cliente ([Painel do Cliente](painel-cliente.md));
 - não aceitam baixa nem edição (`422`, `Acordo cancelado não aceita esta operação.`);
-- continuam no plano do acordo, em `GET /agreements/{id}/installments`, junto com as pagas, e as pagas continuam na listagem do mês (US20-CA02).
+- continuam no plano do acordo, em `GET /agreements/{id}/installments`, junto com as pagas, e as pagas continuam na listagem do mês (US20-CA02). O plano mantém o `status` calculado de cada parcela (`open` ou `overdue`, no caso das sem pagamento): quem o exibe deve olhar o `status` do acordo para não mostrar como dívida cobrada o que está fora da cobrança.
 
 A correção da data e o estorno de uma baixa seguem permitidos ao Administrador mesmo depois do cancelamento: como não há como reativar o acordo, é o único jeito de consertar um pagamento lançado por engano. Uma parcela estornada nesse caso volta a ser uma parcela sem pagamento de acordo cancelado.
 

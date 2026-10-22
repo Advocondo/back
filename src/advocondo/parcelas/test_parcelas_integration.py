@@ -902,3 +902,15 @@ class TestCancelledAgreement:
         assert corrected.json()["payment_date"] == "2026-02-11"
         assert reversed_payment.status_code == 200
         assert reversed_payment.json()["payment_date"] is None
+        # Estornada, a parcela é uma sem pagamento de acordo cancelado: sai da lista
+        # do mês e não aceita nova baixa.
+        february = list_due_in_month(
+            db_client, operator_headers, year="2026", month="2"
+        )
+        repaid = db_client.post(
+            payment_url(first["id"]),
+            json={"payment_date": "2026-02-12"},
+            headers=operator_headers,
+        )
+        assert february == []
+        assert repaid.status_code == 422
