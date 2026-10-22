@@ -1,6 +1,6 @@
 # Metas
 
-Definição das metas mensais dos membros da Equipe Operacional ([US36](https://advocondo.github.io/docs/historias/ep05-comissoes-metas/#us36)). O código fica em `src/advocondo/metas/`. O cálculo do percentual de atingimento depende das comissões da baixa de parcelas (US26) e entra numa próxima etapa.
+Definição das metas mensais dos membros da Equipe Operacional ([US36](https://advocondo.github.io/docs/historias/ep05-comissoes-metas/#us36)). O código fica em `src/advocondo/metas/`. O atingimento da meta é calculado a cada consulta, a partir das parcelas pagas.
 
 ## Regras
 
@@ -12,6 +12,17 @@ Definição das metas mensais dos membros da Equipe Operacional ([US36](https://
 - Há uma meta por colaborador e mês. Definir de novo o mesmo mês altera o valor.
 - Só um usuário da Equipe Operacional pode ter meta.
 - Qualquer campo fora da lista é recusado com `422`.
+
+## Atingimento da meta (US36-CA01)
+
+`GET /goals/me` traz também:
+
+| Campo | Significado |
+| --- | --- |
+| `achieved_amount` | Soma dos honorários (`fee_amount`) das parcelas pagas no mês, dos acordos que o colaborador fechou (quem cadastrou o acordo). Dar baixa, corrigir ou estornar muda o valor na hora, porque nada é gravado. |
+| `attainment_percentage` | `achieved_amount ÷ target_amount × 100`, com 2 casas. Passa de 100 quando a meta é superada. |
+
+O mês de uma parcela é o da data de pagamento. A base é o honorário recebido, e não a comissão, porque o percentual da comissão é da [US32](https://advocondo.github.io/docs/historias/ep05-comissoes-metas/#us32). Acordos cadastrados antes de o sistema guardar quem os fechou não entram na conta de ninguém.
 
 ## Rotas
 
