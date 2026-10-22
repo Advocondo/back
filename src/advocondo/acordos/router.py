@@ -37,9 +37,12 @@ LawyerAssignmentServiceDependency = Annotated[
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def register_agreement(
-    request: AgreementCreateRequest, agreement_service: AgreementServiceDependency
+    request: AgreementCreateRequest,
+    current_user: CurrentUser,
+    agreement_service: AgreementServiceDependency,
 ) -> AgreementResponse:
-    return AgreementResponse.model_validate(agreement_service.register(request))
+    agreement = agreement_service.register(request, current_user)
+    return AgreementResponse.model_validate(agreement)
 
 
 @router.get("")

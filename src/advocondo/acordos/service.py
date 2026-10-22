@@ -22,6 +22,7 @@ from advocondo.devedores.errors import DebtorNotFoundError
 from advocondo.devedores.repository import DebtorRepository
 from advocondo.parcelas.models import Installment
 from advocondo.parcelas.plan import monthly_due_dates, split_amount, split_fee
+from advocondo.users.models import User
 
 
 class AgreementService:
@@ -39,7 +40,7 @@ class AgreementService:
         self._debtors = debtors
         self._clock = clock
 
-    def register(self, request: AgreementCreateRequest) -> Agreement:
+    def register(self, request: AgreementCreateRequest, closed_by: User) -> Agreement:
         """Registers an agreement of a debtor with their condominium (US15)."""
         condominium = self._condominiums.get(request.condominium_id)
         if condominium is None:
@@ -54,6 +55,7 @@ class AgreementService:
         agreement = Agreement(
             condominium=condominium,
             debtor=debtor,
+            closed_by_id=closed_by.id,
             total_amount=request.total_amount,
             fee_amount=fee,
             fee_percentage=request.fee_percentage,
