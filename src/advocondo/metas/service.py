@@ -2,6 +2,11 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from advocondo.metas.attainment import (
+    GoalProgress,
+    calculate_attainment_percentage,
+    month_range,
+)
 from advocondo.metas.errors import (
     CollaboratorNotFoundError,
     GoalNotFoundError,
@@ -46,6 +51,16 @@ class GoalService:
         if goal is None:
             raise GoalNotFoundError()
         return goal
+
+    def get_own_progress(
+        self, user_id: uuid.UUID, year: int, month: int
+    ) -> GoalProgress:
+        """Meta do mês do próprio colaborador e quanto dela já foi alcançado (US36)."""
+        goal = self.get_own(user_id, year, month)
+        first_day, last_day = month_range(year, month)
+        achieved = self._goals.sum_fees_received(user_id, first_day, last_day)
+        percentage = calculate_attainment_percentage(achieved, goal.target_amount)
+        return GoalProgress(goal, achieved, percentage)
 
 
 def ensure_role_can_have_goal(role: Role) -> None:

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Path, Query
 
 from advocondo.auth.dependencies import CurrentUser
 from advocondo.metas.dependencies import get_goal_service
-from advocondo.metas.schemas import GoalRequest, GoalResponse
+from advocondo.metas.schemas import GoalProgressResponse, GoalRequest, GoalResponse
 from advocondo.metas.service import GoalService
 from advocondo.users.dependencies import require_admin
 
@@ -38,6 +38,6 @@ def get_own_goal(
     goal_service: GoalServiceDependency,
     year: Annotated[int, Query(ge=MIN_YEAR, le=MAX_YEAR)],
     month: Annotated[int, Query(ge=1, le=12)],
-) -> GoalResponse:
-    goal = goal_service.get_own(current_user.id, year, month)
-    return GoalResponse.model_validate(goal)
+) -> GoalProgressResponse:
+    progress = goal_service.get_own_progress(current_user.id, year, month)
+    return GoalProgressResponse.from_progress(progress)
