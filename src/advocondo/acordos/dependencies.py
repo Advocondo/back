@@ -15,12 +15,14 @@ from advocondo.users.repository import UserRepository
 
 def get_agreement_service(
     session: Annotated[Session, Depends(get_session)],
+    clock: Annotated[Clock, Depends(get_clock)],
 ) -> AgreementService:
     return AgreementService(
         session=session,
         agreements=AgreementRepository(session),
         condominiums=CondominiumRepository(session),
         debtors=DebtorRepository(session),
+        clock=clock,
     )
 
 

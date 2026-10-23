@@ -49,6 +49,35 @@ class AgreementCreateRequest(BaseModel):
         return self
 
 
+class AgreementUpdateRequest(BaseModel):
+    """Alteração parcial de um acordo: só os campos enviados mudam (US19)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    debtor_id: uuid.UUID | None = None
+    total_amount: MoneyAmount | None = None
+    fee_percentage: FeePercentage | None = None
+    fee_amount: FeeAmount | None = None
+    # Confirmação extra para alterar um acordo que já tem parcela paga (US19-CA01).
+    confirm_paid_installments: bool = False
+
+    @model_validator(mode="after")
+    def check_what_to_change(self) -> Self:
+        fields = (
+            self.debtor_id,
+            self.total_amount,
+            self.fee_percentage,
+            self.fee_amount,
+        )
+        if all(value is None for value in fields):
+            raise ValueError("Informe ao menos um campo para alterar.")
+        if self.fee_percentage is not None and self.fee_amount is not None:
+            raise ValueError(
+                "Informe os honorários em percentual ou em valor, não os dois."
+            )
+        return self
+
+
 class CondominiumSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

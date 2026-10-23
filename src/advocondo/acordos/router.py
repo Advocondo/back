@@ -13,6 +13,7 @@ from advocondo.acordos.repository import AgreementFilters
 from advocondo.acordos.schemas import (
     AgreementCreateRequest,
     AgreementResponse,
+    AgreementUpdateRequest,
     LawyerAssignmentRequest,
     LawyerAssignmentResponse,
 )
@@ -88,3 +89,14 @@ def list_lawyer_history(
 ) -> list[LawyerAssignmentResponse]:
     history = assignment_service.history(agreement_id)
     return [LawyerAssignmentResponse.model_validate(entry) for entry in history]
+
+
+@router.patch("/{agreement_id}")
+def update_agreement(
+    agreement_id: uuid.UUID,
+    request: AgreementUpdateRequest,
+    current_user: CurrentUser,
+    agreement_service: AgreementServiceDependency,
+) -> AgreementResponse:
+    agreement = agreement_service.update(agreement_id, request, current_user)
+    return AgreementResponse.model_validate(agreement)
