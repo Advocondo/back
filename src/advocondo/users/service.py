@@ -325,11 +325,6 @@ class UserManagementService:
         old_role = user.role
         user.role = new_role
 
-        if old_role == Role.CLIENT and new_role != Role.CLIENT:
-            # Condominium links only mean something for Clients (US10); dropping them
-            # keeps old access from coming back if the user is made a Client again.
-            self._user_condominiums.clear(user.id)
-
         if old_role != new_role:
             log = UserAuditLog(
                 user=user,
@@ -339,6 +334,16 @@ class UserManagementService:
                 new_value=new_role.value,
             )
             self._audit_logs.add(log)
+
+        if old_role == Role.CLIENT and new_role != Role.CLIENT:
+            # Condominium links only mean something for Clients (US10); dropping them
+            # keeps old access from coming back if the user is made a Client again.
+            # The removal gets its own history row, after the role change.
+            linked = self._user_condominiums.list_condominiums_of(user.id)
+            self._user_condominiums.clear(user.id)
+            links_log = build_condominiums_change_log(user, admin, linked, [])
+            if links_log is not None:
+                self._audit_logs.add(links_log)
 
         self._session.commit()
         return user
@@ -366,32 +371,70 @@ class UserCondominiumService:
         session: Session,
         users: UserRepository,
         user_condominiums: UserCondominiumRepository,
+        audit_logs: UserAuditLogRepository,
     ) -> None:
         self._session = session
         self._users = users
         self._user_condominiums = user_condominiums
+        self._audit_logs = audit_logs
 
     def list_condominiums(self, user_id: uuid.UUID) -> Sequence[Condominium]:
         self._ensure_is_client(self._users.get_by_id(user_id))
         return self._user_condominiums.list_condominiums_of(user_id)
 
     def replace_condominiums(
-        self, user_id: uuid.UUID, condominium_ids: list[uuid.UUID]
+        self, admin: User, user_id: uuid.UUID, condominium_ids: list[uuid.UUID]
     ) -> Sequence[Condominium]:
         """Sets the whole list of condominiums of a Client; an empty list unlinks all."""
         # The row lock serializes simultaneous edits of the same user's links.
-        self._ensure_is_client(self._users.get_by_id_for_update(user_id))
+        user = self._ensure_is_client(self._users.get_by_id_for_update(user_id))
         wanted = set(condominium_ids)
         missing = wanted - self._user_condominiums.existing_condominium_ids(wanted)
         if missing:
             raise UnknownCondominiumsError(sorted(missing, key=str))
 
+        before = self._user_condominiums.list_condominiums_of(user_id)
         self._user_condominiums.replace(user_id, wanted)
+        after = self._user_condominiums.list_condominiums_of(user_id)
+        log = build_condominiums_change_log(user, admin, before, after)
+        if log is not None:
+            self._audit_logs.add(log)
         self._session.commit()
-        return self._user_condominiums.list_condominiums_of(user_id)
+        return after
 
-    def _ensure_is_client(self, user: User | None) -> None:
+    def _ensure_is_client(self, user: User | None) -> User:
         if user is None:
             raise UserNotFoundError()
         if user.role != Role.CLIENT:
             raise TargetNotClientError()
+        return user
+
+
+def build_condominiums_change_log(
+    user: User,
+    actor: User,
+    before: Sequence[Condominium],
+    after: Sequence[Condominium],
+) -> UserAuditLog | None:
+    """The history row of a change in a Client's condominiums (US11), with what was
+    added and removed. None when the set stayed the same."""
+    before_ids = {condominium.id for condominium in before}
+    after_ids = {condominium.id for condominium in after}
+    added = [item for item in after if item.id not in before_ids]
+    removed = [item for item in before if item.id not in after_ids]
+    if not added and not removed:
+        return None
+    return UserAuditLog(
+        user=user,
+        actor=actor,
+        action=AuditAction.CONDOMINIUMS_CHANGED,
+        details={
+            "added": [_condominium_snapshot(item) for item in added],
+            "removed": [_condominium_snapshot(item) for item in removed],
+        },
+    )
+
+
+def _condominium_snapshot(condominium: Condominium) -> dict[str, str]:
+    # Guarda o nome da data da ação: renomear o condomínio depois não muda o histórico.
+    return {"id": str(condominium.id), "name": condominium.name}
