@@ -6,12 +6,23 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from advocondo.acordos.errors import (
+    FeeAboveTotalError,
+    FeeIncompatibleWithPaidError,
+    NoOpenInstallmentError,
+    TotalBelowPaidAmountError,
+)
 from advocondo.acordos.fees import fee_from_percentage
 from advocondo.acordos.lawyer_assignment import (
     LawyerNotEligibleError,
     ensure_can_be_responsible,
 )
 from advocondo.acordos.models import Agreement
+from advocondo.acordos.renegotiation import (
+    Fee,
+    fee_after_edit,
+    recalculate_open_installments,
+)
 from advocondo.acordos.schemas import AgreementCreateRequest
 from advocondo.users.models import Role, User, UserStatus
 
@@ -173,3 +184,161 @@ class TestEnsureCanBeResponsible:
 
         with pytest.raises(LawyerNotEligibleError):
             ensure_can_be_responsible(candidate)
+
+
+class TestFeeAfterEdit:
+    @pytest.mark.parametrize(
+        ("typed_percentage", "typed_amount", "stored_percentage", "expected"),
+        [
+            pytest.param(
+                None,
+                Decimal("300.00"),
+                Decimal(10),
+                Fee(Decimal("300.00"), None),
+                id="amount-typed-now",
+            ),
+            pytest.param(
+                Decimal(5),
+                None,
+                Decimal(10),
+                Fee(Decimal("200.00"), Decimal(5)),
+                id="percentage-typed-now",
+            ),
+            pytest.param(
+                None,
+                None,
+                Decimal(10),
+                Fee(Decimal("400.00"), Decimal(10)),
+                id="stored-percentage-follows-the-total",
+            ),
+            pytest.param(
+                None,
+                None,
+                None,
+                Fee(Decimal("550.00"), None),
+                id="stored-amount-is-kept",
+            ),
+        ],
+    )
+    def test_fee_follows_what_was_typed_or_stored(
+        self,
+        typed_percentage: Decimal | None,
+        typed_amount: Decimal | None,
+        stored_percentage: Decimal | None,
+        expected: Fee,
+    ) -> None:
+        """US19"""
+        fee = fee_after_edit(
+            Decimal("4000.00"),
+            typed_percentage,
+            typed_amount,
+            stored_percentage,
+            Decimal("550.00"),
+        )
+
+        assert fee == expected
+
+    def test_fee_above_the_total_is_refused(self) -> None:
+        """US19"""
+        with pytest.raises(FeeAboveTotalError):
+            fee_after_edit(
+                Decimal("4000.00"),
+                None,
+                Decimal("4000.01"),
+                None,
+                Decimal("550.00"),
+            )
+
+
+class TestRecalculateOpenInstallments:
+    def test_open_installments_split_what_is_left_in_equal_parts(self) -> None:
+        """US19"""
+        values = recalculate_open_installments(
+            Decimal("5500.00"), Decimal("550.00"), Decimal(0), Decimal(0), 10
+        )
+
+        assert [value.amount for value in values] == [Decimal("550.00")] * 10
+        assert [value.fee_amount for value in values] == [Decimal("55.00")] * 10
+
+    def test_paid_installments_are_left_out_of_the_split(self) -> None:
+        """US19-CA01"""
+        values = recalculate_open_installments(
+            Decimal("4000.00"),
+            Decimal("400.00"),
+            Decimal("550.00"),
+            Decimal("55.00"),
+            9,
+        )
+
+        assert sum(value.amount for value in values) == Decimal("3450.00")
+        assert sum(value.fee_amount for value in values) == Decimal("345.00")
+        assert all(0 <= value.fee_amount <= value.amount for value in values)
+
+    @pytest.mark.parametrize(
+        ("new_total", "new_fee", "paid_amount", "paid_fee", "open_count", "error"),
+        [
+            pytest.param(
+                "4000.00",
+                "400.00",
+                "5500.00",
+                "550.00",
+                0,
+                NoOpenInstallmentError,
+                id="nothing-left-to-recalculate",
+            ),
+            pytest.param(
+                "500.00",
+                "50.00",
+                "550.00",
+                "55.00",
+                9,
+                TotalBelowPaidAmountError,
+                id="total-below-what-was-paid",
+            ),
+            pytest.param(
+                "550.00",
+                "55.00",
+                "550.00",
+                "55.00",
+                9,
+                TotalBelowPaidAmountError,
+                id="total-equal-to-what-was-paid",
+            ),
+            pytest.param(
+                "4000.00",
+                "40.00",
+                "550.00",
+                "55.00",
+                9,
+                FeeIncompatibleWithPaidError,
+                id="fee-below-the-fee-received",
+            ),
+            pytest.param(
+                "1000.00",
+                "1000.00",
+                "900.00",
+                "0.00",
+                9,
+                FeeIncompatibleWithPaidError,
+                id="fee-above-what-is-left",
+            ),
+        ],
+    )
+    def test_impossible_recalculation_is_refused(
+        self,
+        new_total: str,
+        new_fee: str,
+        paid_amount: str,
+        paid_fee: str,
+        open_count: int,
+        error: type[Exception],
+    ) -> None:
+        """US19-CA01"""
+        with pytest.raises(error):
+            recalculate_open_installments(
+                Decimal(new_total),
+                Decimal(new_fee),
+                Decimal(paid_amount),
+                Decimal(paid_fee),
+                open_count,
+            )
