@@ -1,7 +1,7 @@
 """add partial payments to installments
 
 Revision ID: 33fed27dfa21
-Revises: a3c5e8d19b72
+Revises: 03141b30ed61
 Create Date: 2026-10-21 21:51:32.050545
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "33fed27dfa21"
-down_revision: str | Sequence[str] | None = "a3c5e8d19b72"
+down_revision: str | Sequence[str] | None = "03141b30ed61"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
