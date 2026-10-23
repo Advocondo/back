@@ -2,10 +2,13 @@ import json
 import logging
 from collections.abc import Callable, Iterator
 from functools import partial
+from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
 import sentry_sdk
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sentry_sdk.envelope import Envelope
@@ -35,6 +38,8 @@ def _format(record: logging.LogRecord) -> dict[str, object]:
     result: dict[str, object] = json.loads(JsonFormatter().format(record))
     return result
 
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 PRODUCAO = "https://meu-front.vercel.app"
 
@@ -435,3 +440,18 @@ class TestDatabaseGuard:
     def test_recusa_banco_que_nao_e_de_testes(self, database: str) -> None:
         with pytest.raises(ValueError, match="_test"):
             assert_is_test_database(make_url(f"{BASE}/{database}"))
+
+
+class TestMigrationHeads:
+    def test_tem_uma_head_so(self) -> None:
+        # Duas migrations apontando para o mesmo down_revision quebram o
+        # `alembic upgrade head` do deploy. Ver docs/migracoes.md.
+        script = ScriptDirectory.from_config(Config(PROJECT_ROOT / "alembic.ini"))
+
+        heads = script.get_heads()
+
+        assert len(heads) == 1, (
+            f"O Alembic tem {len(heads)} heads: {', '.join(sorted(heads))}. "
+            "Aponte o down_revision da sua migration para a head atual da main "
+            "(veja docs/migracoes.md#duas-heads)."
+        )
