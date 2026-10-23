@@ -40,6 +40,8 @@ class Settings(BaseSettings):
 
     invite_link_minutes: int
 
+    landing_image_max_kilobytes: int
+
     smtp_host: str | None
     smtp_port: int
     smtp_username: str | None

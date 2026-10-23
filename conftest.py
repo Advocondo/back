@@ -24,6 +24,7 @@ pytest_plugins = [
     "tests.fixtures.condominios",
     "tests.fixtures.devedores",
     "tests.fixtures.painel_cliente",
+    "tests.fixtures.landing",
 ]
 
 # Fixtures que precisam do Postgres de teste; quem as usa vira teste de integração.
