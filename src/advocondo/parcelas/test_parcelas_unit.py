@@ -17,7 +17,7 @@ from advocondo.parcelas.plan import (
     split_amount,
     split_fee,
 )
-from advocondo.parcelas.schemas import InstallmentUpdateRequest
+from advocondo.parcelas.schemas import InstallmentUpdateRequest, InvoiceRequest
 from advocondo.parcelas.service import ensure_payment_date_is_not_in_the_future
 from advocondo.parcelas.status import (
     InstallmentStatus,
@@ -302,3 +302,31 @@ class TestReceivePayment:
         assert installment.remaining_amount == Decimal("100.00")
         assert installment.payments == []
         assert not installment.has_payments
+
+
+class TestInvoiceRequest:
+    @pytest.mark.parametrize(
+        "number",
+        [
+            pytest.param("42", id="short"),
+            pytest.param("000000000000042", id="leading-zeros-kept"),
+        ],
+    )
+    def test_number_with_up_to_15_digits_is_accepted(self, number: str) -> None:
+        """US29-CA01: o número da NFS-e tem 15 dígitos."""
+        request = InvoiceRequest(number=number, issue_date=TODAY)
+
+        assert request.number == number
+
+    @pytest.mark.parametrize(
+        "number",
+        [
+            pytest.param("", id="empty"),
+            pytest.param("1234567890123456", id="16-digits"),
+            pytest.param("12-34", id="punctuation"),
+            pytest.param("٤٢", id="non-ascii-digits"),
+        ],
+    )
+    def test_number_that_is_not_up_to_15_digits_is_refused(self, number: str) -> None:
+        with pytest.raises(ValidationError):
+            InvoiceRequest(number=number, issue_date=TODAY)
