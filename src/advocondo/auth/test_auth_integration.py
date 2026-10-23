@@ -1,4 +1,7 @@
 import re
+import runpy
+import sys
+from contextlib import nullcontext
 from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
@@ -8,11 +11,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from advocondo.auth.models import PasswordResetLink
+import advocondo.common.clock
+import advocondo.db
+from advocondo.auth.cleanup import delete_expired
+from advocondo.auth.models import PasswordResetLink, UserSession
 from advocondo.common.email import EmailMessage, get_email_sender
+from advocondo.common.tokens import generate_opaque_token, hash_token
 from advocondo.config import Settings
 from advocondo.main import app
-from advocondo.users.models import Role, UserStatus
+from advocondo.users.models import Role, User, UserStatus
 from tests.fixtures.auth import AuthenticateAs
 from tests.fixtures.users import DEFAULT_PASSWORD, CreateUser
 from tests.support.clock import DEFAULT_NOW, FrozenClock
@@ -82,6 +89,28 @@ def link_in(outbox: Outbox) -> str:
 
 def token_in(outbox: Outbox) -> str:
     return parse_qs(urlparse(link_in(outbox)).query)["token"][0]
+
+
+def add_reset_link(db_session: Session, user: User, *, expired_ago: timedelta) -> None:
+    """A link as a request leaves it, created a link duration before it expired."""
+    expires_at = DEFAULT_NOW - expired_ago
+    db_session.add(
+        PasswordResetLink(
+            user=user,
+            token_hash=hash_token(generate_opaque_token()),
+            created_at=expires_at - timedelta(minutes=60),
+            expires_at=expires_at,
+        )
+    )
+    db_session.flush()
+
+
+def count_sessions(db_session: Session) -> int:
+    return db_session.scalar(select(func.count()).select_from(UserSession)) or 0
+
+
+def count_reset_links(db_session: Session) -> int:
+    return db_session.scalar(select(func.count()).select_from(PasswordResetLink)) or 0
 
 
 class BrokenEmailSender:
@@ -619,3 +648,118 @@ class TestEndAllSessions:
         response = db_client.delete("/auth/sessions")
 
         assert response.status_code == 401
+
+
+class TestExpiredCleanup:
+    def test_expired_sessions_are_deleted(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        clock: FrozenClock,
+        settings: Settings,
+    ) -> None:
+        user = create_user()
+        authenticate_as(user)
+        clock.advance(settings.session_duration)
+        current = authenticate_as(user)
+
+        result = delete_expired(
+            db_session, clock, settings.password_reset_request_window
+        )
+
+        assert result.sessions == 1
+        assert count_sessions(db_session) == 1
+        assert db_client.get("/auth/me", headers=current).status_code == 200
+
+    def test_reset_links_expired_over_a_day_ago_are_deleted(
+        self,
+        db_session: Session,
+        create_user: CreateUser,
+        clock: FrozenClock,
+        settings: Settings,
+    ) -> None:
+        user = create_user()
+        add_reset_link(db_session, user, expired_ago=timedelta(hours=24, seconds=1))
+        add_reset_link(db_session, user, expired_ago=timedelta(hours=24))
+        add_reset_link(db_session, user, expired_ago=timedelta(hours=1))
+
+        result = delete_expired(
+            db_session, clock, settings.password_reset_request_window
+        )
+
+        assert result.reset_links == 1
+        assert count_reset_links(db_session) == 2
+
+    def test_valid_reset_link_still_works(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        outbox: Outbox,
+        clock: FrozenClock,
+        settings: Settings,
+    ) -> None:
+        create_user(email="ana@example.com")
+        request_reset(db_client, "ana@example.com")
+
+        delete_expired(db_session, clock, settings.password_reset_request_window)
+
+        assert reset_password(db_client, token_in(outbox)).status_code == 204
+
+    def test_kept_links_still_count_towards_the_request_limit(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        outbox: Outbox,
+        clock: FrozenClock,
+        settings: Settings,
+    ) -> None:
+        create_user(email="ana@example.com")
+        for _ in range(settings.password_reset_max_requests):
+            request_reset(db_client, "ana@example.com")
+
+        # Each request expired the previous link, so only the last one is valid.
+        delete_expired(db_session, clock, settings.password_reset_request_window)
+        request_reset(db_client, "ana@example.com")
+
+        assert len(outbox.messages) == settings.password_reset_max_requests
+
+    def test_retention_follows_a_request_window_longer_than_a_day(
+        self, db_session: Session, create_user: CreateUser, clock: FrozenClock
+    ) -> None:
+        add_reset_link(db_session, create_user(), expired_ago=timedelta(hours=30))
+
+        result = delete_expired(db_session, clock, timedelta(hours=48))
+
+        assert result.reset_links == 0
+        assert count_reset_links(db_session) == 1
+
+    def test_command_line_deletes_the_expired_rows(
+        self,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        clock: FrozenClock,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Runs the module as `python -m advocondo.auth.cleanup` does."""
+        user = create_user()
+        authenticate_as(user)
+        add_reset_link(db_session, user, expired_ago=timedelta(days=2))
+        clock.advance(timedelta(days=60))
+        monkeypatch.setattr(
+            advocondo.db, "get_sessionmaker", lambda: lambda: nullcontext(db_session)
+        )
+        monkeypatch.setattr(advocondo.common.clock, "get_clock", lambda: clock)
+        # A fresh import, as the interpreter does when running the module as a script.
+        monkeypatch.delitem(sys.modules, "advocondo.auth.cleanup")
+
+        runpy.run_module("advocondo.auth.cleanup", run_name="__main__")
+
+        assert count_sessions(db_session) == 0
+        assert count_reset_links(db_session) == 0
+        assert "1 sessões e 1 links de redefinição" in capsys.readouterr().out
