@@ -33,6 +33,18 @@ uv run alembic downgrade -1        # desfaz a última migration
 
 Os arquivos são formatados com ruff automaticamente ao serem gerados, e o nome segue o padrão `AAAA_MM_DD_HHMM-<revisão>_<descrição>.py`.
 
+## Duas heads
+
+Cada migration aponta para a anterior pelo `down_revision`. Se duas branches criam migrations a partir da mesma head e as duas chegam à `main`, o Alembic fica com duas heads e o `alembic upgrade head` do deploy falha com `Multiple head revisions are present`. Foi o que aconteceu na #74.
+
+`test_app_unit.py` (`TestMigrationHeads`) falha quando há mais de uma head e mostra quais são. Esse teste não usa banco. Para conferir à mão:
+
+```bash
+uv run alembic heads   # precisa listar uma head só
+```
+
+Para corrigir, atualize a branch com a `main` (`git merge origin/main`) e mude o `down_revision` da sua migration para a head atual da `main`. Se a `main` ganhar outra migration antes do merge, repita.
+
 ## Nomes de constraints
 
 `Base.metadata` usa uma convenção de nomes (`src/advocondo/db.py`), então toda constraint tem um nome previsível: `pk_users`, `uq_users_email`, `fk_sessions_user_id_users`, `ck_users_<nome>`. Isso permite que migrations futuras removam ou alterem uma constraint pelo nome, igual em todos os ambientes.

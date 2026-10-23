@@ -18,6 +18,10 @@ from tests.support.email import Outbox
 from tests.support.settings import make_settings
 
 pytest_plugins = [
+    "tests.fixtures.metas",
+    "tests.fixtures.users",
+    "tests.fixtures.auth",
+    "tests.fixtures.email",
     "tests.fixtures.users",
     "tests.fixtures.auth",
     "tests.fixtures.email",
