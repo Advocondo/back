@@ -54,6 +54,7 @@ Ficam em `conftest.py` (raiz do projeto) e, as de domínio, em `tests/fixtures/`
 | `create_user(...)` | Fábrica de usuários ativos, com a senha `DEFAULT_PASSWORD`; aceita `email`, `role`, `status`, `password` | Sim |
 | `create_condominium(...)` | Grava um condomínio direto no banco; os campos informados substituem os padrões (`name="Residencial Mirante"`) | Sim |
 | `create_debtor(condominium, ...)` | Grava um devedor do condomínio direto no banco; os campos informados substituem os padrões | Sim |
+| `landing_page` | Grava as 10 seções da página institucional (`LANDING_CONTENT`), como faz a migration em produção | Sim |
 | `authenticate_as(user)` | Cria uma sessão para o usuário e devolve os cabeçalhos `Authorization` | Sim |
 | `outbox` | Captura os e-mails que a API envia (`outbox.messages`), em vez de entregá-los; o `db_client` já usa | Não |
 | `db_engine` | Engine do banco de teste (escopo da suíte inteira) | Sim |

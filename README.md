@@ -77,6 +77,8 @@ O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installm
 
 O Cliente consulta o status dos acordos dos seus condomínios em `/client-panel`. Veja [Painel do Cliente](docs/painel-cliente.md).
 
+O conteúdo da landing page fica em `/landing`: o site lê as seções sem login, e o Administrador edita textos e fotos da equipe. Veja [Página institucional](docs/landing.md).
+
 ### Migrations
 
 O schema do banco é versionado com Alembic. Depois de subir os containers (e sempre que alguém adicionar uma migration), aplique as pendentes:
