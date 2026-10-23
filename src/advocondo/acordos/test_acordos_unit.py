@@ -23,7 +23,7 @@ from advocondo.acordos.renegotiation import (
     fee_after_edit,
     recalculate_open_installments,
 )
-from advocondo.acordos.schemas import AgreementCreateRequest
+from advocondo.acordos.schemas import AgreementCreateRequest, AgreementUpdateRequest
 from advocondo.users.models import Role, User, UserStatus
 
 IDS = {"condominium_id": str(uuid.uuid4()), "debtor_id": str(uuid.uuid4())}
@@ -82,6 +82,37 @@ class TestAgreementCreateRequest:
 
         with pytest.raises(ValidationError):
             AgreementCreateRequest.model_validate(fields)
+
+
+class TestAgreementUpdateRequest:
+    def test_only_the_fields_sent_are_changed(self) -> None:
+        """US19"""
+        request = AgreementUpdateRequest(total_amount=Decimal("4000.00"))
+
+        assert request.model_dump(exclude_unset=True) == {
+            "total_amount": Decimal("4000.00")
+        }
+        assert request.confirm_paid_installments is False
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            pytest.param({}, id="nothing-to-change"),
+            pytest.param(
+                {"confirm_paid_installments": True}, id="only-the-confirmation"
+            ),
+            pytest.param(
+                {"fee_percentage": "10", "fee_amount": "500.00"},
+                id="both-fee-formats",
+            ),
+            pytest.param({"total_amount": "0"}, id="zero-total"),
+            pytest.param({"total_amount": "100", "rate": 1}, id="unknown-field"),
+        ],
+    )
+    def test_invalid_update_is_refused(self, fields: dict[str, object]) -> None:
+        """US19"""
+        with pytest.raises(ValidationError):
+            AgreementUpdateRequest.model_validate(fields)
 
 
 class TestFee:
