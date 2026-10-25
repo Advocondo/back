@@ -1,7 +1,7 @@
 """add cancellation to agreements
 
 Revision ID: c8e41f5a7d03
-Revises: 79f61dbc2fd4
+Revises: bb373c1b6d78
 Create Date: 2026-10-22 10:00:12.314159
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "c8e41f5a7d03"
-down_revision: str | Sequence[str] | None = "79f61dbc2fd4"
+down_revision: str | Sequence[str] | None = "bb373c1b6d78"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
