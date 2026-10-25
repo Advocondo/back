@@ -1,7 +1,7 @@
 """add invoice to installments
 
 Revision ID: bb373c1b6d78
-Revises: 33fed27dfa21
+Revises: 79f61dbc2fd4
 Create Date: 2026-10-22 00:22:27.108711
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "bb373c1b6d78"
-down_revision: str | Sequence[str] | None = "33fed27dfa21"
+down_revision: str | Sequence[str] | None = "79f61dbc2fd4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
