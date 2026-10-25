@@ -36,11 +36,13 @@ Um Cliente só deve ver dados dos condomínios vinculados a ele; sem nenhum vín
 
 Substitui a lista inteira de condomínios do Cliente (US10-CA01). Corpo: `{"condominium_ids": ["…", "…"]}`, com até 500 IDs. Uma lista vazia remove todos os vínculos. IDs repetidos contam uma vez. Se algum condomínio da lista não existe, nada é alterado.
 
+Cada `PUT` que muda o conjunto grava uma linha `condominiums_changed` no histórico da [US11](https://advocondo.github.io/docs/historias/ep02-usuarios-perfis/#us11) (`GET /users/{user_id}/history`, só para o Administrador), com o autor, a data e a diferença: `added_condominiums` e `removed_condominiums`, cada item com o `id` e o `name` que o condomínio tinha na data da ação. Nessas linhas `old_value` e `new_value` vêm `null`; nas demais ações, as duas listas vêm vazias. Reenviar o mesmo conjunto, em qualquer ordem, não grava nada.
+
 #### `GET /users/{user_id}/condominiums`
 
 Mostra os condomínios vinculados ao Cliente. Um Cliente sem vínculo recebe `[]`.
 
-Só usuários com perfil Cliente têm vínculos (em qualquer situação: ativo, inativo ou com convite pendente); as duas rotas respondem `422` para os demais perfis. Quando o perfil de um Cliente muda para outro (US09), os vínculos dele são apagados, para que o acesso antigo não volte se ele for feito Cliente de novo. Manter o perfil Cliente não mexe nos vínculos.
+Só usuários com perfil Cliente têm vínculos (em qualquer situação: ativo, inativo ou com convite pendente); as duas rotas respondem `422` para os demais perfis. Quando o perfil de um Cliente muda para outro (US09), os vínculos dele são apagados, para que o acesso antigo não volte se ele for feito Cliente de novo. O apagamento entra no histórico como uma linha `condominiums_changed` própria, logo depois da linha `role_changed`, com todos os vínculos em `removed_condominiums`; se o Cliente não tinha vínculos, só a troca de perfil é registrada. Manter o perfil Cliente não mexe nos vínculos.
 
 Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of(user_id)` (em `users/repository.py`), que devolve o conjunto de IDs; vazio significa "nenhum condomínio".
 
@@ -66,12 +68,12 @@ Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of
 - **Senha atual conferida antes de procurar o e-mail novo.** Assim, quem não sabe a senha não descobre, pela resposta `409`, quais e-mails estão cadastrados.
 - **Trocar a senha encerra as outras sessões, mas não a atual.** Segue a US03-CA03 (a senha antiga deixa de valer em todo lugar) sem obrigar quem acabou de trocar a fazer login de novo.
 - **O `PUT` de condomínios substitui a lista inteira.** Fica simples para um campo de seleção múltipla no front, é idempotente e a lista vazia cobre "sem acesso" sem outra rota. O custo é que dois Administradores editando o mesmo Cliente ao mesmo tempo não se mesclam: vale a última gravação. Uma trava na linha do usuário serializa essas gravações, para que nenhuma falhe por vínculo duplicado; a troca de perfil (US09) usa a mesma trava.
-- **Mudar o perfil de um Cliente apaga os vínculos, sem entrar no histórico.** A alternativa de manter as linhas faria o acesso antigo reaparecer se o usuário voltasse a ser Cliente. O apagamento não vira linha da US11: o registro da troca de perfil já existe e os vínculos podem ser refeitos pelo Administrador.
+- **Mudar o perfil de um Cliente apaga os vínculos, numa linha própria do histórico.** A alternativa de manter as linhas faria o acesso antigo reaparecer se o usuário voltasse a ser Cliente. O apagamento vira uma linha `condominiums_changed` separada da `role_changed`, e não um detalhe dela: assim `role_changed` continua guardando só o perfil antigo e o novo, e a pergunta "quando este Cliente perdeu acesso ao condomínio X?" se responde olhando um único tipo de ação, venha a perda de um `PUT` ou de uma troca de perfil.
+- **A diferença dos vínculos fica numa coluna JSONB (`details`), com o nome do condomínio na data da ação.** `old_value` e `new_value` têm 255 caracteres, o que cabe uns 6 UUIDs, e o `PUT` aceita até 500. Uma linha por condomínio encheria o histórico numa única ação, e uma tabela filha exigiria outro modelo e carregamento só para ler a lista. Guardar o nome evita que renomear o condomínio depois mude o que o histórico mostra.
 - **Condomínio inexistente na lista responde `422`, não `404`.** O recurso da rota é o usuário, que existe; o erro está no corpo enviado.
 - **O vínculo não depende da situação do usuário.** Um Cliente inativo ou pendente mantém seus condomínios, que voltam a valer ao reativá-lo (US08).
 - **E-mail novo sem confirmação por link.** A história pede só a senha atual; confirmar o endereço novo exigiria uma tabela de pedidos de troca e o envio de e-mail. Um e-mail digitado errado pode ser corrigido pelo próprio usuário enquanto ele estiver logado.
 
 ## Pendências
 
-- **Histórico das mudanças de vínculo**: o `PUT /users/{user_id}/condominiums` não grava linha no histórico da US11, então não há registro de quem liberou quais condomínios a um Cliente. Registrar exigiria um novo tipo de ação no histórico (com migration) e a diferença entre o conjunto antigo e o novo.
 - **Limite de tentativas da senha atual**: como no login (ver as pendências em [Autenticação](auth.md)), a rota não limita tentativas erradas.

@@ -6,6 +6,7 @@ import pytest
 
 from advocondo.common.email import EmailMessage
 from advocondo.common.passwords import get_password_hasher
+from advocondo.condominios.models import Condominium
 from advocondo.users.errors import (
     AdminRoleNotAllowedError,
     EmailAlreadyInUseError,
@@ -20,7 +21,11 @@ from advocondo.users.models import (
     UserInvite,
     UserStatus,
 )
-from advocondo.users.service import InviteDetails, InviteService
+from advocondo.users.service import (
+    InviteDetails,
+    InviteService,
+    build_condominiums_change_log,
+)
 
 
 class TestUser:
@@ -83,6 +88,47 @@ class TestUserInvite:
         )
 
         assert invite.is_expired(datetime(2026, 3, 2, 9, 0, tzinfo=UTC)) is True
+
+
+class TestCondominiumsChangeLog:
+    def test_same_set_builds_no_log(self) -> None:
+        mirante = Condominium(id=uuid.uuid4(), name="Mirante")
+        admin = User(email="admin@example.com", name="Admin", role=Role.ADMIN)
+        client = User(email="cliente@example.com", name="Cliente", role=Role.CLIENT)
+
+        log = build_condominiums_change_log(client, admin, [mirante], [mirante])
+
+        assert log is None
+
+    def test_log_holds_the_added_and_removed_condominiums(self) -> None:
+        kept = Condominium(id=uuid.uuid4(), name="Bosque")
+        removed = Condominium(id=uuid.uuid4(), name="Mirante")
+        added = Condominium(id=uuid.uuid4(), name="Vale")
+        admin = User(email="admin@example.com", name="Admin", role=Role.ADMIN)
+        client = User(email="cliente@example.com", name="Cliente", role=Role.CLIENT)
+
+        log = build_condominiums_change_log(
+            client, admin, [kept, removed], [kept, added]
+        )
+
+        assert log is not None
+        assert log.action == AuditAction.CONDOMINIUMS_CHANGED
+        assert log.user is client
+        assert log.actor is admin
+        assert log.old_value is None
+        assert log.new_value is None
+        assert log.added_condominiums == [{"id": str(added.id), "name": "Vale"}]
+        assert log.removed_condominiums == [{"id": str(removed.id), "name": "Mirante"}]
+
+    def test_other_actions_have_no_condominiums(self) -> None:
+        log = UserAuditLog(
+            action=AuditAction.ROLE_CHANGED,
+            old_value=Role.OPERATOR.value,
+            new_value=Role.CLIENT.value,
+        )
+
+        assert log.added_condominiums == []
+        assert log.removed_condominiums == []
 
 
 class FakeSession:
