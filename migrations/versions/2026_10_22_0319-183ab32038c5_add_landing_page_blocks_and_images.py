@@ -1,7 +1,7 @@
 """add landing page blocks and images
 
 Revision ID: 183ab32038c5
-Revises: 03141b30ed61
+Revises: 79f61dbc2fd4
 Create Date: 2026-10-22 03:19:59.296119
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "183ab32038c5"
-down_revision: str | Sequence[str] | None = "03141b30ed61"
+down_revision: str | Sequence[str] | None = "79f61dbc2fd4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

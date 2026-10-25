@@ -37,8 +37,8 @@ def create_agreement_with_installments(
     db_session: Session,
 ) -> CreateAgreementWithInstallments:
     """Saves an active agreement whose installments have the due and payment dates
-    given. There is no way to register a payment yet (US26), so the payment date is
-    written straight in the database."""
+    given. The payments are written straight in the database, without the payment
+    route (US26)."""
 
     def create(
         condominium: Condominium,
@@ -53,17 +53,18 @@ def create_agreement_with_installments(
             fee_amount=INSTALLMENT_FEE * max(len(installments), 1),
             fee_percentage=Decimal(10),
         )
-        agreement.installments = [
-            Installment(
+        for number, (due_date, payment_date) in enumerate(installments, start=1):
+            installment = Installment(
                 number=number,
                 due_date=due_date,
-                payment_date=payment_date,
                 amount=INSTALLMENT_AMOUNT,
                 condominium_amount=INSTALLMENT_AMOUNT - INSTALLMENT_FEE,
                 fee_amount=INSTALLMENT_FEE,
+                paid_amount=Decimal(0),
             )
-            for number, (due_date, payment_date) in enumerate(installments, start=1)
-        ]
+            if payment_date is not None:
+                installment.receive(INSTALLMENT_AMOUNT, payment_date)
+            agreement.installments.append(installment)
         db_session.add(agreement)
         db_session.flush()
         return agreement

@@ -12,7 +12,9 @@ from advocondo.parcelas.schemas import (
     InstallmentResponse,
     InstallmentUpdateRequest,
     InstallmentWithDebtorResponse,
+    PaymentCorrectionRequest,
     PaymentRequest,
+    PaymentResponse,
 )
 from advocondo.parcelas.service import InstallmentService
 from advocondo.parcelas.status import InstallmentStatus
@@ -92,9 +94,17 @@ def record_payment(
     today: Today,
 ) -> InstallmentResponse:
     installment = installment_service.record_payment(
-        installment_id, request.payment_date, today
+        installment_id, request.payment_date, request.amount, today
     )
     return InstallmentResponse.from_installment(installment, today)
+
+
+@router.get("/installments/{installment_id}/payments")
+def list_payments(
+    installment_id: uuid.UUID, installment_service: InstallmentServiceDependency
+) -> list[PaymentResponse]:
+    payments = installment_service.list_payments(installment_id)
+    return [PaymentResponse.model_validate(payment) for payment in payments]
 
 
 # Corrigir ou estornar uma baixa é restrito ao Administrador (US26-CA02).
@@ -103,7 +113,7 @@ def record_payment(
 )
 def correct_payment(
     installment_id: uuid.UUID,
-    request: PaymentRequest,
+    request: PaymentCorrectionRequest,
     installment_service: InstallmentServiceDependency,
     today: Today,
 ) -> InstallmentResponse:

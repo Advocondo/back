@@ -93,7 +93,10 @@ def get_user_condominium_service(
     session: Annotated[Session, Depends(get_session)],
 ) -> UserCondominiumService:
     return UserCondominiumService(
-        session, UserRepository(session), UserCondominiumRepository(session)
+        session,
+        UserRepository(session),
+        UserCondominiumRepository(session),
+        UserAuditLogRepository(session),
     )
 
 
