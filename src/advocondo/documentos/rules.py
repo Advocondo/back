@@ -1,13 +1,18 @@
 """Regras puras dos documentos anexados a um acordo (US21)."""
 
+from urllib.parse import unquote, urlsplit
+
 from advocondo.documentos.errors import (
     DocumentTooLargeError,
     EmptyDocumentError,
+    InvalidUrlError,
     UnsupportedDocumentTypeError,
 )
 
 MAX_DOCUMENT_SIZE = 10 * 1024 * 1024
 MAX_FILENAME_LENGTH = 255
+MAX_URL_LENGTH = 2048
+ALLOWED_URL_SCHEMES = ("http", "https")
 DEFAULT_FILENAME = "documento"
 
 # Começo do conteúdo de cada tipo aceito.
@@ -45,3 +50,30 @@ def validate_document(content: bytes) -> str:
     if content_type is None:
         raise UnsupportedDocumentTypeError()
     return content_type
+
+
+def validate_url(url: str) -> str:
+    """Endereço limpo de um link. Só http e https, para o link nunca virar um script."""
+    cleaned = url.strip()
+    if (
+        not cleaned
+        or len(cleaned) > MAX_URL_LENGTH
+        or any(char.isspace() or not char.isprintable() for char in cleaned)
+    ):
+        raise InvalidUrlError()
+    try:
+        parts = urlsplit(cleaned)
+    except ValueError:
+        raise InvalidUrlError() from None
+    if parts.scheme.lower() not in ALLOWED_URL_SCHEMES or not parts.hostname:
+        raise InvalidUrlError()
+    return cleaned
+
+
+def filename_for_link(url: str, name: str | None) -> str:
+    """Nome mostrado para o link: o informado, ou o último pedaço do endereço, ou o site."""
+    if name is not None and name.strip():
+        return clean_filename(name)
+    parts = urlsplit(url)
+    last_segment = parts.path.rstrip("/").rsplit("/", 1)[-1]
+    return clean_filename(unquote(last_segment) or parts.hostname)

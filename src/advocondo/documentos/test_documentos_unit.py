@@ -11,6 +11,7 @@ from advocondo.documentos.agreement_pdf import build_agreement_document, format_
 from advocondo.documentos.errors import (
     DocumentTooLargeError,
     EmptyDocumentError,
+    InvalidUrlError,
     UnsupportedDocumentTypeError,
 )
 from advocondo.documentos.models import AgreementPdf
@@ -18,9 +19,12 @@ from advocondo.documentos.rules import (
     DEFAULT_FILENAME,
     MAX_DOCUMENT_SIZE,
     MAX_FILENAME_LENGTH,
+    MAX_URL_LENGTH,
     clean_filename,
     detect_content_type,
+    filename_for_link,
     validate_document,
+    validate_url,
 )
 from advocondo.parcelas.models import Installment
 from advocondo.users.models import User
@@ -234,3 +238,81 @@ class TestValidateDocument:
         """US21-CA01"""
         with pytest.raises(error):
             validate_document(content)
+
+
+class TestValidateUrl:
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            pytest.param(
+                "https://drive.example.com/d/123",
+                "https://drive.example.com/d/123",
+                id="https",
+            ),
+            pytest.param("http://example.com", "http://example.com", id="http"),
+            pytest.param(
+                "HTTPS://Example.com/a", "HTTPS://Example.com/a", id="uppercase-scheme"
+            ),
+            pytest.param(
+                "  https://example.com/a  ", "https://example.com/a", id="spaces-around"
+            ),
+        ],
+    )
+    def test_valid_link_is_kept(self, url: str, expected: str) -> None:
+        """US21-CA01"""
+        assert validate_url(url) == expected
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            pytest.param("", id="empty"),
+            pytest.param("   ", id="blank"),
+            pytest.param("javascript:alert(1)", id="script"),
+            pytest.param("data:text/html,<b>oi</b>", id="data"),
+            pytest.param("file:///etc/passwd", id="local-file"),
+            pytest.param("ftp://example.com/termo.pdf", id="other-scheme"),
+            pytest.param("example.com/termo.pdf", id="no-scheme"),
+            pytest.param("https://", id="no-host"),
+            pytest.param("https://exa mple.com/a", id="space-inside"),
+            pytest.param("https://example.com/\x00", id="control-character"),
+            pytest.param("http://[::1", id="malformed-host"),
+            pytest.param("https://example.com/" + "a" * MAX_URL_LENGTH, id="too-long"),
+        ],
+    )
+    def test_invalid_link_is_refused(self, url: str) -> None:
+        """US21-CA01"""
+        with pytest.raises(InvalidUrlError):
+            validate_url(url)
+
+
+class TestFilenameForLink:
+    @pytest.mark.parametrize(
+        ("url", "name", "expected"),
+        [
+            pytest.param(
+                "https://example.com/d/1", "Termo assinado", "Termo assinado", id="name"
+            ),
+            pytest.param(
+                "https://example.com/docs/termo%20final.pdf",
+                None,
+                "termo final.pdf",
+                id="last-segment",
+            ),
+            pytest.param("https://example.com/pasta/", None, "pasta", id="folder-url"),
+            pytest.param(
+                "https://example.com/", None, "example.com", id="only-the-site"
+            ),
+            pytest.param("https://example.com/d/1", "   ", "1", id="blank-name"),
+            pytest.param(
+                "https://example.com/d/1",
+                "../../x.pdf",
+                "x.pdf",
+                id="name-with-folders",
+            ),
+        ],
+    )
+    def test_link_gets_a_readable_name(
+        self, url: str, name: str | None, expected: str
+    ) -> None:
+        """US21-CA01"""
+        assert filename_for_link(url, name) == expected
