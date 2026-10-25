@@ -51,6 +51,38 @@ def generate(
     return response
 
 
+def upload(
+    client: TestClient,
+    headers: dict[str, str],
+    agreement_id: str,
+    content: bytes = DOCUMENT_PDF,
+    filename: str = "termo.pdf",
+    declared_type: str = "application/pdf",
+) -> httpx.Response:
+    response: httpx.Response = client.post(
+        f"/agreements/{agreement_id}/documents",
+        files={"file": (filename, content, declared_type)},
+        headers=headers,
+    )
+    return response
+
+
+def attach_link(
+    client: TestClient,
+    headers: dict[str, str],
+    agreement_id: str,
+    url: str,
+    name: str | None = None,
+) -> httpx.Response:
+    fields: dict[str, tuple[None, str]] = {"url": (None, url)}
+    if name is not None:
+        fields["name"] = (None, name)
+    response: httpx.Response = client.post(
+        f"/agreements/{agreement_id}/documents", files=fields, headers=headers
+    )
+    return response
+
+
 @pytest.fixture
 def operator(create_user: CreateUser) -> User:
     return create_user(role=Role.OPERATOR, name="Ana Souza")
@@ -462,12 +494,7 @@ class TestAgreementDocuments:
         filename: str = "termo.pdf",
         declared_type: str = "application/pdf",
     ) -> httpx.Response:
-        response: httpx.Response = client.post(
-            f"/agreements/{agreement_id}/documents",
-            files={"file": (filename, content, declared_type)},
-            headers=headers,
-        )
-        return response
+        return upload(client, headers, agreement_id, content, filename, declared_type)
 
     def test_upload_list_and_download(
         self,
@@ -696,4 +723,209 @@ class TestAgreementDocuments:
 
         with pytest.raises(IntegrityError):
             db_session.delete(saved_agreement)
+            db_session.flush()
+
+
+class TestAttachLink:
+    def test_link_is_attached_to_the_agreement(
+        self,
+        db_client: TestClient,
+        operator: User,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """US21-CA01"""
+        response = attach_link(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            "https://drive.example.com/d/termo-assinado",
+            "Termo assinado",
+        )
+
+        body = response.json()
+        assert response.status_code == 201
+        assert body["kind"] == "link"
+        assert body["url"] == "https://drive.example.com/d/termo-assinado"
+        assert body["filename"] == "Termo assinado"
+        assert body["content_type"] is None
+        assert body["size"] is None
+        assert body["uploaded_by"] == {"id": str(operator.id), "name": operator.name}
+
+    def test_link_without_a_name_gets_one_from_the_address(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """US21-CA01"""
+        response = attach_link(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            "https://example.com/docs/termo.pdf",
+        )
+
+        assert response.json()["filename"] == "termo.pdf"
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            pytest.param("javascript:alert(1)", id="script"),
+            pytest.param("ftp://example.com/termo.pdf", id="other-scheme"),
+            pytest.param("example.com/termo.pdf", id="no-scheme"),
+        ],
+    )
+    def test_invalid_link_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+        url: str,
+    ) -> None:
+        """US21-CA01"""
+        response = attach_link(db_client, operator_headers, str(agreement.id), url)
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Endereço inválido. Informe um link http ou https."
+        )
+
+    def test_file_and_link_together_are_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """US21-CA01"""
+        response = db_client.post(
+            f"/agreements/{agreement.id}/documents",
+            files={
+                "file": ("termo.pdf", DOCUMENT_PDF, "application/pdf"),
+                "url": (None, "https://example.com/termo.pdf"),
+            },
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Envie um arquivo ou um link, mas não os dois."
+        )
+
+    def test_request_with_neither_file_nor_link_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """US21-CA01"""
+        response = db_client.post(
+            f"/agreements/{agreement.id}/documents",
+            files={"name": (None, "Termo assinado")},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Envie um arquivo ou um link, mas não os dois."
+        )
+
+    def test_link_in_an_unknown_agreement_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        """US21-CA01"""
+        response = attach_link(
+            db_client,
+            operator_headers,
+            str(uuid.uuid4()),
+            "https://example.com/termo.pdf",
+        )
+
+        assert response.status_code == 404
+
+
+class TestLinkInTheList:
+    def test_files_and_links_are_listed_together(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+        clock: FrozenClock,
+    ) -> None:
+        """US21-CA01"""
+        upload(db_client, operator_headers, str(agreement.id))
+        clock.advance(timedelta(minutes=1))
+        attach_link(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            "https://example.com/d/1",
+            "Comprovante",
+        )
+
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents", headers=operator_headers
+        )
+
+        items = response.json()
+        assert [(item["kind"], item["filename"]) for item in items] == [
+            ("file", "termo.pdf"),
+            ("link", "Comprovante"),
+        ]
+
+    def test_link_cannot_be_downloaded(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """US21-CA01"""
+        document_id = attach_link(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            "https://example.com/d/1",
+        ).json()["id"]
+
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents/{document_id}",
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Este documento é um link: abra o endereço informado."
+        )
+
+
+class TestFileOrLinkConstraint:
+    @pytest.mark.parametrize(
+        ("content", "url"),
+        [
+            pytest.param(DOCUMENT_PDF, "https://example.com/termo.pdf", id="both"),
+            pytest.param(None, None, id="neither"),
+        ],
+    )
+    def test_database_refuses_a_document_that_is_not_a_file_or_a_link(
+        self,
+        db_session: Session,
+        operator: User,
+        agreement: Agreement,
+        clock: FrozenClock,
+        content: bytes | None,
+        url: str | None,
+    ) -> None:
+        """US21-CA01"""
+        db_session.add(
+            AgreementDocument(
+                agreement_id=agreement.id,
+                filename="termo.pdf",
+                content=content,
+                url=url,
+                uploaded_by=operator,
+                uploaded_at=clock.now(),
+            )
+        )
+
+        with pytest.raises(IntegrityError):
             db_session.flush()
