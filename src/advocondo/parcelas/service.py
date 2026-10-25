@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from advocondo.acordos.errors import AgreementCancelledError, AgreementNotFoundError
 from advocondo.acordos.repository import AgreementRepository
+from advocondo.notificacoes.models import ClientNotificationEvent
+from advocondo.notificacoes.service import ClientNotificationService
 from advocondo.parcelas.errors import (
     InstallmentAlreadyPaidError,
     InstallmentNotFoundError,
@@ -34,10 +36,12 @@ class InstallmentService:
         session: Session,
         installments: InstallmentRepository,
         agreements: AgreementRepository,
+        notifications: ClientNotificationService,
     ) -> None:
         self._session = session
         self._installments = installments
         self._agreements = agreements
+        self._notifications = notifications
 
     def list_plan(self, agreement_id: uuid.UUID) -> Sequence[Installment]:
         """The installments of an agreement, in order."""
@@ -80,7 +84,13 @@ class InstallmentService:
         if paid_now > installment.remaining_amount:
             raise PaymentAboveRemainingAmountError()
         installment.receive(paid_now, payment_date)
+        agreement_id = installment.agreement_id
         self._session.commit()
+        self._notify_client(
+            agreement_id,
+            ClientNotificationEvent.PAYMENT_UPDATED,
+            "Um pagamento de acordo deste condomínio foi registrado.",
+        )
         return installment
 
     def list_payments(self, installment_id: uuid.UUID) -> Sequence[InstallmentPayment]:
@@ -109,7 +119,13 @@ class InstallmentService:
         if not installment.has_payments:
             raise InstallmentNotPaidError()
         installment.reverse_payments()
+        agreement_id = installment.agreement_id
         self._session.commit()
+        self._notify_client(
+            agreement_id,
+            ClientNotificationEvent.PAYMENT_UPDATED,
+            "Um pagamento de acordo deste condomínio foi estornado.",
+        )
         return installment
 
     def register_invoice(
@@ -147,11 +163,22 @@ class InstallmentService:
             raise PartiallyPaidInstallmentCannotBeEditedError()
 
         plan = self._installments.list_by_agreement(installment.agreement_id)
+        old_values = {item.id: (item.amount, item.due_date) for item in plan}
         if request.amount is not None and request.amount != installment.amount:
             self._change_amount(installment, request.amount, plan)
         if request.due_date is not None:
             installment.due_date = request.due_date
+        changed = any(
+            old_values[item.id] != (item.amount, item.due_date) for item in plan
+        )
+        agreement_id = installment.agreement_id
         self._session.commit()
+        if changed:
+            self._notify_client(
+                agreement_id,
+                ClientNotificationEvent.AGREEMENT_UPDATED,
+                "As informações das parcelas de um acordo deste condomínio foram atualizadas.",
+            )
         return plan
 
     def _change_amount(
@@ -205,6 +232,19 @@ class InstallmentService:
         if installment is None:
             raise InstallmentNotFoundError()
         return installment
+
+    def _notify_client(
+        self,
+        agreement_id: uuid.UUID,
+        event_type: ClientNotificationEvent,
+        message: str,
+    ) -> None:
+        agreement = self._agreements.get(agreement_id)
+        if agreement is None:
+            return
+        self._notifications.send_condominium_update(
+            agreement.condominium_id, event_type, message
+        )
 
 
 def ensure_agreement_is_not_cancelled(installment: Installment) -> None:

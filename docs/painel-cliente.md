@@ -36,6 +36,14 @@ Baixa o relatório simplificado do condomínio em PDF. A rota exige autenticaç�
 
 O PDF usa o renderer comum de documentos (`common/pdf.py`) e uma lista explícita de campos permitidos. Ele não inclui honorários, comissão, divisão da parcela entre condomínio e escritório, dados de responsáveis jurídicos, administração ou equipe, nem informações de outros condomínios. Condomínio sem vínculo responde `404`; Cliente sem acordos ativos vinculados recebe um relatório com resumo zerado e sem linhas de acordo. A resposta é `application/pdf` e usa `Cache-Control: no-store`.
 
+## Notificações automáticas (US40)
+
+O sistema envia um e-mail informativo aos usuários Cliente ativos vinculados ao condomínio quando um acordo é registrado, atualizado em dado visível ao Cliente, cancelado, quando um pagamento é registrado/estornado, quando uma parcela muda de valor ou vencimento, e quando dados de contato ou identificação do condomínio são alterados. A notificação só é disparada depois que a alteração de negócio foi confirmada no banco.
+
+O corpo do e-mail contém uma mensagem genérica, o nome do condomínio e o endereço configurado em `FRONTEND_URL`. Não inclui honorários, divisão financeira, devedor, unidade ou dados internos. Cada entrega bem-sucedida cria uma linha em `client_notification_logs` com Cliente, condomínio, tipo do evento, mensagem, link e data/hora (`sent_at`). Uma falha de e-mail é registrada no log da aplicação e não desfaz a alteração de negócio; ela não gera linha de envio bem-sucedido.
+
+O projeto ainda não tem um fechamento mensal automático nem um agendador. Por isso, `monthly_report_ready` está previsto como tipo de evento, mas não é disparado pela exportação mensal manual da equipe.
+
 ## Regras
 
 - **Só os condomínios vinculados (US37-CA01/US39).** O filtro é um `JOIN` na tabela `user_condominiums` dentro da própria consulta, então acordos de outros condomínios nunca saem do banco. Cliente sem vínculo recebe `[]` na lista e `404` ao solicitar um relatório.

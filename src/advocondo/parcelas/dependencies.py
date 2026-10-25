@@ -5,15 +5,21 @@ from sqlalchemy.orm import Session
 
 from advocondo.acordos.repository import AgreementRepository
 from advocondo.db import get_session
+from advocondo.notificacoes.dependencies import get_client_notification_service
+from advocondo.notificacoes.service import ClientNotificationService
 from advocondo.parcelas.repository import InstallmentRepository
 from advocondo.parcelas.service import InstallmentService
 
 
 def get_installment_service(
     session: Annotated[Session, Depends(get_session)],
+    notifications: Annotated[
+        ClientNotificationService, Depends(get_client_notification_service)
+    ],
 ) -> InstallmentService:
     return InstallmentService(
         session=session,
         installments=InstallmentRepository(session),
         agreements=AgreementRepository(session),
+        notifications=notifications,
     )

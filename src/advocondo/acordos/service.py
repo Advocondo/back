@@ -32,6 +32,8 @@ from advocondo.condominios.repository import CondominiumRepository
 from advocondo.devedores.errors import DebtorNotFoundError
 from advocondo.devedores.models import Debtor
 from advocondo.devedores.repository import DebtorRepository
+from advocondo.notificacoes.models import ClientNotificationEvent
+from advocondo.notificacoes.service import ClientNotificationService
 from advocondo.parcelas.models import Installment
 from advocondo.parcelas.plan import monthly_due_dates, split_amount, split_fee
 from advocondo.users.models import User
@@ -45,12 +47,14 @@ class AgreementService:
         condominiums: CondominiumRepository,
         debtors: DebtorRepository,
         clock: Clock,
+        notifications: ClientNotificationService,
     ) -> None:
         self._session = session
         self._agreements = agreements
         self._condominiums = condominiums
         self._debtors = debtors
         self._clock = clock
+        self._notifications = notifications
 
     def register(self, request: AgreementCreateRequest, closed_by: User) -> Agreement:
         """Registers an agreement of a debtor with their condominium (US15)."""
@@ -75,6 +79,11 @@ class AgreementService:
         )
         self._agreements.save(agreement)
         self._session.commit()
+        self._notify_client(
+            agreement,
+            ClientNotificationEvent.AGREEMENT_CREATED,
+            "Um novo acordo foi registrado para este condomínio.",
+        )
         return agreement
 
     def cancel(
@@ -98,6 +107,11 @@ class AgreementService:
         agreement.cancel(request.reason, self._clock.now())
         self._agreements.save(agreement)
         self._session.commit()
+        self._notify_client(
+            agreement,
+            ClientNotificationEvent.AGREEMENT_CANCELLED,
+            "Um acordo deste condomínio foi cancelado.",
+        )
         return agreement
 
     def get(self, agreement_id: uuid.UUID) -> Agreement:
@@ -131,6 +145,9 @@ class AgreementService:
         )
         if debtor is None and not money_changed:
             return agreement
+        client_relevant_change = (
+            debtor is not None or new_total != agreement.total_amount
+        )
 
         paid = [item for item in agreement.installments if item.is_paid]
         open_installments = [
@@ -197,7 +214,23 @@ class AgreementService:
 
         self._session.add_all(logs)
         self._session.commit()
+        if client_relevant_change:
+            self._notify_client(
+                agreement,
+                ClientNotificationEvent.AGREEMENT_UPDATED,
+                "As informações de um acordo deste condomínio foram atualizadas.",
+            )
         return agreement
+
+    def _notify_client(
+        self,
+        agreement: Agreement,
+        event_type: ClientNotificationEvent,
+        message: str,
+    ) -> None:
+        self._notifications.send_condominium_update(
+            agreement.condominium_id, event_type, message
+        )
 
     def _new_debtor(
         self, agreement: Agreement, request: AgreementUpdateRequest

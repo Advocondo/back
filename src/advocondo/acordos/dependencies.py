@@ -10,12 +10,17 @@ from advocondo.common.clock import Clock, get_clock
 from advocondo.condominios.repository import CondominiumRepository
 from advocondo.db import get_session
 from advocondo.devedores.repository import DebtorRepository
+from advocondo.notificacoes.dependencies import get_client_notification_service
+from advocondo.notificacoes.service import ClientNotificationService
 from advocondo.users.repository import UserRepository
 
 
 def get_agreement_service(
     session: Annotated[Session, Depends(get_session)],
     clock: Annotated[Clock, Depends(get_clock)],
+    notifications: Annotated[
+        ClientNotificationService, Depends(get_client_notification_service)
+    ],
 ) -> AgreementService:
     return AgreementService(
         session=session,
@@ -23,6 +28,7 @@ def get_agreement_service(
         condominiums=CondominiumRepository(session),
         debtors=DebtorRepository(session),
         clock=clock,
+        notifications=notifications,
     )
 
 
