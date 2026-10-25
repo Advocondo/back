@@ -1,14 +1,41 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from advocondo.common.clock import BRAZIL_TIMEZONE
 from advocondo.common.models import UuidPrimaryKeyMixin
 from advocondo.common.storage import StoredFileMixin
 from advocondo.db import Base
+from advocondo.documentos.rules import MAX_FILENAME_LENGTH
 from advocondo.users.models import User
+
+CONTENT_TYPE_MAX_LENGTH = 50
+
+
+class AgreementDocument(UuidPrimaryKeyMixin, Base):
+    """Documento anexado a um acordo. Não há exclusão: o vínculo é permanente (US21)."""
+
+    __tablename__ = "agreement_documents"
+    __table_args__ = (CheckConstraint("size > 0", name="size_is_positive"),)
+
+    # Sem ondelete: o banco recusa apagar um acordo que tenha documentos.
+    agreement_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agreements.id"), index=True
+    )
+    filename: Mapped[str] = mapped_column(String(MAX_FILENAME_LENGTH))
+    content_type: Mapped[str] = mapped_column(String(CONTENT_TYPE_MAX_LENGTH))
+    size: Mapped[int]
+    # Só é lido no download: a listagem não carrega o arquivo.
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    uploaded_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    # Vem do Clock da aplicação, e não do banco, para ser testável com data fixa.
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    uploaded_by: Mapped[User] = relationship(
+        foreign_keys=[uploaded_by_id], lazy="joined"
+    )
 
 
 class AgreementPdf(UuidPrimaryKeyMixin, StoredFileMixin, Base):
