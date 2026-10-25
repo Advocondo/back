@@ -1,7 +1,7 @@
 """add condominiums changes to user audit logs
 
 Revision ID: 79f61dbc2fd4
-Revises: 03141b30ed61
+Revises: 33fed27dfa21
 Create Date: 2026-10-22 03:30:54.856140
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "79f61dbc2fd4"
-down_revision: str | Sequence[str] | None = "03141b30ed61"
+down_revision: str | Sequence[str] | None = "33fed27dfa21"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
