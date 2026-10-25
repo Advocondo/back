@@ -9,6 +9,7 @@ __all__ = ["Goal", "PasswordResetLink", "User", "UserSession"]
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
 from advocondo.documentos.models import AgreementPdf
+from advocondo.landing.models import LandingBlock, LandingImage
 from advocondo.parcelas.models import Installment, InstallmentPayment
 from advocondo.users.models import UserAuditLog, UserCondominium
 
@@ -20,6 +21,8 @@ __all__ = [
     "Debtor",
     "Installment",
     "InstallmentPayment",
+    "LandingBlock",
+    "LandingImage",
     "LawyerAssignment",
     "PasswordResetLink",
     "User",

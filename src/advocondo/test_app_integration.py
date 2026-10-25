@@ -7,12 +7,13 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, String, create_engine, func, inspect, select
+from sqlalchemy import Engine, String, create_engine, func, inspect, select, text
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 import advocondo.models  # noqa: F401
 from advocondo.db import Base
+from advocondo.landing.schemas import LandingContent
 from tests.support.database import ensure_database_exists, get_test_database_url
 
 
@@ -96,6 +97,33 @@ class TestMigrations:
             )
 
         assert differences == []
+
+    def test_upgrade_writes_a_valid_initial_landing_page(
+        self, alembic_config: Config, migrations_engine: Engine
+    ) -> None:
+        """US04: the site is complete right after the deploy, before any edit."""
+        command.upgrade(alembic_config, "head")
+
+        with migrations_engine.connect() as connection:
+            rows = connection.execute(text("SELECT key, content FROM landing_blocks"))
+            content = LandingContent.model_validate({key: value for key, value in rows})
+
+        assert content.team.members
+
+    def test_initial_landing_page_has_no_placeholder_reviews(
+        self, alembic_config: Config, migrations_engine: Engine
+    ) -> None:
+        """The prototype's reviews are paraphrased; only real reviews may be published."""
+        command.upgrade(alembic_config, "head")
+
+        with migrations_engine.connect() as connection:
+            reviews = connection.scalar(
+                text(
+                    "SELECT content -> 'reviews' FROM landing_blocks WHERE key = 'reviews'"
+                )
+            )
+
+        assert reviews == []
 
     def test_downgrade_removes_every_table(
         self, alembic_config: Config, migrations_engine: Engine
