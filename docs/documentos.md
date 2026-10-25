@@ -7,6 +7,8 @@ Anexos de um acordo, como o termo assinado e os comprovantes ([US21](https://adv
 - **Tipos aceitos:** PDF, PNG e JPEG. O tipo é descoberto pelo **conteúdo** do arquivo, e não pelo que o cliente declara.
 - **Tamanho:** até 10 MB. Arquivo vazio é recusado.
 - **Nome:** guarda só o nome do arquivo, sem pastas e sem caracteres de controle, com até 255 caracteres.
+- **Link:** em vez de um arquivo, o documento pode ser um **link** para outro lugar (por exemplo, um arquivo no Drive). Só `http` e `https` são aceitos, com até 2048 caracteres. O servidor **só guarda o endereço e nunca o abre**. O front deve abrir o link em outra aba, com `rel="noopener noreferrer"`.
+- **Um ou outro:** cada documento é um arquivo ou um link, nunca os dois, e o banco recusa os dois casos.
 - **Armazenamento:** o arquivo fica no PostgreSQL, na tabela `agreement_documents`, e entra no backup do banco. A listagem não carrega o arquivo.
 - **Vínculo permanente (US21-CA02):** não há rota para apagar um documento, e o banco recusa apagar um acordo que tenha documentos. Cancelar o acordo (US20) muda o status, e os documentos continuam.
 
@@ -14,7 +16,17 @@ Anexos de um acordo, como o termo assinado e os comprovantes ([US21](https://adv
 
 ### `POST /agreements/{id}/documents`
 
-Upload em `multipart/form-data`, no campo `file`. Resposta `201` com `id`, `filename`, `content_type`, `size`, `uploaded_at` e `uploaded_by`.
+`multipart/form-data` com **um** destes campos:
+
+- `file`: o arquivo (PDF, PNG ou JPEG, até 10 MB).
+- `url`: o endereço de um link, com o campo opcional `name` para o nome mostrado. Sem `name`, o nome vem do último pedaço do endereço ou do site.
+
+```bash
+curl -X POST ".../agreements/$ID/documents" -H "Authorization: Bearer $TOKEN" \
+  -F "url=https://drive.example.com/d/termo" -F "name=Termo assinado"
+```
+
+Resposta `201` com `id`, `kind` (`file` ou `link`), `filename`, `content_type` e `size` (só para arquivos), `url` (só para links), `uploaded_at` e `uploaded_by`.
 
 ### `GET /agreements/{id}/documents`
 
@@ -22,7 +34,7 @@ Lista os documentos do acordo, do mais antigo para o mais novo, sem o arquivo.
 
 ### `GET /agreements/{id}/documents/{document_id}`
 
-Devolve o arquivo, com o tipo guardado e `Content-Disposition: attachment`.
+Devolve o arquivo, com o tipo guardado e `Content-Disposition: attachment`. Para um documento do tipo link a resposta é `422`: quem abre o endereço é o front.
 
 ## Respostas de erro
 
@@ -35,6 +47,9 @@ Devolve o arquivo, com o tipo guardado e `Content-Disposition: attachment`.
 | Arquivo vazio | `422` | `O arquivo está vazio.` |
 | Arquivo acima de 10 MB | `422` | `O arquivo passa de 10 MB.` |
 | Tipo que não é PDF, PNG ou JPEG | `422` | `Tipo de arquivo não aceito. Envie PDF, PNG ou JPEG.` |
+| Endereço que não é http ou https | `422` | `Endereço inválido. Informe um link http ou https.` |
+| Arquivo e link juntos, ou nenhum dos dois | `422` | `Envie um arquivo ou um link, mas não os dois.` |
+| Download de um link | `422` | `Este documento é um link: abra o endereço informado.` |
 
 ---
 
