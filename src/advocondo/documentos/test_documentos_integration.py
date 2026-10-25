@@ -12,7 +12,7 @@ from advocondo.acordos.models import Agreement
 from advocondo.common.storage import ObjectStorage, get_file_storage
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
-from advocondo.documentos.models import AgreementPdf
+from advocondo.documentos.models import AgreementDocument, AgreementPdf
 from advocondo.main import app
 from advocondo.users.models import Role, User
 from tests.fixtures.auth import AuthenticateAs
@@ -445,3 +445,90 @@ class TestAgreementPdfInBucket:
         key = f"agreements/{agreement.id}/pdfs/{body['id']}.pdf"
         assert response.status_code == 200
         assert response.content == s3_client.objects[BUCKET, key]
+
+
+class TestAgreementDocuments:
+    def test_upload_list_and_download(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator: User,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        content = b"%PDF-1.7\nexample agreement"
+        response = db_client.post(
+            f"/agreements/{agreement.id}/documents",
+            headers=operator_headers,
+            files={"file": ("../termo.pdf", content, "text/plain")},
+        )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["filename"] == "termo.pdf"
+        assert body["content_type"] == "application/pdf"
+        assert body["size"] == len(content)
+        assert body["uploaded_by"] == {"id": str(operator.id), "name": operator.name}
+        saved = db_session.scalars(select(AgreementDocument)).one()
+        assert saved.content == content
+
+        listed = db_client.get(
+            f"/agreements/{agreement.id}/documents", headers=operator_headers
+        )
+        assert listed.status_code == 200
+        assert [item["id"] for item in listed.json()] == [body["id"]]
+
+        downloaded = db_client.get(
+            f"/agreements/{agreement.id}/documents/{body['id']}",
+            headers=operator_headers,
+        )
+        assert downloaded.status_code == 200
+        assert downloaded.content == content
+        assert downloaded.headers["content-type"] == "application/pdf"
+        assert downloaded.headers["content-disposition"] == (
+            "attachment; filename*=UTF-8''termo.pdf"
+        )
+        assert downloaded.headers["x-content-type-options"] == "nosniff"
+
+    def test_rejects_unsupported_content(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = db_client.post(
+            f"/agreements/{agreement.id}/documents",
+            headers=operator_headers,
+            files={"file": ("termo.pdf", b"not a pdf", "application/pdf")},
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Tipo de arquivo não aceito. Envie PDF, PNG ou JPEG."
+        }
+
+    def test_documents_require_office_staff(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents", headers=client_headers
+        )
+
+        assert response.status_code == 403
+
+    def test_unknown_document_is_not_found(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents/{UNKNOWN_ID}",
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Documento não encontrado."}

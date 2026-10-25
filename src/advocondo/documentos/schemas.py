@@ -1,14 +1,26 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from advocondo.acordos.schemas import UserSummary
 from advocondo.documentos.models import AgreementPdf
+from advocondo.users.schemas import ActorResponse
 
 
 def download_path(agreement_id: uuid.UUID, pdf_id: uuid.UUID) -> str:
     return f"/agreements/{agreement_id}/pdfs/{pdf_id}"
+
+
+class DocumentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    filename: str
+    content_type: str
+    size: int
+    uploaded_at: datetime
+    uploaded_by: ActorResponse
 
 
 class AgreementPdfResponse(BaseModel):

@@ -10,10 +10,63 @@ from advocondo.common.clock import Clock, today_in_brazil
 from advocondo.common.pdf import PDF_CONTENT_TYPE
 from advocondo.common.storage import FileStorage
 from advocondo.documentos.agreement_pdf import render_agreement_pdf
-from advocondo.documentos.errors import AgreementPdfNotFoundError
-from advocondo.documentos.models import AgreementPdf
-from advocondo.documentos.repository import AgreementPdfRepository
+from advocondo.documentos.errors import AgreementPdfNotFoundError, DocumentNotFoundError
+from advocondo.documentos.models import AgreementDocument, AgreementPdf
+from advocondo.documentos.repository import AgreementPdfRepository, DocumentRepository
+from advocondo.documentos.rules import clean_filename, validate_document
 from advocondo.users.models import Role, User
+
+
+class DocumentService:
+    def __init__(
+        self,
+        session: Session,
+        agreements: AgreementRepository,
+        documents: DocumentRepository,
+        clock: Clock,
+    ) -> None:
+        self._session = session
+        self._agreements = agreements
+        self._documents = documents
+        self._clock = clock
+
+    def upload(
+        self,
+        agreement_id: uuid.UUID,
+        filename: str | None,
+        content: bytes,
+        uploaded_by: User,
+    ) -> AgreementDocument:
+        """Anexa um documento ao acordo (US21)."""
+        self._ensure_agreement_exists(agreement_id)
+        content_type = validate_document(content)
+        document = AgreementDocument(
+            agreement_id=agreement_id,
+            filename=clean_filename(filename),
+            content_type=content_type,
+            size=len(content),
+            content=content,
+            uploaded_by=uploaded_by,
+            uploaded_at=self._clock.now(),
+        )
+        self._documents.save(document)
+        self._session.commit()
+        return document
+
+    def get(self, agreement_id: uuid.UUID, document_id: uuid.UUID) -> AgreementDocument:
+        self._ensure_agreement_exists(agreement_id)
+        document = self._documents.get(agreement_id, document_id)
+        if document is None:
+            raise DocumentNotFoundError()
+        return document
+
+    def list_by_agreement(self, agreement_id: uuid.UUID) -> Sequence[AgreementDocument]:
+        self._ensure_agreement_exists(agreement_id)
+        return self._documents.list_by_agreement(agreement_id)
+
+    def _ensure_agreement_exists(self, agreement_id: uuid.UUID) -> None:
+        if self._agreements.get(agreement_id) is None:
+            raise AgreementNotFoundError()
 
 
 class AgreementPdfService:

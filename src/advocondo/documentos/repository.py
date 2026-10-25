@@ -5,8 +5,35 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from advocondo.acordos.models import Agreement
-from advocondo.documentos.models import AgreementPdf
+from advocondo.documentos.models import AgreementDocument, AgreementPdf
 from advocondo.painel_cliente.repository import client_agreements_query
+
+
+class DocumentRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get(
+        self, agreement_id: uuid.UUID, document_id: uuid.UUID
+    ) -> AgreementDocument | None:
+        return self._session.scalar(
+            select(AgreementDocument).where(
+                AgreementDocument.id == document_id,
+                AgreementDocument.agreement_id == agreement_id,
+            )
+        )
+
+    def list_by_agreement(self, agreement_id: uuid.UUID) -> Sequence[AgreementDocument]:
+        """Documentos do acordo, do mais antigo para o mais novo."""
+        return self._session.scalars(
+            select(AgreementDocument)
+            .where(AgreementDocument.agreement_id == agreement_id)
+            .order_by(AgreementDocument.uploaded_at, AgreementDocument.id)
+        ).all()
+
+    def save(self, document: AgreementDocument) -> None:
+        self._session.add(document)
+        self._session.flush()
 
 
 class AgreementPdfRepository:
