@@ -4,7 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from advocondo.acordos.schemas import UserSummary
-from advocondo.documentos.models import AgreementPdf
+from advocondo.documentos.models import AgreementPdf, DocumentKind
 from advocondo.users.schemas import ActorResponse
 
 
@@ -16,9 +16,12 @@ class DocumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    kind: DocumentKind
     filename: str
-    content_type: str
-    size: int
+    # Tipo e tamanho só existem para arquivos; o endereço, só para links.
+    content_type: str | None
+    size: int | None
+    url: str | None
     uploaded_at: datetime
     uploaded_by: ActorResponse
 

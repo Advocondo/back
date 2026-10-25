@@ -2,7 +2,7 @@ import uuid
 from typing import Annotated
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Response, UploadFile, status
+from fastapi import APIRouter, Depends, Form, Response, UploadFile, status
 
 from advocondo.auth.dependencies import CurrentUser, require_office_staff
 from advocondo.documentos.dependencies import (
@@ -14,6 +14,11 @@ from advocondo.documentos.schemas import AgreementPdfResponse, DocumentResponse
 from advocondo.documentos.service import AgreementPdfService, DocumentService
 
 router = APIRouter()
+document_router = APIRouter(
+    prefix="/agreements",
+    tags=["documents"],
+    dependencies=[Depends(require_office_staff)],
+)
 
 AgreementPdfServiceDependency = Annotated[
     AgreementPdfService, Depends(get_agreement_pdf_service)
@@ -21,31 +26,29 @@ AgreementPdfServiceDependency = Annotated[
 DocumentServiceDependency = Annotated[DocumentService, Depends(get_document_service)]
 
 
-@router.post(
-    "/agreements/{agreement_id}/documents",
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_office_staff)],
-    tags=["documents"],
-)
+@document_router.post("/{agreement_id}/documents", status_code=status.HTTP_201_CREATED)
 def upload_document(
     agreement_id: uuid.UUID,
-    file: Annotated[UploadFile, File()],
     current_user: CurrentUser,
     document_service: DocumentServiceDependency,
+    file: UploadFile | None = None,
+    url: Annotated[str | None, Form()] = None,
+    name: Annotated[str | None, Form()] = None,
 ) -> DocumentResponse:
     # Lê um byte a mais que o limite, só para saber que passou dele.
-    content = file.file.read(MAX_DOCUMENT_SIZE + 1)
-    document = document_service.upload(
-        agreement_id, file.filename, content, current_user
+    content = file.file.read(MAX_DOCUMENT_SIZE + 1) if file is not None else None
+    document = document_service.attach(
+        agreement_id,
+        current_user,
+        content=content,
+        filename=file.filename if file is not None else None,
+        url=url,
+        name=name,
     )
     return DocumentResponse.model_validate(document)
 
 
-@router.get(
-    "/agreements/{agreement_id}/documents",
-    dependencies=[Depends(require_office_staff)],
-    tags=["documents"],
-)
+@document_router.get("/{agreement_id}/documents")
 def list_documents(
     agreement_id: uuid.UUID, document_service: DocumentServiceDependency
 ) -> list[DocumentResponse]:
@@ -53,17 +56,13 @@ def list_documents(
     return [DocumentResponse.model_validate(document) for document in documents]
 
 
-@router.get(
-    "/agreements/{agreement_id}/documents/{document_id}",
-    dependencies=[Depends(require_office_staff)],
-    tags=["documents"],
-)
+@document_router.get("/{agreement_id}/documents/{document_id}")
 def download_document(
     agreement_id: uuid.UUID,
     document_id: uuid.UUID,
     document_service: DocumentServiceDependency,
 ) -> Response:
-    document = document_service.get(agreement_id, document_id)
+    document = document_service.get_file(agreement_id, document_id)
     return Response(
         content=document.content,
         media_type=document.content_type,
@@ -124,3 +123,6 @@ def download_agreement_pdf(
             "Cache-Control": "no-store",
         },
     )
+
+
+router.include_router(document_router)
