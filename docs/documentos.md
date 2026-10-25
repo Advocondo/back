@@ -1,4 +1,44 @@
-# Documentos (PDF do acordo)
+# Documentos do acordo
+
+Anexos de um acordo, como o termo assinado e os comprovantes ([US21](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us21)). O código fica em `src/advocondo/documentos/`. As rotas são abertas à Equipe Operacional e ao Administrador.
+
+## Regras
+
+- **Tipos aceitos:** PDF, PNG e JPEG. O tipo é descoberto pelo **conteúdo** do arquivo, e não pelo que o cliente declara.
+- **Tamanho:** até 10 MB. Arquivo vazio é recusado.
+- **Nome:** guarda só o nome do arquivo, sem pastas e sem caracteres de controle, com até 255 caracteres.
+- **Armazenamento:** o arquivo fica no PostgreSQL, na tabela `agreement_documents`, e entra no backup do banco. A listagem não carrega o arquivo.
+- **Vínculo permanente (US21-CA02):** não há rota para apagar um documento, e o banco recusa apagar um acordo que tenha documentos. Cancelar o acordo (US20) muda o status, e os documentos continuam.
+
+## Rotas
+
+### `POST /agreements/{id}/documents`
+
+Upload em `multipart/form-data`, no campo `file`. Resposta `201` com `id`, `filename`, `content_type`, `size`, `uploaded_at` e `uploaded_by`.
+
+### `GET /agreements/{id}/documents`
+
+Lista os documentos do acordo, do mais antigo para o mais novo, sem o arquivo.
+
+### `GET /agreements/{id}/documents/{document_id}`
+
+Devolve o arquivo, com o tipo guardado e `Content-Disposition: attachment`.
+
+## Respostas de erro
+
+| Situação | Status | `detail` |
+| --- | --- | --- |
+| Sem token, token desconhecido ou expirado | `401` | `Sua sessão expirou. Faça login novamente.` |
+| Usuário Cliente | `403` | `Você não tem permissão para esta operação.` |
+| Acordo inexistente | `404` | `Acordo não encontrado.` |
+| Documento inexistente no acordo | `404` | `Documento não encontrado.` |
+| Arquivo vazio | `422` | `O arquivo está vazio.` |
+| Arquivo acima de 10 MB | `422` | `O arquivo passa de 10 MB.` |
+| Tipo que não é PDF, PNG ou JPEG | `422` | `Tipo de arquivo não aceito. Envie PDF, PNG ou JPEG.` |
+
+---
+
+## PDF do acordo
 
 Geração e consulta do PDF de cada acordo ([US24](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us24)). O código fica em `src/advocondo/documentos/`. As peças reaproveitáveis ficam em `src/advocondo/common/`: `pdf.py` monta o PDF e `storage.py` guarda os bytes. Elas são a base do relatório do Cliente (US39) e do link por e-mail (US40).
 
