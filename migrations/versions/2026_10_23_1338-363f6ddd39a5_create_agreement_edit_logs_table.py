@@ -1,7 +1,7 @@
 """create agreement edit logs table
 
 Revision ID: 363f6ddd39a5
-Revises: 79f61dbc2fd4
+Revises: c8e41f5a7d03
 Create Date: 2026-10-23 13:38:49.533223
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "363f6ddd39a5"
-down_revision: str | Sequence[str] | None = "79f61dbc2fd4"
+down_revision: str | Sequence[str] | None = "c8e41f5a7d03"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
