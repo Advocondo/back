@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
+from decimal import Decimal
 from urllib.parse import urlencode
 
 from sqlalchemy.orm import Session
@@ -26,6 +27,7 @@ from advocondo.users.errors import (
     OabNumberRequiredError,
     PasswordTooShortError,
     TargetNotClientError,
+    TargetNotOperatorError,
     UnknownCondominiumsError,
     UserIsPendingError,
     UserNotFoundError,
@@ -345,6 +347,18 @@ class UserManagementService:
             if links_log is not None:
                 self._audit_logs.add(links_log)
 
+        self._session.commit()
+        return user
+
+    def change_monthly_goal(
+        self, target_user_id: uuid.UUID, monthly_goal: Decimal
+    ) -> User:
+        user = self._users.get_by_id_for_update(target_user_id)
+        if user is None:
+            raise UserNotFoundError()
+        if user.role != Role.OPERATOR:
+            raise TargetNotOperatorError()
+        user.monthly_goal = monthly_goal
         self._session.commit()
         return user
 
