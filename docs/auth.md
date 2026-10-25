@@ -98,7 +98,7 @@ As respostas `401` trazem o cabeçalho `WWW-Authenticate: Bearer`.
 - **Primeiro Administrador por rota protegida por token, não por comando de terminal.** Quem faz o deploy não precisa de acesso ao terminal do container; o `SETUP_TOKEN` fecha a janela entre o deploy e o primeiro acesso, e a rota só cria usuário com o banco vazio.
 - **Resposta igual para qualquer pedido de redefinição.** `POST /auth/password-reset` responde a mesma coisa para e-mail cadastrado, desconhecido ou de usuário inativo, e também quando o envio do e-mail falha (a falha vai para o log e o Sentry). Assim, a rota não serve para descobrir quais e-mails estão cadastrados.
 - **Link de redefinição guardado como hash, de uso único.** Como o token de sessão, só o hash SHA-256 fica na tabela `password_reset_links`.
-- **Limite de 5 pedidos por hora, contado pelos próprios links.** Um pedido novo não apaga os links anteriores: marca-os como expirados, para que continuem entrando na contagem. Quando o usuário conclui a redefinição, todos os links dele são apagados. Os links de quem pede e nunca conclui serão apagados por uma rotina periódica ([#55](https://github.com/Advocondo/back/issues/55)).
+- **Limite de 5 pedidos por hora, contado pelos próprios links.** Um pedido novo não apaga os links anteriores: marca-os como expirados, para que continuem entrando na contagem. Quando o usuário conclui a redefinição, todos os links dele são apagados. Os links de quem pede e nunca conclui são apagados pela [limpeza diária](#limpeza-de-sessões-e-links-expirados), que mantém os que ainda entram na contagem.
 - **Encerrar todas as sessões de uma vez, inclusive a atual, sem lista de dispositivos** (US06). Funciona como um *sair de todos os dispositivos*: quem desconfia de um acesso indevido sai de tudo e faz login de novo. Listar cada dispositivo exigiria guardar o navegador e o último acesso de cada sessão; se a lista for pedida, entra numa história própria.
 - **Token no cabeçalho `Authorization`, não em cookie**, como já previsto na configuração de CORS (`CORS_ALLOW_CREDENTIALS=false`, ver [HTTPS e CORS](https-cors.md)).
 
@@ -161,10 +161,30 @@ Resposta `201`, com `id`, `name`, `email` e `role` do usuário criado. O e-mail 
 
 O token é conferido antes de qualquer outra coisa, então quem não o tem não descobre se o banco já tem usuários. Por recusar quando já há usuário, a rota não serve de porta dos fundos para criar outros administradores, mesmo que o token vaze depois. Se o e-mail sair com erro de digitação, corrija direto no banco (`UPDATE users SET email = … WHERE role = 'admin'`) e faça login com o e-mail corrigido.
 
+## Limpeza de sessões e links expirados
+
+Sessões e links de redefinição expirados não dão acesso, mas só são apagados quando o usuário faz logout ou redefine a senha. Para as tabelas não crescerem para sempre, um comando apaga:
+
+- as sessões de `user_sessions` já expiradas;
+- os links de `password_reset_links` que expiraram há mais de 24 horas.
+
+Os links expirados mais recentes ficam porque ainda entram na contagem do limite de pedidos. Um link conta enquanto foi criado dentro da janela `PASSWORD_RESET_REQUEST_WINDOW_MINUTES` e nunca expira antes de ser criado, então basta guardá-lo por uma janela depois de expirar. As 24 horas são uma folga; se a janela for configurada com mais de 24 horas, o comando guarda os links pela janela.
+
+O comando roda uma vez por dia, como *Scheduled Task* do back-end no Coolify (frequência `0 3 * * *`, no container da API):
+
+```bash
+python -m advocondo.auth.cleanup
+```
+
+Ao terminar, ele mostra quantas linhas apagou (ex.: `12 sessões e 3 links de redefinição expirados apagados.`). Para rodar em desenvolvimento:
+
+```bash
+docker compose exec api uv run python -m advocondo.auth.cleanup
+```
+
 ## Pendências
 
 - **Limite de tentativas de login** (proteção contra força bruta). Não está em nenhuma história; precisa ser priorizado.
-- **Limpeza de sessões e links de redefinição expirados**: [#55](https://github.com/Advocondo/back/issues/55).
 - **Tempo de resposta do pedido de redefinição**: para e-mail cadastrado, a resposta demora mais, porque grava o link e envia o e-mail. Mover o envio para segundo plano resolve; hoje a mensagem é sempre igual, mas o tempo não.
 - **Provedor de e-mail de produção**: ainda não foi escolhido. Qualquer um com SMTP serve.
 - **Checagem por perfil** (`require_role`): entra com a US09, a primeira história que restringe rotas por perfil.
