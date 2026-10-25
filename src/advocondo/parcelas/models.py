@@ -7,6 +7,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    String,
     UniqueConstraint,
     func,
 )
@@ -16,6 +17,10 @@ from advocondo.acordos.models import MONEY, Agreement
 from advocondo.common.models import TimestampsMixin, UuidPrimaryKeyMixin
 from advocondo.db import Base
 from advocondo.parcelas.status import InstallmentStatus, calculate_installment_status
+
+# O número da NFS-e, a nota de serviço que o escritório emite, tem 15 dígitos
+# (ano com 4 dígitos e sequencial com 11, no padrão nacional e no de BH).
+INVOICE_NUMBER_LENGTH = 15
 
 
 class Installment(UuidPrimaryKeyMixin, TimestampsMixin, Base):
@@ -44,6 +49,11 @@ class Installment(UuidPrimaryKeyMixin, TimestampsMixin, Base):
             "(payment_date IS NOT NULL) = (paid_amount = amount)",
             name="paid_only_when_fully_paid",
         ),
+        # Uma nota fiscal tem sempre número e data de emissão (US29-CA01).
+        CheckConstraint(
+            "(invoice_number IS NULL) = (invoice_date IS NULL)",
+            name="invoice_number_and_date_together",
+        ),
     )
 
     agreement_id: Mapped[uuid.UUID] = mapped_column(
@@ -61,6 +71,9 @@ class Installment(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     payment_date: Mapped[date | None] = mapped_column(Date)
     # Soma dos pagamentos recebidos, parciais ou não (US28).
     paid_amount: Mapped[Decimal] = mapped_column(MONEY, default=Decimal(0))
+    # Nota fiscal emitida para a parcela paga (US29).
+    invoice_number: Mapped[str | None] = mapped_column(String(INVOICE_NUMBER_LENGTH))
+    invoice_date: Mapped[date | None] = mapped_column(Date)
 
     # Dá à listagem do mês o devedor e o condomínio da parcela (US25-CA01).
     agreement: Mapped[Agreement] = relationship(back_populates="installments")

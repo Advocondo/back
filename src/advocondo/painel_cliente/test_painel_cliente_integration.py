@@ -330,6 +330,47 @@ class TestThroughTheRealRoutes:
             }
         ]
 
+    def test_cancelled_agreement_is_hidden(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        link_client: LinkClient,
+        client_user: User,
+        client_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        """US20: o operador cancela o acordo e o Cliente deixa de vê-lo no painel."""
+        link_client(client_user, mirante)
+        operator_headers = authenticate_as(
+            create_user(role=Role.OPERATOR, email="o@example.com")
+        )
+        registered = db_client.post(
+            "/agreements",
+            json={
+                "condominium_id": str(mirante.id),
+                "debtor_id": str(jose.id),
+                "total_amount": "1000.00",
+                "installment_count": 2,
+                "first_due_date": "2026-03-31",
+                "fee_percentage": "10",
+            },
+            headers=operator_headers,
+        )
+        before = db_client.get(URL, headers=client_headers)
+
+        cancelled = db_client.post(
+            f"/agreements/{registered.json()['id']}/cancel",
+            json={"confirm_open_installments": True},
+            headers=operator_headers,
+        )
+        after = db_client.get(URL, headers=client_headers)
+
+        assert len(before.json()) == 1
+        assert cancelled.status_code == 200
+        assert after.json() == []
+
 
 def test_agreements_are_ordered_by_condominium_then_debtor_name(
     db_client: TestClient,

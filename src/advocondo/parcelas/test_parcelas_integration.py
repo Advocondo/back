@@ -781,6 +781,159 @@ class TestInstallmentPayment:
         assert response.status_code == 403
 
 
+class TestCancelledAgreement:
+    """US20. O relógio dos testes está em 2 de março de 2026."""
+
+    @pytest.fixture
+    def admin_headers(
+        self, create_user: CreateUser, authenticate_as: AuthenticateAs
+    ) -> dict[str, str]:
+        return authenticate_as(
+            create_user(email="admin_cancel@advocondo.test", role=Role.ADMIN)
+        )
+
+    @pytest.fixture
+    def cancelled_agreement_id(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+    ) -> str:
+        """Três parcelas de R$ 100,00 (10/02, 10/03 e 10/04), a primeira paga, e o
+        acordo cancelado depois disso."""
+        agreement_id = register_agreement("300.00", 3, "2026-02-10")
+        first = get_plan(db_client, operator_headers, agreement_id)[0]
+        db_client.post(
+            payment_url(first["id"]),
+            json={"payment_date": "2026-02-12"},
+            headers=operator_headers,
+        )
+        response = db_client.post(
+            f"/agreements/{agreement_id}/cancel",
+            json={"confirm_open_installments": True},
+            headers=operator_headers,
+        )
+        assert response.status_code == 200
+        return agreement_id
+
+    def test_unpaid_installments_leave_the_month_list_but_paid_ones_stay(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        """US20-CA01 e CA02"""
+        march = list_due_in_month(db_client, operator_headers, year="2026", month="3")
+        february = list_due_in_month(
+            db_client, operator_headers, year="2026", month="2"
+        )
+
+        assert march == []
+        assert [(item["number"], item["status"]) for item in february] == [(1, "paid")]
+
+    def test_active_agreements_keep_their_installments_in_the_list(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+        cancelled_agreement_id: str,
+    ) -> None:
+        active_id = register_agreement("100.00", 1, "2026-03-20")
+
+        march = list_due_in_month(db_client, operator_headers, year="2026", month="3")
+
+        assert [item["agreement_id"] for item in march] == [active_id]
+
+    def test_plan_still_shows_every_installment(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        """US20-CA02: o histórico fica consultável, as pagas e as sem pagamento."""
+        plan = get_plan(db_client, operator_headers, cancelled_agreement_id)
+
+        assert [item["number"] for item in plan] == [1, 2, 3]
+        assert plan[0]["status"] == "paid"
+        assert plan[0]["payment_date"] == "2026-02-12"
+
+    def test_unpaid_installment_cannot_be_paid(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        second = get_plan(db_client, operator_headers, cancelled_agreement_id)[1]
+
+        response = db_client.post(
+            payment_url(second["id"]),
+            json={"payment_date": "2026-03-01"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Acordo cancelado não aceita esta operação."
+        }
+        plan = get_plan(db_client, operator_headers, cancelled_agreement_id)
+        assert plan[1]["payment_date"] is None
+
+    def test_unpaid_installment_cannot_be_edited(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        second = get_plan(db_client, operator_headers, cancelled_agreement_id)[1]
+
+        response = db_client.patch(
+            f"/installments/{second['id']}",
+            json={"due_date": "2026-03-15"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Acordo cancelado não aceita esta operação."
+        }
+
+    def test_administrator_can_still_fix_a_payment_made_by_mistake(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        """Sem reativação, é o único jeito de consertar uma baixa errada."""
+        first = get_plan(db_client, operator_headers, cancelled_agreement_id)[0]
+
+        corrected = db_client.put(
+            payment_url(first["id"]),
+            json={"payment_date": "2026-02-11"},
+            headers=admin_headers,
+        )
+        reversed_payment = db_client.delete(
+            payment_url(first["id"]), headers=admin_headers
+        )
+
+        assert corrected.status_code == 200
+        assert corrected.json()["payment_date"] == "2026-02-11"
+        assert reversed_payment.status_code == 200
+        assert reversed_payment.json()["payment_date"] is None
+        # Estornada, a parcela é uma sem pagamento de acordo cancelado: sai da lista
+        # do mês e não aceita nova baixa.
+        february = list_due_in_month(
+            db_client, operator_headers, year="2026", month="2"
+        )
+        repaid = db_client.post(
+            payment_url(first["id"]),
+            json={"payment_date": "2026-02-12"},
+            headers=operator_headers,
+        )
+        assert february == []
+        assert repaid.status_code == 422
+
+
 class TestPartialPayment:
     """US28. O relógio dos testes está em 2 de março de 2026."""
 
@@ -1014,5 +1167,226 @@ class TestPartialPayment:
         response = db_client.get(
             f"/installments/{plan_ids[0]}/payments", headers=headers
         )
+
+        assert response.status_code == 403
+
+
+def invoice_url(installment_id: str) -> str:
+    return f"/installments/{installment_id}/invoice"
+
+
+class TestInvoice:
+    """US29. O relógio dos testes está em 2 de março de 2026."""
+
+    @pytest.fixture
+    def plan_ids(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+    ) -> list[str]:
+        """Três parcelas de R$ 100,00, com vencimento no dia 10, de janeiro a março."""
+        agreement_id = register_agreement("300.00", 3, "2026-01-10")
+        return [
+            item["id"] for item in get_plan(db_client, operator_headers, agreement_id)
+        ]
+
+    def test_invoice_is_linked_to_the_paid_installment(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        """US29-CA01"""
+        pay(db_client, operator_headers, plan_ids[0], "2026-01-10")
+
+        response = db_client.put(
+            invoice_url(plan_ids[0]),
+            json={"number": "202600000000042", "issue_date": "2026-01-12"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["invoice_number"] == "202600000000042"
+        assert response.json()["invoice_date"] == "2026-01-12"
+
+    def test_registering_again_replaces_the_invoice(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        pay(db_client, operator_headers, plan_ids[0], "2026-01-10")
+        url = invoice_url(plan_ids[0])
+        db_client.put(
+            url,
+            json={"number": "41", "issue_date": "2026-01-12"},
+            headers=operator_headers,
+        )
+
+        response = db_client.put(
+            url,
+            json={"number": "42", "issue_date": "2026-01-13"},
+            headers=operator_headers,
+        )
+
+        assert response.json()["invoice_number"] == "42"
+        assert response.json()["invoice_date"] == "2026-01-13"
+
+    @pytest.mark.parametrize(
+        "amount_paid",
+        [pytest.param(None, id="unpaid"), pytest.param("40.00", id="partially-paid")],
+    )
+    def test_installment_must_be_paid(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+        amount_paid: str | None,
+    ) -> None:
+        """US29-CA01: a nota é da parcela paga."""
+        if amount_paid is not None:
+            pay(db_client, operator_headers, plan_ids[0], "2026-01-10", amount_paid)
+
+        response = db_client.put(
+            invoice_url(plan_ids[0]),
+            json={"number": "42", "issue_date": "2026-01-12"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "A parcela ainda não foi paga."
+
+    def test_issue_date_cannot_be_in_the_future(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        pay(db_client, operator_headers, plan_ids[0], "2026-01-10")
+
+        response = db_client.put(
+            invoice_url(plan_ids[0]),
+            json={"number": "42", "issue_date": "2026-03-03"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "A data de emissão da nota fiscal não pode ser futura."
+        )
+
+    def test_lists_the_paid_installments_without_invoice(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        """US29-CA02: a 1ª tem nota, a 2ª está paga sem nota e a 3ª não foi paga."""
+        pay(db_client, operator_headers, plan_ids[0], "2026-01-10")
+        pay(db_client, operator_headers, plan_ids[1], "2026-02-10")
+        db_client.put(
+            invoice_url(plan_ids[0]),
+            json={"number": "42", "issue_date": "2026-01-12"},
+            headers=operator_headers,
+        )
+
+        response = db_client.get(
+            "/installments/paid-without-invoice", headers=operator_headers
+        )
+
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()] == [plan_ids[1]]
+        assert response.json()[0]["debtor"]["name"] == "José Simão"
+
+    def test_paid_installments_without_invoice_come_by_payment_date(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        pay(db_client, operator_headers, plan_ids[0], "2026-02-15")
+        pay(db_client, operator_headers, plan_ids[1], "2026-02-01")
+
+        response = db_client.get(
+            "/installments/paid-without-invoice",
+            params={"limit": "1"},
+            headers=operator_headers,
+        )
+
+        assert [item["id"] for item in response.json()] == [plan_ids[1]]
+
+    def test_reversal_keeps_the_invoice(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        """A nota emitida continua emitida: estornar o pagamento não a apaga."""
+        pay(db_client, operator_headers, plan_ids[0], "2026-01-10")
+        db_client.put(
+            invoice_url(plan_ids[0]),
+            json={"number": "42", "issue_date": "2026-01-12"},
+            headers=operator_headers,
+        )
+
+        response = db_client.delete(payment_url(plan_ids[0]), headers=admin_headers)
+
+        assert response.json()["invoice_number"] == "42"
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param({"number": "12a", "issue_date": "2026-01-12"}, id="letters"),
+            pytest.param(
+                {"number": "1234567890123456", "issue_date": "2026-01-12"},
+                id="more-than-15-digits",
+            ),
+            pytest.param({"number": "", "issue_date": "2026-01-12"}, id="empty"),
+            pytest.param({"number": "42"}, id="without-date"),
+            pytest.param(
+                {"number": "42", "issue_date": "2026-01-12", "series": "1"},
+                id="unknown-field",
+            ),
+        ],
+    )
+    def test_invalid_invoice_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+        payload: dict[str, str],
+    ) -> None:
+        pay(db_client, operator_headers, plan_ids[0], "2026-01-10")
+
+        response = db_client.put(
+            invoice_url(plan_ids[0]), json=payload, headers=operator_headers
+        )
+
+        assert response.status_code == 422
+
+    def test_unknown_installment_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.put(
+            invoice_url(UNKNOWN_ID),
+            json={"number": "42", "issue_date": "2026-01-12"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 404
+
+    def test_client_user_is_refused(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers = authenticate_as(
+            create_user(email="client_invoice@advocondo.test", role=Role.CLIENT)
+        )
+
+        response = db_client.get("/installments/paid-without-invoice", headers=headers)
 
         assert response.status_code == 403

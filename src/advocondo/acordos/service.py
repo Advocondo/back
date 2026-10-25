@@ -6,9 +6,12 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from advocondo.acordos.errors import (
+    AgreementAlreadyCancelledError,
+    AgreementCancelledError,
     AgreementNotFoundError,
     DebtorFromAnotherCondominiumError,
     FeeAboveTotalError,
+    OpenInstallmentsNotConfirmedError,
     PaidInstallmentsNeedConfirmationError,
 )
 from advocondo.acordos.fees import fee_from_percentage
@@ -18,7 +21,11 @@ from advocondo.acordos.renegotiation import (
     recalculate_open_installments,
 )
 from advocondo.acordos.repository import AgreementFilters, AgreementRepository
-from advocondo.acordos.schemas import AgreementCreateRequest, AgreementUpdateRequest
+from advocondo.acordos.schemas import (
+    AgreementCancelRequest,
+    AgreementCreateRequest,
+    AgreementUpdateRequest,
+)
 from advocondo.common.clock import Clock
 from advocondo.condominios.errors import CondominiumNotFoundError
 from advocondo.condominios.repository import CondominiumRepository
@@ -70,6 +77,29 @@ class AgreementService:
         self._session.commit()
         return agreement
 
+    def cancel(
+        self, agreement_id: uuid.UUID, request: AgreementCancelRequest
+    ) -> Agreement:
+        """Cancela o acordo (US20). As parcelas sem pagamento são guardadas, mas
+        saem da cobrança; se houver alguma, o usuário precisa confirmar."""
+        # Travado para dois cancelamentos simultâneos não se sobrescreverem.
+        agreement = self._agreements.get_for_update(agreement_id)
+        if agreement is None:
+            raise AgreementNotFoundError()
+        if agreement.is_cancelled:
+            raise AgreementAlreadyCancelledError()
+
+        unpaid = agreement.unpaid_installments
+        if unpaid and not request.confirm_open_installments:
+            raise OpenInstallmentsNotConfirmedError(
+                len(unpaid), sum((item.amount for item in unpaid), Decimal(0))
+            )
+
+        agreement.cancel(request.reason, self._clock.now())
+        self._agreements.save(agreement)
+        self._session.commit()
+        return agreement
+
     def get(self, agreement_id: uuid.UUID) -> Agreement:
         agreement = self._agreements.get(agreement_id)
         if agreement is None:
@@ -81,6 +111,8 @@ class AgreementService:
     ) -> Agreement:
         """Corrige ou renegocia um acordo e guarda quem alterou e quando (US19)."""
         agreement = self.get(agreement_id)
+        if agreement.is_cancelled:
+            raise AgreementCancelledError()
         debtor = self._new_debtor(agreement, request)
         new_total = (
             agreement.total_amount

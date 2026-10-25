@@ -25,6 +25,16 @@ class AgreementRepository:
     def get(self, agreement_id: uuid.UUID) -> Agreement | None:
         return self._session.get(Agreement, agreement_id)
 
+    def get_for_update(self, agreement_id: uuid.UUID) -> Agreement | None:
+        """Carrega o acordo e trava a linha dele até o fim da transação. O `of`
+        é necessário porque o acordo traz o advogado por um JOIN externo, que o
+        PostgreSQL não deixa travar."""
+        return self._session.scalar(
+            select(Agreement)
+            .where(Agreement.id == agreement_id)
+            .with_for_update(of=Agreement)
+        )
+
     def search(
         self, filters: AgreementFilters, limit: int, offset: int
     ) -> Sequence[Agreement]:

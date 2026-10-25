@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -17,13 +17,14 @@ from advocondo.acordos.lawyer_assignment import (
     LawyerNotEligibleError,
     ensure_can_be_responsible,
 )
-from advocondo.acordos.models import Agreement
+from advocondo.acordos.models import Agreement, AgreementStatus
 from advocondo.acordos.renegotiation import (
     Fee,
     fee_after_edit,
     recalculate_open_installments,
 )
 from advocondo.acordos.schemas import AgreementCreateRequest, AgreementUpdateRequest
+from advocondo.parcelas.models import Installment
 from advocondo.users.models import Role, User, UserStatus
 
 IDS = {"condominium_id": str(uuid.uuid4()), "debtor_id": str(uuid.uuid4())}
@@ -373,3 +374,44 @@ class TestRecalculateOpenInstallments:
                 Decimal(paid_fee),
                 open_count,
             )
+
+
+def make_installment(number: int, paid: bool = False) -> Installment:
+    return Installment(
+        number=number,
+        due_date=date(2026, number, 10),
+        amount=Decimal("100.00"),
+        condominium_amount=Decimal("90.00"),
+        fee_amount=Decimal("10.00"),
+        payment_date=date(2026, number, 9) if paid else None,
+    )
+
+
+class TestCancelAgreement:
+    def test_cancelling_keeps_the_moment_and_the_reason(self) -> None:
+        agreement = Agreement(status=AgreementStatus.ACTIVE)
+
+        agreement.cancel("Devedor desistiu do acordo", NOW)
+
+        assert agreement.status == AgreementStatus.CANCELLED
+        assert agreement.cancelled_at == NOW
+        assert agreement.cancellation_reason == "Devedor desistiu do acordo"
+
+    def test_the_reason_is_optional(self) -> None:
+        agreement = Agreement(status=AgreementStatus.ACTIVE)
+
+        agreement.cancel(None, NOW)
+
+        assert agreement.status == AgreementStatus.CANCELLED
+        assert agreement.cancellation_reason is None
+
+    def test_unpaid_installments_leave_out_the_paid_ones(self) -> None:
+        agreement = Agreement(
+            installments=[
+                make_installment(1, paid=True),
+                make_installment(2),
+                make_installment(3),
+            ]
+        )
+
+        assert [item.number for item in agreement.unpaid_installments] == [2, 3]

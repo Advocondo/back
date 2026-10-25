@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from advocondo.acordos.schemas import (
     CondominiumSummary,
@@ -10,7 +10,7 @@ from advocondo.acordos.schemas import (
     MoneyAmount,
     MoneyResponse,
 )
-from advocondo.parcelas.models import Installment
+from advocondo.parcelas.models import INVOICE_NUMBER_LENGTH, Installment
 from advocondo.parcelas.status import InstallmentStatus
 
 
@@ -27,6 +27,8 @@ class InstallmentResponse(BaseModel):
     payment_date: date | None
     # Quanto falta pagar; menor que `amount` depois de um pagamento parcial (US28).
     remaining_amount: MoneyResponse
+    invoice_number: str | None
+    invoice_date: date | None
     status: InstallmentStatus
 
     @classmethod
@@ -41,6 +43,8 @@ class InstallmentResponse(BaseModel):
             fee_amount=installment.fee_amount,
             payment_date=installment.payment_date,
             remaining_amount=installment.remaining_amount,
+            invoice_number=installment.invoice_number,
+            invoice_date=installment.invoice_date,
             status=installment.status_on(today),
         )
 
@@ -79,6 +83,16 @@ class PaymentCorrectionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     payment_date: date
+
+
+class InvoiceRequest(BaseModel):
+    """Nota fiscal emitida para a parcela paga (US29-CA01)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Só dígitos, como o número da NFS-e; texto, para manter os zeros à esquerda.
+    number: str = Field(pattern=rf"^[0-9]{{1,{INVOICE_NUMBER_LENGTH}}}$")
+    issue_date: date
 
 
 class PaymentResponse(BaseModel):
