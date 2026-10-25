@@ -12,6 +12,7 @@ from advocondo.landing import router as landing
 from advocondo.logging_config import configure_logging
 from advocondo.metas import router as metas
 from advocondo.middleware import request_context_middleware
+from advocondo.notificacoes import router as notificacoes
 from advocondo.painel_admin import router as painel_admin
 from advocondo.painel_cliente import router as painel_cliente
 from advocondo.painel_operacional import router as painel_operacional
@@ -42,6 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(acordos.router)
     app.include_router(documentos.router)
     app.include_router(parcelas.router)
+    app.include_router(notificacoes.router)
     app.include_router(painel_admin.router)
     app.include_router(painel_operacional.router)
     app.include_router(painel_cliente.router)
