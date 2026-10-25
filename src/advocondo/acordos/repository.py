@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from advocondo.acordos.models import Agreement, AgreementStatus
+from advocondo.acordos.models import Agreement, AgreementEditLog, AgreementStatus
 
 
 @dataclass(frozen=True)
@@ -56,3 +56,11 @@ class AgreementRepository:
         """Inserts a new agreement or writes the changes of an existing one."""
         self._session.add(agreement)
         self._session.flush()
+
+    def list_edit_logs(self, agreement_id: uuid.UUID) -> Sequence[AgreementEditLog]:
+        """Alterações do acordo (US19), com quem alterou."""
+        return self._session.scalars(
+            select(AgreementEditLog).where(
+                AgreementEditLog.agreement_id == agreement_id
+            )
+        ).all()

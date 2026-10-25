@@ -177,3 +177,6 @@ class AgreementEditLog(UuidPrimaryKeyMixin, Base):
     new_value: Mapped[str]
     # Verdadeiro quando o acordo já tinha parcela paga e a alteração foi confirmada.
     had_paid_installments: Mapped[bool]
+
+    # Quem alterou, para o histórico financeiro do acordo (US31).
+    edited_by: Mapped[User] = relationship(lazy="joined")
