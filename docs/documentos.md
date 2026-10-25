@@ -21,8 +21,11 @@ Anexos de um acordo, como o termo assinado e os comprovantes ([US21](https://adv
 - `file`: o arquivo (PDF, PNG ou JPEG, até 10 MB).
 - `url`: o endereço de um link, com o campo opcional `name` para o nome mostrado. Sem `name`, o nome vem do último pedaço do endereço ou do site.
 
+Defina `ID` e `TOKEN`. Localmente, a API usa `http://localhost:8000`; para outro ambiente, defina `API_URL` com a URL base da API.
+
 ```bash
-curl -X POST ".../agreements/$ID/documents" -H "Authorization: Bearer $TOKEN" \
+API_URL="${API_URL:-http://localhost:8000}"
+curl -X POST "$API_URL/agreements/$ID/documents" -H "Authorization: Bearer $TOKEN" \
   -F "url=https://drive.example.com/d/termo" -F "name=Termo assinado"
 ```
 
