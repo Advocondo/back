@@ -23,6 +23,7 @@ from advocondo.common.errors import (
     NotFoundError,
     PermissionDeniedError,
 )
+from advocondo.common.money import format_brl
 from advocondo.common.normalization import comparable_text, keep_only_digits
 from advocondo.common.passwords import PasswordHasher
 from advocondo.common.pdf import (
@@ -289,6 +290,23 @@ class TestNormalization:
 
     def test_comparable_text_ignores_accents_case_and_spaces(self) -> None:
         assert comparable_text("  José   SIMÃO ") == "jose simao"
+
+
+class TestFormatBrl:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param(Decimal("1234.56"), "R$ 1.234,56", id="thousands"),
+            pytest.param(Decimal("1234567.8"), "R$ 1.234.567,80", id="millions"),
+            pytest.param(Decimal(0), "R$ 0,00", id="zero"),
+            pytest.param(Decimal(5), "R$ 5,00", id="whole-number"),
+            pytest.param(Decimal("999.99"), "R$ 999,99", id="below-a-thousand"),
+        ],
+    )
+    def test_amount_is_written_the_brazilian_way(
+        self, value: Decimal, expected: str
+    ) -> None:
+        assert format_brl(value) == expected
 
 
 class TestPdf:
