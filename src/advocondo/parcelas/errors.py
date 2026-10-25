@@ -44,3 +44,7 @@ class PaymentAboveRemainingAmountError(BusinessRuleError):
 
 class PartiallyPaidInstallmentCannotBeEditedError(BusinessRuleError):
     message = "Parcela com pagamento parcial não pode ser editada."
+
+
+class InvoiceDateInTheFutureError(BusinessRuleError):
+    message = "A data de emissão da nota fiscal não pode ser futura."

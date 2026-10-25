@@ -72,6 +72,23 @@ class InstallmentRepository:
             query = query.where(has_status(filters.status, today))
         return self._session.scalars(query.limit(limit).offset(offset)).all()
 
+    def search_paid_without_invoice(
+        self, limit: int, offset: int
+    ) -> Sequence[Installment]:
+        """Parcelas pagas sem nota fiscal, da baixa mais antiga para a mais recente.
+        O acordo vem na mesma consulta, com o devedor e o condomínio."""
+        query = (
+            select(Installment)
+            .join(Installment.agreement)
+            .options(contains_eager(Installment.agreement))
+            .where(
+                Installment.payment_date.is_not(None),
+                Installment.invoice_number.is_(None),
+            )
+            .order_by(Installment.payment_date, Installment.id)
+        )
+        return self._session.scalars(query.limit(limit).offset(offset)).all()
+
 
 def has_status(status: InstallmentStatus, today: date) -> ColumnElement[bool]:
     """A regra de `calculate_installment_status` escrita em SQL, para a listagem

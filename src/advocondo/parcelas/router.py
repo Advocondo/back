@@ -12,6 +12,7 @@ from advocondo.parcelas.schemas import (
     InstallmentResponse,
     InstallmentUpdateRequest,
     InstallmentWithDebtorResponse,
+    InvoiceRequest,
     PaymentCorrectionRequest,
     PaymentRequest,
     PaymentResponse,
@@ -73,6 +74,31 @@ def list_installments_due_in_month(
         InstallmentWithDebtorResponse.from_installment(item, today)
         for item in installments
     ]
+
+
+@router.get("/installments/paid-without-invoice")
+def list_paid_installments_without_invoice(
+    installment_service: InstallmentServiceDependency,
+    today: Today,
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[InstallmentWithDebtorResponse]:
+    installments = installment_service.list_paid_without_invoice(limit, offset)
+    return [
+        InstallmentWithDebtorResponse.from_installment(item, today)
+        for item in installments
+    ]
+
+
+@router.put("/installments/{installment_id}/invoice")
+def register_invoice(
+    installment_id: uuid.UUID,
+    request: InvoiceRequest,
+    installment_service: InstallmentServiceDependency,
+    today: Today,
+) -> InstallmentResponse:
+    installment = installment_service.register_invoice(installment_id, request, today)
+    return InstallmentResponse.from_installment(installment, today)
 
 
 @router.patch("/installments/{installment_id}")
