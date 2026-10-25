@@ -74,6 +74,24 @@ A nota fiscal emitida para uma parcela paga fica registrada nela ([US29](https:/
 - **Pendências (US29-CA02):** a lista de parcelas pagas que ainda não têm nota, da baixa mais antiga para a mais recente.
 - O estorno do pagamento não apaga a nota: ela já foi emitida. Uma parcela estornada sai da lista de pendências, porque não está mais paga.
 
+## Registro das alterações financeiras (US31)
+
+Cada movimentação financeira de uma parcela fica registrada em `installment_change_logs`, na mesma transação da mudança ([US31](https://advocondo.github.io/docs/historias/ep04-parcelas/#us31)):
+
+- **O que fica registrado (US31-CA01):** quem fez, quando (pelo relógio da aplicação) e o valor antes e depois, em texto, como no registro de alterações do acordo (US19): datas em `AAAA-MM-DD` e dinheiro com duas casas.
+
+| `change` | Quando | `old_value` → `new_value` |
+| --- | --- | --- |
+| `payment_recorded` | Baixa ou pagamento parcial | vazio → valor pago |
+| `payment_corrected` | Correção da data da baixa | data antiga → data nova |
+| `payment_reversed` | Estorno | soma estornada → vazio |
+| `amount_edited` | Edição do valor da parcela | valor antigo → valor novo |
+| `due_date_edited` | Edição do vencimento | data antiga → data nova |
+
+- Uma correção ou edição que não muda nada não é registrada. Na edição do valor, só a parcela editada é registrada; as seguintes, que absorvem a diferença, aparecem no plano.
+- **Histórico do acordo:** junta as movimentações das parcelas com as alterações do próprio acordo (`agreement_edited`, com o campo alterado em `field`), da mais recente para a mais antiga.
+- **Só o Administrador (US31-CA02):** o histórico é visível apenas para o perfil Administrador; a Equipe Operacional recebe `403`.
+
 ## Rotas
 
 ### `GET /installments`
@@ -164,12 +182,39 @@ Histórico dos pagamentos da parcela, na ordem em que foram registrados:
 ]
 ```
 
+### `GET /agreements/{id}/financial-history`
+
+Histórico financeiro do acordo, da movimentação mais recente para a mais antiga. Só o Administrador. `installment_number` vem nas movimentações de parcela, e `field`, nas alterações do acordo:
+
+```json
+[
+  {
+    "changed_at": "2026-08-20T18:30:00Z",
+    "changed_by": {"id": "…", "name": "Sarah Lima"},
+    "change": "payment_recorded",
+    "installment_number": 4,
+    "field": null,
+    "old_value": null,
+    "new_value": "250.00"
+  },
+  {
+    "changed_at": "2026-08-12T13:05:00Z",
+    "changed_by": {"id": "…", "name": "Ana Souza"},
+    "change": "agreement_edited",
+    "installment_number": null,
+    "field": "total_amount",
+    "old_value": "5500.00",
+    "new_value": "5000.00"
+  }
+]
+```
+
 ## Respostas de erro
 
 | Situação | Status | `detail` |
 | --- | --- | --- |
 | Sem token, token desconhecido ou expirado | `401` | `Sua sessão expirou. Faça login novamente.` |
-| Usuário Cliente; Equipe Operacional corrigindo ou estornando uma baixa | `403` | `Você não tem permissão para esta operação.` |
+| Usuário Cliente; Equipe Operacional corrigindo ou estornando uma baixa, ou consultando o histórico financeiro | `403` | `Você não tem permissão para esta operação.` |
 | Acordo ou parcela inexistente | `404` | `Acordo não encontrado.` / `Parcela não encontrada.` |
 | Baixa ou edição de parcela de acordo cancelado | `422` | `Acordo cancelado não aceita esta operação.` |
 | Parcela já paga | `422` | `Parcela já paga não pode ser editada.` |

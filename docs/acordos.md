@@ -62,7 +62,7 @@ Equipe Operacional e Administrador corrigem ou renegociam o acordo. Só os campo
 - **Honorários sem valor novo:** seguem o percentual digitado antes, sobre o novo total. Se o percentual nunca foi digitado, o valor em reais não muda.
 - **Recálculo:** se o total ou os honorários mudam, as parcelas **em aberto** são recalculadas em partes iguais com o que falta receber. As parcelas pagas nunca mudam. Número e datas das parcelas continuam sendo editados em `PATCH /installments/{id}`.
 - **Confirmação extra (US19-CA01):** com parcela paga, o pedido só vale com `"confirm_paid_installments": true`. Sem isso, a resposta é `409`, e o front mostra a confirmação e reenvia.
-- **Registro (US19-CA02):** cada campo alterado gera uma linha em `agreement_edit_logs`, com quem alterou, quando, o valor antigo e o novo, e se o acordo já tinha parcela paga. A consulta desse registro é da US31.
+- **Registro (US19-CA02):** cada campo alterado gera uma linha em `agreement_edit_logs`, com quem alterou, quando, o valor antigo e o novo, e se o acordo já tinha parcela paga. O Administrador consulta esse registro no histórico financeiro do acordo, em [`GET /agreements/{id}/financial-history`](parcelas.md#get-agreementsidfinancial-history) (US31).
 - Se nada muda de verdade, nada é gravado e nenhuma confirmação é pedida.
 
 ### `PUT /agreements/{id}/responsible-lawyer`
@@ -85,7 +85,7 @@ Cancela o acordo ([US20](https://advocondo.github.io/docs/historias/ep03-cadastr
 - `confirm_open_installments` (padrão `false`) precisa ser `true` quando o acordo ainda tem parcelas **sem pagamento**, em aberto ou em atraso. Sem isso a API não cancela e responde `409` com quantas são e quanto somam, por exemplo: `Há 3 parcelas sem pagamento, somando R$ 1.234,56. Confirme para cancelar o acordo.` Um acordo sem parcelas pendentes cancela sem confirmação.
 - A resposta é o acordo, já com `status: "cancelled"`, `cancelled_at` e `cancellation_reason`.
 
-O que muda para as parcelas está em [Parcelas](parcelas.md#acordo-cancelado-us20). Um acordo cancelado também não troca de advogado responsável nem é editado em `PATCH /agreements/{id}`. Reativar um acordo cancelado ainda não existe; quem cancelou e o histórico completo ficam para o log de alterações financeiras (US31).
+O que muda para as parcelas está em [Parcelas](parcelas.md#acordo-cancelado-us20). Um acordo cancelado também não troca de advogado responsável nem é editado em `PATCH /agreements/{id}`. Reativar um acordo cancelado ainda não existe, e quem cancelou ainda não é registrado.
 
 ## Respostas de erro
 
