@@ -1,7 +1,7 @@
 """add monthly goal to users
 
 Revision ID: 71c5d24e8f31
-Revises: 79f61dbc2fd4
+Revises: 0dc95a13e280
 Create Date: 2026-10-21 15:40:00.000000
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "71c5d24e8f31"
-down_revision: str | Sequence[str] | None = "79f61dbc2fd4"
+down_revision: str | Sequence[str] | None = "0dc95a13e280"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
