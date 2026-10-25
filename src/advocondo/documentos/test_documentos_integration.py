@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Iterator
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, cast
@@ -6,6 +7,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from advocondo.acordos.models import Agreement
@@ -13,6 +15,7 @@ from advocondo.common.storage import ObjectStorage, get_file_storage
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
 from advocondo.documentos.models import AgreementDocument, AgreementPdf
+from advocondo.documentos.rules import MAX_DOCUMENT_SIZE
 from advocondo.main import app
 from advocondo.users.models import Role, User
 from tests.fixtures.auth import AuthenticateAs
@@ -33,6 +36,8 @@ BUCKET = "advocondo-arquivos"
 # Each installment of the fixture is R$ 100,00, of which R$ 10,00 is the office's
 # fee and R$ 90,00 goes to the condominium; the agreement's fee is R$ 30,00.
 FEE_VALUES = ("R$ 10,00", "R$ 90,00", "R$ 30,00")
+DOCUMENT_PDF = b"%PDF-1.7\n%termo de acordo\n"
+DOCUMENT_PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 16
 
 
 def pdfs_url(agreement: Agreement) -> str:
@@ -448,6 +453,22 @@ class TestAgreementPdfInBucket:
 
 
 class TestAgreementDocuments:
+    def upload(
+        self,
+        client: TestClient,
+        headers: dict[str, str],
+        agreement_id: str,
+        content: bytes = DOCUMENT_PDF,
+        filename: str = "termo.pdf",
+        declared_type: str = "application/pdf",
+    ) -> httpx.Response:
+        response: httpx.Response = client.post(
+            f"/agreements/{agreement_id}/documents",
+            files={"file": (filename, content, declared_type)},
+            headers=headers,
+        )
+        return response
+
     def test_upload_list_and_download(
         self,
         db_client: TestClient,
@@ -489,6 +510,91 @@ class TestAgreementDocuments:
             "attachment; filename*=UTF-8''termo.pdf"
         )
         assert downloaded.headers["x-content-type-options"] == "nosniff"
+
+    def test_detects_type_from_content_not_header(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = self.upload(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            DOCUMENT_PNG,
+            "foto.png",
+            "application/pdf",
+        )
+
+        assert response.status_code == 201
+        assert response.json()["content_type"] == "image/png"
+
+    def test_filename_loses_path_components(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = self.upload(
+            db_client, operator_headers, str(agreement.id), filename="../../termo.pdf"
+        )
+
+        assert response.status_code == 201
+        assert response.json()["filename"] == "termo.pdf"
+
+    @pytest.mark.parametrize(
+        ("content", "message"),
+        [
+            pytest.param(
+                b"termo",
+                "Tipo de arquivo não aceito. Envie PDF, PNG ou JPEG.",
+                id="unsupported-type",
+            ),
+            pytest.param(b"", "O arquivo está vazio.", id="empty"),
+            pytest.param(
+                b"%PDF-" + b"0" * MAX_DOCUMENT_SIZE,
+                "O arquivo passa de 10 MB.",
+                id="too-large",
+            ),
+        ],
+    )
+    def test_invalid_upload_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+        content: bytes,
+        message: str,
+    ) -> None:
+        response = self.upload(db_client, operator_headers, str(agreement.id), content)
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == message
+
+    def test_unknown_agreement_is_not_found_on_upload(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = self.upload(db_client, operator_headers, str(uuid.uuid4()))
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Acordo não encontrado."
+
+    def test_client_cannot_attach_documents(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = self.upload(db_client, client_headers, str(agreement.id))
+
+        assert response.status_code == 403
+
+    def test_upload_requires_login(
+        self, db_client: TestClient, agreement: Agreement
+    ) -> None:
+        response = self.upload(db_client, {}, str(agreement.id))
+
+        assert response.status_code == 401
 
     def test_rejects_unsupported_content(
         self,
@@ -532,3 +638,62 @@ class TestAgreementDocuments:
 
         assert response.status_code == 404
         assert response.json() == {"detail": "Documento não encontrado."}
+
+    def test_unknown_agreement_is_not_found_on_list(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(
+            f"/agreements/{uuid.uuid4()}/documents", headers=operator_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Acordo não encontrado."
+
+    def test_documents_are_listed_in_upload_order_without_content(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+        clock: FrozenClock,
+    ) -> None:
+        first = self.upload(
+            db_client, operator_headers, str(agreement.id), filename="termo.pdf"
+        )
+        clock.advance(timedelta(minutes=1))
+        second = self.upload(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            DOCUMENT_PNG,
+            "comprovante.png",
+            "image/png",
+        )
+
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents", headers=operator_headers
+        )
+
+        items = response.json()
+        assert response.status_code == 200
+        assert [item["id"] for item in items] == [
+            first.json()["id"],
+            second.json()["id"],
+        ]
+        assert [item["filename"] for item in items] == ["termo.pdf", "comprovante.png"]
+        assert all("content" not in item for item in items)
+
+    def test_agreement_with_documents_cannot_be_deleted(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = self.upload(db_client, operator_headers, str(agreement.id))
+        assert response.status_code == 201
+        saved_agreement = db_session.get(Agreement, agreement.id)
+        assert saved_agreement is not None
+
+        with pytest.raises(IntegrityError):
+            db_session.delete(saved_agreement)
+            db_session.flush()
