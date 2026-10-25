@@ -40,3 +40,40 @@ class ClientPanelRepository:
 
     def list_agreements_of_client(self, user_id: uuid.UUID) -> Sequence[Agreement]:
         return self._session.scalars(client_agreements_query(user_id)).all()
+
+    def get_linked_condominium(
+        self, user_id: uuid.UUID, condominium_id: uuid.UUID
+    ) -> Condominium | None:
+        """Resolve a condominium only through the requesting Client's link."""
+        query = (
+            select(Condominium)
+            .join(
+                UserCondominium,
+                UserCondominium.condominium_id == Condominium.id,
+            )
+            .where(
+                UserCondominium.user_id == user_id,
+                Condominium.id == condominium_id,
+            )
+        )
+        return self._session.scalar(query)
+
+    def list_active_agreements_for_condominium(
+        self, user_id: uuid.UUID, condominium_id: uuid.UUID
+    ) -> Sequence[Agreement]:
+        """Active agreements constrained to both the Client link and condominium."""
+        query = (
+            select(Agreement)
+            .join(
+                UserCondominium,
+                UserCondominium.condominium_id == Agreement.condominium_id,
+            )
+            .where(
+                UserCondominium.user_id == user_id,
+                Agreement.condominium_id == condominium_id,
+                Agreement.status == AgreementStatus.ACTIVE,
+            )
+            .order_by(Agreement.id)
+            .options(selectinload(Agreement.installments))
+        )
+        return self._session.scalars(query).all()

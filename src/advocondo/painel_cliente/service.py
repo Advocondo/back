@@ -2,6 +2,8 @@ import uuid
 from datetime import date
 
 from advocondo.acordos.models import Agreement
+from advocondo.common.errors import NotFoundError
+from advocondo.painel_cliente.report_pdf import render_condominium_report
 from advocondo.painel_cliente.repository import ClientPanelRepository
 from advocondo.painel_cliente.schemas import AgreementStanding, AgreementSummary
 from advocondo.parcelas.status import InstallmentStatus
@@ -45,3 +47,24 @@ class ClientPanelService:
         return sorted(
             summaries, key=lambda item: item.status != AgreementStanding.OVERDUE
         )
+
+    def condominium_report(
+        self,
+        user_id: uuid.UUID,
+        condominium_id: uuid.UUID,
+        client_name: str,
+        today: date,
+    ) -> bytes:
+        condominium = self._agreements.get_linked_condominium(user_id, condominium_id)
+        if condominium is None:
+            raise CondominiumReportNotFoundError()
+        agreements = self._agreements.list_active_agreements_for_condominium(
+            user_id, condominium_id
+        )
+        return render_condominium_report(
+            client_name, condominium, list(agreements), today
+        )
+
+
+class CondominiumReportNotFoundError(NotFoundError):
+    message = "Relatório não encontrado."
