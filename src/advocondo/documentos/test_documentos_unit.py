@@ -8,12 +8,28 @@ from advocondo.common.pdf import PdfSection, PdfTable
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
 from advocondo.documentos.agreement_pdf import build_agreement_document, format_cnpj
+from advocondo.documentos.errors import (
+    DocumentTooLargeError,
+    EmptyDocumentError,
+    UnsupportedDocumentTypeError,
+)
 from advocondo.documentos.models import AgreementPdf
+from advocondo.documentos.rules import (
+    DEFAULT_FILENAME,
+    MAX_DOCUMENT_SIZE,
+    MAX_FILENAME_LENGTH,
+    clean_filename,
+    detect_content_type,
+    validate_document,
+)
 from advocondo.parcelas.models import Installment
 from advocondo.users.models import User
 
 GENERATED_AT = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
 TODAY = date(2026, 3, 2)
+PDF = b"%PDF-1.7\n%termo de acordo\n"
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 16
+JPEG = b"\xff\xd8\xff\xe0" + b"0" * 16
 
 
 def make_agreement(**condominium_fields: str) -> Agreement:
@@ -144,3 +160,77 @@ class TestAgreementPdfFileName:
         pdf = AgreementPdf(generated_at=datetime(2026, 3, 2, 1, 30, tzinfo=UTC))
 
         assert pdf.file_name == "acordo-20260301-223000.pdf"
+
+
+class TestDetectContentType:
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            pytest.param(PDF, "application/pdf", id="pdf"),
+            pytest.param(PNG, "image/png", id="png"),
+            pytest.param(JPEG, "image/jpeg", id="jpeg"),
+            pytest.param(b"termo de acordo", None, id="plain-text"),
+            pytest.param(b"MZ\x90\x00", None, id="executable"),
+            pytest.param(b"", None, id="empty"),
+        ],
+    )
+    def test_type_comes_from_the_content(
+        self, content: bytes, expected: str | None
+    ) -> None:
+        """US21-CA01"""
+        assert detect_content_type(content) == expected
+
+
+class TestCleanFilename:
+    @pytest.mark.parametrize(
+        ("filename", "expected"),
+        [
+            pytest.param("termo.pdf", "termo.pdf", id="plain-name"),
+            pytest.param("  termo.pdf  ", "termo.pdf", id="spaces-around"),
+            pytest.param("../../etc/passwd", "passwd", id="unix-path"),
+            pytest.param(r"C:\Users\ana\termo.pdf", "termo.pdf", id="windows-path"),
+            pytest.param("termo\x00.pdf", "termo.pdf", id="control-character"),
+            pytest.param("março.pdf", "março.pdf", id="accents"),
+            pytest.param("a" * 300 + ".pdf", "a" * MAX_FILENAME_LENGTH, id="too-long"),
+            pytest.param(None, DEFAULT_FILENAME, id="no-name"),
+            pytest.param("", DEFAULT_FILENAME, id="empty-name"),
+            pytest.param("..", DEFAULT_FILENAME, id="parent-folder"),
+            pytest.param("pasta/", DEFAULT_FILENAME, id="only-a-folder"),
+        ],
+    )
+    def test_only_a_safe_file_name_is_kept(
+        self, filename: str | None, expected: str
+    ) -> None:
+        """US21-CA01"""
+        assert clean_filename(filename) == expected
+
+
+class TestValidateDocument:
+    def test_valid_document_returns_its_type(self) -> None:
+        """US21-CA01"""
+        assert validate_document(PDF) == "application/pdf"
+
+    def test_document_with_the_maximum_size_is_accepted(self) -> None:
+        """US21-CA01"""
+        content = b"%PDF-" + b"0" * (MAX_DOCUMENT_SIZE - 5)
+
+        assert validate_document(content) == "application/pdf"
+
+    @pytest.mark.parametrize(
+        ("content", "error"),
+        [
+            pytest.param(b"", EmptyDocumentError, id="empty"),
+            pytest.param(
+                b"%PDF-" + b"0" * MAX_DOCUMENT_SIZE,
+                DocumentTooLargeError,
+                id="too-large",
+            ),
+            pytest.param(b"termo", UnsupportedDocumentTypeError, id="unsupported-type"),
+        ],
+    )
+    def test_invalid_document_is_refused(
+        self, content: bytes, error: type[Exception]
+    ) -> None:
+        """US21-CA01"""
+        with pytest.raises(error):
+            validate_document(content)
