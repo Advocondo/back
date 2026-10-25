@@ -1,9 +1,9 @@
 import re
 from datetime import timedelta
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 MIN_SETUP_TOKEN_LENGTH = 32
@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     smtp_use_tls: bool
     email_from: str | None
 
+    # Bucket S3-compatível (Amazon S3, Cloudflare R2, Backblaze B2) para os arquivos
+    # gerados. Tudo vazio = os arquivos ficam no próprio banco (docs/documentos.md).
+    s3_endpoint_url: str | None
+    s3_region: str | None
+    s3_bucket: str | None
+    s3_access_key_id: str | None
+    s3_secret_access_key: str | None
+
     @field_validator(
         "release",
         "sentry_dsn",
@@ -56,6 +64,11 @@ class Settings(BaseSettings):
         "smtp_username",
         "smtp_password",
         "email_from",
+        "s3_endpoint_url",
+        "s3_region",
+        "s3_bucket",
+        "s3_access_key_id",
+        "s3_secret_access_key",
         mode="before",
     )
     @classmethod
@@ -63,6 +76,11 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @property
+    def uses_object_storage(self) -> bool:
+        """True quando o bucket está configurado; validado em `_complete_s3_config`."""
+        return self.s3_bucket is not None
 
     @property
     def session_duration(self) -> timedelta:
@@ -116,6 +134,27 @@ class Settings(BaseSettings):
             except re.error as exc:
                 raise ValueError(f"CORS_ALLOW_ORIGIN_REGEX inválida: {exc}") from exc
         return pattern
+
+    @model_validator(mode="after")
+    def _complete_s3_config(self) -> Self:
+        """Bucket pela metade derruba a API na subida, em vez de cair no banco sem
+        ninguém perceber. S3_ENDPOINT_URL fica vazia só no Amazon S3."""
+        required = {
+            "S3_REGION": self.s3_region,
+            "S3_BUCKET": self.s3_bucket,
+            "S3_ACCESS_KEY_ID": self.s3_access_key_id,
+            "S3_SECRET_ACCESS_KEY": self.s3_secret_access_key,
+        }
+        missing = [name for name, value in required.items() if value is None]
+        anything_given = self.s3_endpoint_url is not None or len(missing) < len(
+            required
+        )
+        if anything_given and missing:
+            raise ValueError(
+                "Configuração do bucket incompleta. Defina também: "
+                f"{', '.join(missing)}; ou deixe todas as variáveis S3_ vazias."
+            )
+        return self
 
 
 @lru_cache

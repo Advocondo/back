@@ -7,6 +7,7 @@ from advocondo.common.error_handlers import register_error_handlers
 from advocondo.condominios import router as condominios
 from advocondo.config import Settings, get_settings
 from advocondo.devedores import router as devedores
+from advocondo.documentos import router as documentos
 from advocondo.logging_config import configure_logging
 from advocondo.metas import router as metas
 from advocondo.middleware import request_context_middleware
@@ -38,6 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(condominios.router)
     app.include_router(devedores.router)
     app.include_router(acordos.router)
+    app.include_router(documentos.router)
     app.include_router(parcelas.router)
     app.include_router(painel_admin.router)
     app.include_router(painel_operacional.router)
