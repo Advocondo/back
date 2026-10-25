@@ -11,6 +11,7 @@ from advocondo.parcelas.errors import (
     InstallmentAlreadyPaidError,
     InstallmentNotFoundError,
     InstallmentNotPaidError,
+    InvoiceDateInTheFutureError,
     NoOpenInstallmentAfterError,
     PaidInstallmentCannotBeEditedError,
     PartiallyPaidInstallmentCannotBeEditedError,
@@ -24,7 +25,7 @@ from advocondo.parcelas.plan import (
     split_fee,
 )
 from advocondo.parcelas.repository import InstallmentFilters, InstallmentRepository
-from advocondo.parcelas.schemas import InstallmentUpdateRequest
+from advocondo.parcelas.schemas import InstallmentUpdateRequest, InvoiceRequest
 
 
 class InstallmentService:
@@ -110,6 +111,27 @@ class InstallmentService:
         installment.reverse_payments()
         self._session.commit()
         return installment
+
+    def register_invoice(
+        self, installment_id: uuid.UUID, request: InvoiceRequest, today: date
+    ) -> Installment:
+        """Vincula a nota fiscal à parcela paga (US29-CA01). Registrar de novo troca
+        a nota, para corrigir um número ou uma data digitados errado."""
+        installment = self._get_installment_for_update(installment_id)
+        if not installment.is_paid:
+            raise InstallmentNotPaidError()
+        if request.issue_date > today:
+            raise InvoiceDateInTheFutureError()
+        installment.invoice_number = request.number
+        installment.invoice_date = request.issue_date
+        self._session.commit()
+        return installment
+
+    def list_paid_without_invoice(
+        self, limit: int, offset: int
+    ) -> Sequence[Installment]:
+        """Parcelas pagas que ainda não têm nota fiscal (US29-CA02)."""
+        return self._installments.search_paid_without_invoice(limit, offset)
 
     def update(
         self, installment_id: uuid.UUID, request: InstallmentUpdateRequest

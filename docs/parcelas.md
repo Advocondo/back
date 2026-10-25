@@ -64,6 +64,16 @@ Um pagamento pode cobrir só parte da parcela ([US28](https://advocondo.github.i
 - O banco garante as regras: a soma paga (`paid_amount`) fica entre zero e o valor da parcela, e a parcela tem `payment_date` só quando a soma paga é igual ao valor.
 - **Plano de parcelas:** uma parcela com pagamento parcial não pode ser editada nem absorver a diferença de outra parcela editada (US17-CA03), porque o valor dela poderia ficar abaixo do que já foi pago.
 
+## Nota fiscal (US29)
+
+A nota fiscal emitida para uma parcela paga fica registrada nela ([US29](https://advocondo.github.io/docs/historias/ep04-parcelas/#us29)):
+
+- **Registro (US29-CA01):** número e data de emissão, só em parcela **paga** (quitada; pagamento parcial não basta). Registrar de novo troca a nota, para corrigir um número ou uma data digitados errado.
+- **Número:** de 1 a 15 dígitos, guardado como texto para manter os zeros à esquerda. O número da NFS-e, a nota de serviço que o escritório emite, tem 15 dígitos (ano com 4 dígitos e sequencial com 11).
+- A data de emissão não pode ser futura.
+- **Pendências (US29-CA02):** a lista de parcelas pagas que ainda não têm nota, da baixa mais antiga para a mais recente.
+- O estorno do pagamento não apaga a nota: ela já foi emitida. Uma parcela estornada sai da lista de pendências, porque não está mais paga.
+
 ## Rotas
 
 ### `GET /installments`
@@ -82,9 +92,23 @@ Lista as faturas do mês. Parâmetros, todos opcionais:
 
 ```json
 [
-  {"id": "…", "agreement_id": "…", "number": 2, "due_date": "2026-03-10", "amount": "100.00", "condominium_amount": "90.00", "fee_amount": "10.00", "payment_date": null, "remaining_amount": "100.00", "status": "open", "condominium": {"id": "…", "name": "Residencial Mirante"}, "debtor": {"id": "…", "name": "José Simão", "unit": "Bloco B 304"}}
+  {"id": "…", "agreement_id": "…", "number": 2, "due_date": "2026-03-10", "amount": "100.00", "condominium_amount": "90.00", "fee_amount": "10.00", "payment_date": null, "remaining_amount": "100.00", "invoice_number": null, "invoice_date": null, "status": "open", "condominium": {"id": "…", "name": "Residencial Mirante"}, "debtor": {"id": "…", "name": "José Simão", "unit": "Bloco B 304"}}
 ]
 ```
+
+### `GET /installments/paid-without-invoice`
+
+Lista as parcelas pagas que ainda não têm nota fiscal, no mesmo formato de `GET /installments`, com `limit` (50 por padrão, até 200) e `offset`.
+
+### `PUT /installments/{id}/invoice`
+
+Registra a nota fiscal da parcela paga, ou troca a que já existe:
+
+```json
+{"number": "202600000000042", "issue_date": "2026-01-12"}
+```
+
+A resposta é a parcela, com `invoice_number` e `invoice_date`.
 
 ### `GET /agreements/{id}/installments`
 
@@ -92,7 +116,7 @@ Devolve as parcelas do acordo, em ordem:
 
 ```json
 [
-  {"id": "…", "agreement_id": "…", "number": 1, "due_date": "2026-01-31", "amount": "33.33", "condominium_amount": "30.00", "fee_amount": "3.33", "payment_date": null, "remaining_amount": "33.33", "status": "open"}
+  {"id": "…", "agreement_id": "…", "number": 1, "due_date": "2026-01-31", "amount": "33.33", "condominium_amount": "30.00", "fee_amount": "3.33", "payment_date": null, "remaining_amount": "33.33", "invoice_number": null, "invoice_date": null, "status": "open"}
 ]
 ```
 
@@ -157,6 +181,9 @@ Histórico dos pagamentos da parcela, na ordem em que foram registrados:
 | Baixa em parcela já paga | `422` | `Parcela já paga. Para mudar a data do pagamento, corrija a baixa.` |
 | Pagamento maior que o saldo em aberto | `422` | `O valor pago é maior que o saldo em aberto da parcela.` |
 | Edição de parcela com pagamento parcial | `422` | `Parcela com pagamento parcial não pode ser editada.` |
+| Nota fiscal de parcela que não está quitada | `422` | `A parcela ainda não foi paga.` |
+| Data de emissão da nota fiscal futura | `422` | `A data de emissão da nota fiscal não pode ser futura.` |
+| Nota fiscal sem data, com número vazio, com algo além de dígitos, com mais de 15 dígitos ou com campo desconhecido | `422` | erros de validação do FastAPI |
 | Correção de parcela ainda não quitada; estorno de parcela sem nenhum pagamento | `422` | `A parcela ainda não foi paga.` |
 | Data do pagamento futura | `422` | `A data do pagamento não pode ser futura.` |
 | Pagamento sem data, com data fora do formato `AAAA-MM-DD`, `amount` zero, negativo ou com fração de centavo, ou campo desconhecido | `422` | erros de validação do FastAPI |
