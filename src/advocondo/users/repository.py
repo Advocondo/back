@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from advocondo.condominios.models import Condominium
 from advocondo.users.models import (
+    Role,
     User,
     UserAuditLog,
     UserCondominium,
@@ -40,6 +41,15 @@ class UserRepository:
                 select(User)
                 .where(User.is_lawyer.is_(True), User.status == UserStatus.ACTIVE)
                 .order_by(User.name)
+            )
+        )
+
+    def list_active_admins(self) -> list[User]:
+        return list(
+            self._session.scalars(
+                select(User).where(
+                    User.role == Role.ADMIN, User.status == UserStatus.ACTIVE
+                )
             )
         )
 
