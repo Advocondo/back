@@ -11,8 +11,8 @@ from advocondo.logging_config import configure_logging
 from advocondo.metas import router as metas
 from advocondo.middleware import request_context_middleware
 from advocondo.painel_admin import router as painel_admin
-from advocondo.painel_operacional import router as painel_operacional
 from advocondo.painel_cliente import router as painel_cliente
+from advocondo.painel_operacional import router as painel_operacional
 from advocondo.parcelas import router as parcelas
 from advocondo.security import configure_cors, hsts_middleware
 from advocondo.sentry import init_sentry
