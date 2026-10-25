@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Any, cast
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import CursorResult, Result, delete, func, select, update
 from sqlalchemy.orm import Session
 
 from advocondo.auth.models import PasswordResetLink, UserSession
@@ -35,6 +36,12 @@ class UserSessionRepository:
             )
         )
 
+    def delete_expired(self, now: datetime) -> int:
+        result = self._session.execute(
+            delete(UserSession).where(UserSession.expires_at <= now)
+        )
+        return deleted_rows(result)
+
 
 class PasswordResetLinkRepository:
     def __init__(self, session: Session) -> None:
@@ -53,6 +60,12 @@ class PasswordResetLinkRepository:
         self._session.execute(
             delete(PasswordResetLink).where(PasswordResetLink.user_id == user_id)
         )
+
+    def delete_expired_before(self, moment: datetime) -> int:
+        result = self._session.execute(
+            delete(PasswordResetLink).where(PasswordResetLink.expires_at < moment)
+        )
+        return deleted_rows(result)
 
     def count_created_after(self, user_id: uuid.UUID, moment: datetime) -> int:
         return (
@@ -76,3 +89,9 @@ class PasswordResetLinkRepository:
             )
             .values(expires_at=now)
         )
+
+
+def deleted_rows(result: Result[Any]) -> int:
+    # A DELETE always returns a CursorResult, but `Session.execute` is typed for any
+    # statement.
+    return cast(CursorResult[Any], result).rowcount
