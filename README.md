@@ -77,6 +77,8 @@ Os acordos com cada devedor ficam em `/agreements`. Veja [Acordos](docs/acordos.
 
 O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`, onde também ficam as faturas do mês (`GET /installments`) e a baixa de cada parcela, total ou parcial, com o histórico de pagamentos (`/installments/{id}/payment` e `/payments`), e a nota fiscal de cada parcela paga (`/installments/{id}/invoice`). Veja [Parcelas](docs/parcelas.md).
 
+Quando uma parcela atrasa, o advogado responsável e os Administradores recebem uma notificação no sino, em `/notifications`, criada por um comando diário. Veja [Notificações](docs/notificacoes.md).
+
 O Cliente consulta o status dos acordos dos seus condomínios em `/client-panel`. Veja [Painel do Cliente](docs/painel-cliente.md).
 
 O conteúdo da landing page fica em `/landing`: o site lê as seções sem login, e o Administrador edita textos e fotos da equipe. Veja [Página institucional](docs/landing.md).
@@ -159,6 +161,7 @@ Em produção, o back-end roda em uma instância da **Oracle Cloud**, gerenciada
 - As migrations rodam pelo *Pre-deployment command* do Coolify (`alembic upgrade head`). Veja [Migrations do banco de dados](docs/migracoes.md).
 - Depois do primeiro deploy, crie o primeiro Administrador pela rota `POST /setup`, com o `SETUP_TOKEN` configurado. Veja [Autenticação](docs/auth.md#primeiro-administrador).
 - Uma *Scheduled Task* diária do Coolify roda `python -m advocondo.auth.cleanup`, que apaga as sessões e os links de redefinição de senha expirados. Veja [Autenticação](docs/auth.md#limpeza-de-sessões-e-links-expirados).
+- Outra *Scheduled Task* diária roda `python -m advocondo.notificacoes.overdue`, logo depois da meia-noite de Brasília, que notifica as parcelas que ficaram atrasadas. Veja [Notificações](docs/notificacoes.md#comando-diário).
 - `GET /health` é o health check do container; `GET /health/ready` verifica o banco e deve ser usado pelo monitoramento externo.
 - HTTPS (certificado e redirecionamento de HTTP) fica no proxy do Coolify, e o CORS libera só o front na Vercel (produção e previews). Veja [HTTPS e CORS](docs/https-cors.md).
 - Logs saem em JSON no stdout, e os erros vão para o Sentry quando `SENTRY_DSN` está definida. Veja [Observabilidade](docs/observabilidade.md), que também explica os alertas.
