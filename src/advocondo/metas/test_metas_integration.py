@@ -51,7 +51,7 @@ def pay_installments(
         .order_by(Installment.number)
     ).all()
     for installment, payment_date in zip(installments, payment_dates, strict=False):
-        installment.payment_date = payment_date
+        installment.receive(installment.amount, payment_date)
     db_session.flush()
 
 

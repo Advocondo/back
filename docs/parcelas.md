@@ -40,9 +40,19 @@ A equipe vê as parcelas que vencem no mês, de todos os acordos, para saber o q
 A baixa registra que a parcela foi paga, com a data do pagamento ([US26](https://advocondo.github.io/docs/historias/ep04-parcelas/#us26)):
 
 - **Dar baixa (US26-CA01):** Equipe Operacional e Administrador informam a data do pagamento, e a parcela passa a `paid`. O pagamento pode ser antes do vencimento, mas a data não pode ser futura.
-- **Corrigir ou estornar (US26-CA02):** só o **Administrador**. Corrigir troca a data do pagamento; estornar apaga a data, e a parcela volta a `open`, ou a `overdue` se já venceu.
+- **Corrigir ou estornar (US26-CA02):** só o **Administrador**. Corrigir troca a data da baixa, que é a do pagamento que quitou a parcela; estornar apaga todos os pagamentos da parcela, inclusive os parciais, e ela volta a `open`, ou a `overdue` se já venceu.
 - Uma parcela paga não pode receber outra baixa: para mudar a data, o caminho é corrigir.
 - **Comissão:** a baixa não grava comissão. Ela será calculada sobre os honorários (`fee_amount`) das parcelas pagas, na [US32](https://advocondo.github.io/docs/historias/ep05-comissoes-metas/#us32), então já considera cada baixa, correção ou estorno.
+
+## Pagamento parcial (US28)
+
+Um pagamento pode cobrir só parte da parcela ([US28](https://advocondo.github.io/docs/historias/ep04-parcelas/#us28)):
+
+- **Saldo em aberto (US28-CA01):** com um `amount` menor que o saldo, o pagamento é registrado e a parcela continua sem `payment_date`, com o status calculado como antes (`open` ou `overdue`). `remaining_amount` mostra quanto falta. Quando os pagamentos somam o valor da parcela, ela passa a `paid`, com `payment_date` igual à data do pagamento que quitou o saldo.
+- **Histórico (US28-CA02):** cada pagamento fica guardado, com valor e data, na ordem em que foi registrado.
+- Sem `amount`, o pagamento quita o saldo restante, que é a baixa da [US26](https://advocondo.github.io/docs/historias/ep04-parcelas/#us26). O valor não pode passar do saldo.
+- O banco garante as regras: a soma paga (`paid_amount`) fica entre zero e o valor da parcela, e a parcela tem `payment_date` só quando a soma paga é igual ao valor.
+- **Plano de parcelas:** uma parcela com pagamento parcial não pode ser editada nem absorver a diferença de outra parcela editada (US17-CA03), porque o valor dela poderia ficar abaixo do que já foi pago.
 
 ## Rotas
 
@@ -62,7 +72,7 @@ Lista as faturas do mês. Parâmetros, todos opcionais:
 
 ```json
 [
-  {"id": "…", "agreement_id": "…", "number": 2, "due_date": "2026-03-10", "amount": "100.00", "condominium_amount": "90.00", "fee_amount": "10.00", "payment_date": null, "status": "open", "condominium": {"id": "…", "name": "Residencial Mirante"}, "debtor": {"id": "…", "name": "José Simão", "unit": "Bloco B 304"}}
+  {"id": "…", "agreement_id": "…", "number": 2, "due_date": "2026-03-10", "amount": "100.00", "condominium_amount": "90.00", "fee_amount": "10.00", "payment_date": null, "remaining_amount": "100.00", "status": "open", "condominium": {"id": "…", "name": "Residencial Mirante"}, "debtor": {"id": "…", "name": "José Simão", "unit": "Bloco B 304"}}
 ]
 ```
 
@@ -72,7 +82,7 @@ Devolve as parcelas do acordo, em ordem:
 
 ```json
 [
-  {"id": "…", "agreement_id": "…", "number": 1, "due_date": "2026-01-31", "amount": "33.33", "condominium_amount": "30.00", "fee_amount": "3.33", "payment_date": null, "status": "open"}
+  {"id": "…", "agreement_id": "…", "number": 1, "due_date": "2026-01-31", "amount": "33.33", "condominium_amount": "30.00", "fee_amount": "3.33", "payment_date": null, "remaining_amount": "33.33", "status": "open"}
 ]
 ```
 
@@ -87,27 +97,38 @@ Edita o vencimento ou o valor de uma parcela **antes da baixa** (US17-CA03). Só
 - **Vencimento:** troca só a data da parcela.
 - **Valor:** a diferença é dividida igualmente entre as **parcelas seguintes ainda em aberto** (os centavos que sobram vão para a última), para o plano continuar somando o valor total do acordo. Ex.: 4 × R$ 100,00 e a 2ª passa para R$ 130,00: a 3ª e a 4ª ficam com R$ 85,00 cada.
 - Os honorários que ainda faltam receber são divididos de novo entre as parcelas em aberto, com a mesma regra; as parcelas pagas não mudam.
-- Se não houver parcela seguinte em aberto, como na última parcela, o valor não muda: para mudar o total, o caminho é editar o acordo ([US19](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us19)).
+- Se não houver parcela seguinte sem pagamento, como na última parcela, o valor não muda: para mudar o total, o caminho é editar o acordo ([US19](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us19)).
 
 A resposta é o plano inteiro do acordo, já atualizado, porque a mudança de valor altera outras parcelas.
 
 ### `POST /installments/{id}/payment`
 
-Dá baixa na parcela em aberto:
+Registra um pagamento da parcela em aberto. `amount` é opcional: sem ele, o pagamento quita o saldo (baixa); com um valor menor que o saldo, é um pagamento parcial.
 
 ```json
-{"payment_date": "2026-02-12"}
+{"payment_date": "2026-02-12", "amount": "40.00"}
 ```
 
-A resposta é a parcela, já com `payment_date` e `status: "paid"`.
+A resposta é a parcela, com `remaining_amount` atualizado e, se o saldo zerou, com `payment_date` e `status: "paid"`.
 
 ### `PUT /installments/{id}/payment`
 
-Corrige a data do pagamento de uma parcela paga. Só o Administrador. Mesmo corpo do `POST`.
+Corrige a data da baixa de uma parcela paga. Só o Administrador. O corpo tem só `payment_date`.
 
 ### `DELETE /installments/{id}/payment`
 
-Estorna a baixa. Só o Administrador. A resposta é a parcela, com `payment_date: null` e o `status` recalculado.
+Estorna todos os pagamentos da parcela, parciais ou não. Só o Administrador. A resposta é a parcela, com `payment_date: null`, `remaining_amount` igual ao valor e o `status` recalculado.
+
+### `GET /installments/{id}/payments`
+
+Histórico dos pagamentos da parcela, na ordem em que foram registrados:
+
+```json
+[
+  {"id": "…", "amount": "40.00", "payment_date": "2026-02-20", "created_at": "2026-02-20T14:03:11.402Z"},
+  {"id": "…", "amount": "60.00", "payment_date": "2026-03-01", "created_at": "2026-03-01T10:15:42.118Z"}
+]
+```
 
 ## Respostas de erro
 
@@ -117,12 +138,14 @@ Estorna a baixa. Só o Administrador. A resposta é a parcela, com `payment_date
 | Usuário Cliente; Equipe Operacional corrigindo ou estornando uma baixa | `403` | `Você não tem permissão para esta operação.` |
 | Acordo ou parcela inexistente | `404` | `Acordo não encontrado.` / `Parcela não encontrada.` |
 | Parcela já paga | `422` | `Parcela já paga não pode ser editada.` |
-| Novo valor na última parcela em aberto | `422` | `Não há parcela seguinte em aberto para absorver a diferença de valor. Para mudar o total, edite o acordo.` |
+| Novo valor na última parcela, ou sem parcela seguinte sem pagamento | `422` | `Não há parcela seguinte sem pagamento para absorver a diferença de valor. Para mudar o total, edite o acordo.` |
 | Diferença maior que o valor das parcelas seguintes | `422` | `A diferença deixaria alguma parcela seguinte sem valor.` |
 | Parcelas abaixo de R$ 0,01 no cadastro | `422` | `Cada parcela precisa ter pelo menos R$ 0,01. Diminua o número de parcelas.` |
 | Edição sem campos, valor zero, negativo ou com fração de centavo, campo desconhecido | `422` | erros de validação do FastAPI |
 | Listagem com `month` fora de 1 a 12, `status` desconhecido ou `limit` acima de 200 | `422` | erros de validação do FastAPI |
 | Baixa em parcela já paga | `422` | `Parcela já paga. Para mudar a data do pagamento, corrija a baixa.` |
-| Correção ou estorno de parcela ainda não paga | `422` | `A parcela ainda não foi paga.` |
+| Pagamento maior que o saldo em aberto | `422` | `O valor pago é maior que o saldo em aberto da parcela.` |
+| Edição de parcela com pagamento parcial | `422` | `Parcela com pagamento parcial não pode ser editada.` |
+| Correção de parcela ainda não quitada; estorno de parcela sem nenhum pagamento | `422` | `A parcela ainda não foi paga.` |
 | Data do pagamento futura | `422` | `A data do pagamento não pode ser futura.` |
-| Baixa sem data, com data fora do formato `AAAA-MM-DD` ou com campo desconhecido | `422` | erros de validação do FastAPI |
+| Pagamento sem data, com data fora do formato `AAAA-MM-DD`, `amount` zero, negativo ou com fração de centavo, ou campo desconhecido | `422` | erros de validação do FastAPI |

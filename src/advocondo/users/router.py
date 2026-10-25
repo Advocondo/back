@@ -155,7 +155,7 @@ def replace_user_condominiums(
     ],
 ) -> list[UserCondominiumResponse]:
     condominiums = user_condominiums.replace_condominiums(
-        user_id, request.condominium_ids
+        current_admin, user_id, request.condominium_ids
     )
     return [UserCondominiumResponse.model_validate(item) for item in condominiums]
 
