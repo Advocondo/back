@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -25,6 +25,8 @@ class InstallmentResponse(BaseModel):
     condominium_amount: MoneyResponse
     fee_amount: MoneyResponse
     payment_date: date | None
+    # Quanto falta pagar; menor que `amount` depois de um pagamento parcial (US28).
+    remaining_amount: MoneyResponse
     status: InstallmentStatus
 
     @classmethod
@@ -38,6 +40,7 @@ class InstallmentResponse(BaseModel):
             condominium_amount=installment.condominium_amount,
             fee_amount=installment.fee_amount,
             payment_date=installment.payment_date,
+            remaining_amount=installment.remaining_amount,
             status=installment.status_on(today),
         )
 
@@ -61,11 +64,32 @@ class InstallmentWithDebtorResponse(InstallmentResponse):
 
 
 class PaymentRequest(BaseModel):
-    """Data em que a parcela foi paga (US26)."""
+    """Pagamento recebido. Sem `amount`, quita o saldo da parcela (US26); com um
+    valor menor que o saldo, é um pagamento parcial (US28)."""
 
     model_config = ConfigDict(extra="forbid")
 
     payment_date: date
+    amount: MoneyAmount | None = None
+
+
+class PaymentCorrectionRequest(BaseModel):
+    """Nova data da baixa (US26-CA02)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    payment_date: date
+
+
+class PaymentResponse(BaseModel):
+    """Um pagamento do histórico da parcela (US28-CA02)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    amount: MoneyResponse
+    payment_date: date
+    created_at: datetime
 
 
 class InstallmentUpdateRequest(BaseModel):
