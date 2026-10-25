@@ -7,6 +7,7 @@ from advocondo.devedores.models import Debtor
 from advocondo.documentos.models import AgreementDocument, AgreementPdf
 from advocondo.landing.models import LandingBlock, LandingImage
 from advocondo.metas.models import Goal
+from advocondo.notificacoes.models import Notification
 from advocondo.parcelas.models import Installment, InstallmentPayment
 from advocondo.users.models import User, UserAuditLog, UserCondominium
 
@@ -23,6 +24,7 @@ __all__ = [
     "LandingBlock",
     "LandingImage",
     "LawyerAssignment",
+    "Notification",
     "PasswordResetLink",
     "User",
     "UserAuditLog",
