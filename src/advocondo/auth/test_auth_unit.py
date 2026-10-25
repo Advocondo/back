@@ -1,5 +1,11 @@
+from datetime import timedelta
+
 import pytest
 
+from advocondo.auth.cleanup import (
+    MIN_EXPIRED_RESET_LINK_RETENTION,
+    expired_reset_link_retention,
+)
 from advocondo.auth.dependencies import require_client, require_office_staff
 from advocondo.common.errors import PermissionDeniedError
 from advocondo.users.models import Role, User, UserStatus
@@ -33,3 +39,15 @@ class TestRequireClient:
     def test_office_staff_is_refused(self, role: Role) -> None:
         with pytest.raises(PermissionDeniedError):
             require_client(make_user(role))
+
+
+class TestExpiredResetLinkRetention:
+    def test_a_short_request_window_keeps_links_for_a_day(self) -> None:
+        retention = expired_reset_link_retention(timedelta(minutes=60))
+
+        assert retention == MIN_EXPIRED_RESET_LINK_RETENTION == timedelta(hours=24)
+
+    def test_a_request_window_longer_than_a_day_keeps_links_for_the_window(
+        self,
+    ) -> None:
+        assert expired_reset_link_retention(timedelta(hours=48)) == timedelta(hours=48)
