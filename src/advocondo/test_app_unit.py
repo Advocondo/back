@@ -70,6 +70,13 @@ class CapturingTransport(Transport):
 
 BASE = "postgresql+psycopg://user:pass@localhost:5432"
 
+S3_SETTINGS: dict[str, Any] = {
+    "s3_region": "auto",
+    "s3_bucket": "advocondo-arquivos",
+    "s3_access_key_id": "chave",
+    "s3_secret_access_key": "segredo",  # gitleaks:allow (fake test value)
+}
+
 
 class TestHealth:
     def test_liveness(self, client: TestClient) -> None:
@@ -352,6 +359,8 @@ class TestConfig:
             pytest.param("cors_allow_origin_regex", id="no-preview-origins"),
             pytest.param("release", id="no-release"),
             pytest.param("setup_token", id="setup-off"),
+            pytest.param("s3_bucket", id="files-in-the-database"),
+            pytest.param("s3_endpoint_url", id="no-s3-endpoint"),
         ],
     )
     def test_empty_optional_variable_means_turned_off(self, field_name: str) -> None:
@@ -369,6 +378,41 @@ class TestConfig:
     def test_setup_token_shorter_than_the_minimum_is_refused(self) -> None:
         with pytest.raises(ValidationError, match="SETUP_TOKEN"):
             make_settings(setup_token="a" * (MIN_SETUP_TOKEN_LENGTH - 1))
+
+    def test_files_stay_in_the_database_without_a_bucket(self) -> None:
+        assert make_settings().uses_object_storage is False
+
+    @pytest.mark.parametrize(
+        "endpoint_url",
+        [
+            pytest.param("https://conta.r2.cloudflarestorage.com", id="r2-or-b2"),
+            pytest.param("", id="amazon-s3"),
+        ],
+    )
+    def test_complete_bucket_configuration(self, endpoint_url: str) -> None:
+        settings = make_settings(**S3_SETTINGS, s3_endpoint_url=endpoint_url)
+
+        assert settings.uses_object_storage is True
+
+    @pytest.mark.parametrize(
+        ("overrides", "missing"),
+        [
+            pytest.param(
+                {"s3_secret_access_key": ""}, "S3_SECRET_ACCESS_KEY", id="no-secret"
+            ),
+            pytest.param({"s3_region": ""}, "S3_REGION", id="no-region"),
+            pytest.param({"s3_bucket": ""}, "S3_BUCKET", id="no-bucket"),
+        ],
+    )
+    def test_partial_bucket_configuration_stops_the_api(
+        self, overrides: dict[str, Any], missing: str
+    ) -> None:
+        with pytest.raises(ValidationError, match=missing):
+            make_settings(**{**S3_SETTINGS, **overrides})
+
+    def test_endpoint_alone_stops_the_api(self) -> None:
+        with pytest.raises(ValidationError, match="S3_BUCKET"):
+            make_settings(s3_endpoint_url="https://s3.us-west-004.backblazeb2.com")
 
 
 class TestSentry:

@@ -44,6 +44,8 @@ src/advocondo/
 ├── config.py      # configurações lidas das variáveis de ambiente
 ├── db.py          # SQLAlchemy: Base dos modelos, engine e sessão
 ├── models.py      # importa todos os modelos (Alembic e testes)
+├── common/        # peças compartilhadas (relógio, e-mail, erros, PDF, armazenamento de arquivos)
+├── documentos/    # PDF do acordo (ver docs/documentos.md)
 ├── health.py      # /health e /health/ready
 ├── logging_config.py  # logs estruturados (JSON)
 ├── middleware.py  # log por requisição e X-Request-ID
@@ -76,6 +78,8 @@ Os acordos com cada devedor ficam em `/agreements`. Veja [Acordos](docs/acordos.
 O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`, onde também ficam as faturas do mês (`GET /installments`) e a baixa de cada parcela, total ou parcial, com o histórico de pagamentos (`/installments/{id}/payment` e `/payments`). Veja [Parcelas](docs/parcelas.md).
 
 O Cliente consulta o status dos acordos dos seus condomínios em `/client-panel`. Veja [Painel do Cliente](docs/painel-cliente.md).
+
+O PDF de cada acordo é gerado e baixado em `/agreements/{id}/pdfs`, com as mesmas permissões do acordo. Veja [Documentos](docs/documentos.md).
 
 ### Migrations
 
@@ -147,6 +151,7 @@ docker build -f Dockerfile.prod -t advocondo-backend .
 Em produção, o back-end roda em uma instância da **Oracle Cloud**, gerenciada pelo [Coolify](https://coolify.io). O Coolify faz o build com o `Dockerfile.prod` a partir deste repositório e expõe a API na porta `8000`.
 
 - O PostgreSQL de produção roda no mesmo Coolify, e a API se conecta a ele pela `DATABASE_URL`.
+- Os PDFs gerados ficam no banco, a não ser que as variáveis `S3_` apontem para um bucket S3-compatível (Amazon S3, Cloudflare R2, Backblaze B2). Veja [Documentos](docs/documentos.md#onde-os-arquivos-ficam).
 - As variáveis de ambiente e segredos são configurados no painel do Coolify, nunca no repositório. Veja [Variáveis de ambiente e segredos](docs/segredos.md), que também traz a rotina de rotação de credenciais.
 - O `docker-compose.yml` é usado só em desenvolvimento.
 - As migrations rodam pelo *Pre-deployment command* do Coolify (`alembic upgrade head`). Veja [Migrations do banco de dados](docs/migracoes.md).
