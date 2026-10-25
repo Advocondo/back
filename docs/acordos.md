@@ -44,7 +44,9 @@ Cadastra o acordo e gera as parcelas (US17-CA01). O acordo passa a aparecer na l
 
 ### `GET /agreements`
 
-Lista os acordos, do mais recente para o mais antigo. Sem filtro de `status`, vêm todos, ativos e cancelados; a lista de ativos é `?status=active`. Filtros opcionais e combináveis: `status` (`active` ou `cancelled`), `condominium_id`, `debtor_id`, `responsible_lawyer_id`; paginação com `limit` (padrão 50, máximo 200) e `offset`.
+Lista os acordos, do mais recente para o mais antigo. Sem filtro de `status`, vêm todos, ativos e cancelados; a lista de ativos é `?status=active`. Filtros opcionais e combináveis (US22-CA02): `status` (`active` ou `cancelled`), `condominium_id`, `debtor_id`, `responsible_lawyer_id` e `search`; paginação com `limit` (padrão 50, máximo 200) e `offset`.
+
+`search` é a busca da US22: traz os acordos em que o nome do devedor, do condomínio ou do advogado responsável contém o texto, sem diferenciar maiúsculas (`?search=sim` e `?search=JOSÉ` encontram "José Simão", US22-CA01). O acento precisa ser digitado: `?search=jose` não encontra "José", como nas buscas de devedores e condomínios. `%` e `_` são procurados como caracteres comuns.
 
 ### `GET /agreements/{id}`
 

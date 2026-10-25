@@ -54,6 +54,27 @@ def agreement_id(
 
 
 @pytest.fixture
+def active_and_cancelled_agreements(
+    db_client: TestClient,
+    operator_headers: dict[str, str],
+    mirante: Condominium,
+    jose: Debtor,
+    create_condominium: CreateCondominium,
+    create_debtor: CreateDebtor,
+) -> None:
+    """Mirante: José (active) and Maria (cancelled). Lake View: Pedro (active)."""
+    maria = create_debtor(mirante, name="Maria Souza", unit="Bloco A 101")
+    lake_view = create_condominium(name="Cond. Lake View")
+    pedro = create_debtor(lake_view, name="Pedro Lima")
+    register(db_client, operator_headers, new_agreement(mirante.id, jose.id))
+    cancelled_id = register(
+        db_client, operator_headers, new_agreement(mirante.id, maria.id)
+    ).json()["id"]
+    cancel(db_client, operator_headers, cancelled_id, confirm_open_installments=True)
+    register(db_client, operator_headers, new_agreement(lake_view.id, pedro.id))
+
+
+@pytest.fixture
 def lawyer(create_user: CreateUser) -> User:
     return create_user(
         email="marina@example.com",
@@ -372,6 +393,82 @@ class TestSearchAgreements:
         response = db_client.get(
             "/agreements",
             params={"debtor_id": str(maria.id)},
+            headers=operator_headers,
+        )
+
+        assert [agreement["debtor"]["name"] for agreement in response.json()] == [
+            "Maria Souza"
+        ]
+
+    @pytest.mark.parametrize(
+        "search",
+        [
+            pytest.param("SIM", id="part-of-the-debtor-name"),
+            pytest.param("josé", id="accented-name-in-another-case"),
+            pytest.param("mirante", id="part-of-the-condominium-name"),
+            pytest.param("dias", id="part-of-the-responsible-lawyer-name"),
+        ],
+    )
+    def test_search_finds_agreements_by_part_of_a_name(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+        lawyer: User,
+        create_condominium: CreateCondominium,
+        create_debtor: CreateDebtor,
+        search: str,
+    ) -> None:
+        """US22-CA01"""
+        assign_lawyer(db_client, operator_headers, agreement_id, lawyer.id)
+        lake_view = create_condominium(name="Cond. Lake View")
+        maria = create_debtor(lake_view, name="Maria Souza")
+        register(db_client, operator_headers, new_agreement(lake_view.id, maria.id))
+
+        response = db_client.get(
+            "/agreements", params={"search": search}, headers=operator_headers
+        )
+
+        assert [agreement["id"] for agreement in response.json()] == [agreement_id]
+
+    def test_search_takes_percent_and_underscore_literally(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        response = db_client.get(
+            "/agreements", params={"search": "%_"}, headers=operator_headers
+        )
+
+        assert response.json() == []
+
+    @pytest.mark.usefixtures("active_and_cancelled_agreements")
+    def test_condominium_and_status_filters_are_combined(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+    ) -> None:
+        """US22-CA02"""
+        response = db_client.get(
+            "/agreements",
+            params={"condominium_id": str(mirante.id), "status": "active"},
+            headers=operator_headers,
+        )
+
+        assert [agreement["debtor"]["name"] for agreement in response.json()] == [
+            "José Simão"
+        ]
+
+    @pytest.mark.usefixtures("active_and_cancelled_agreements")
+    def test_search_and_status_filter_are_combined(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        """US22-CA02"""
+        response = db_client.get(
+            "/agreements",
+            params={"search": "mirante", "status": "cancelled"},
             headers=operator_headers,
         )
 
