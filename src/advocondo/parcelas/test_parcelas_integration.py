@@ -197,7 +197,7 @@ class TestUpdateInstallment:
         first = get_plan(db_client, operator_headers, agreement_id)[0]
         paid = db_session.get(Installment, first["id"])
         assert paid is not None
-        paid.payment_date = date(2026, 1, 10)
+        paid.receive(paid.amount, date(2026, 1, 10))
         db_session.flush()
 
         response = db_client.patch(
@@ -225,7 +225,9 @@ class TestUpdateInstallment:
         )
 
         assert response.status_code == 422
-        assert response.json()["detail"].startswith("Não há parcela seguinte em aberto")
+        assert response.json()["detail"].startswith(
+            "Não há parcela seguinte sem pagamento"
+        )
 
     def test_unknown_installment_is_not_found(
         self, db_client: TestClient, operator_headers: dict[str, str]
@@ -256,7 +258,7 @@ class TestInstallmentStatus:
         first = get_plan(db_client, operator_headers, agreement_id)[0]
         paid = db_session.get(Installment, first["id"])
         assert paid is not None
-        paid.payment_date = today - timedelta(days=30)
+        paid.receive(paid.amount, today - timedelta(days=30))
         db_session.flush()
 
         plan = get_plan(db_client, operator_headers, agreement_id)
@@ -312,10 +314,10 @@ def list_due_in_month(
 
 
 def mark_as_paid(db_session: Session, installment_id: str, payment_date: date) -> None:
-    """Ainda não há rota de baixa (US26), então o teste grava a data direto no banco."""
+    """Quita a parcela direto no banco, sem depender da rota de baixa (US26)."""
     installment = db_session.get(Installment, installment_id)
     assert installment is not None
-    installment.payment_date = payment_date
+    installment.receive(installment.amount, payment_date)
     db_session.flush()
 
 
@@ -532,16 +534,32 @@ def payment_url(installment_id: str) -> str:
     return f"/installments/{installment_id}/payment"
 
 
+def pay(
+    client: TestClient,
+    headers: dict[str, str],
+    installment_id: str,
+    payment_date: str,
+    amount: str | None = None,
+) -> dict[str, Any]:
+    """Registra um pagamento pela API e devolve a parcela atualizada."""
+    payload = {"payment_date": payment_date}
+    if amount is not None:
+        payload["amount"] = amount
+    response = client.post(payment_url(installment_id), json=payload, headers=headers)
+    assert response.status_code == 200
+    installment: dict[str, Any] = response.json()
+    return installment
+
+
+@pytest.fixture
+def admin_headers(
+    create_user: CreateUser, authenticate_as: AuthenticateAs
+) -> dict[str, str]:
+    return authenticate_as(create_user(email="admin@advocondo.test", role=Role.ADMIN))
+
+
 class TestInstallmentPayment:
     """US26. O relógio dos testes está em 2 de março de 2026."""
-
-    @pytest.fixture
-    def admin_headers(
-        self, create_user: CreateUser, authenticate_as: AuthenticateAs
-    ) -> dict[str, str]:
-        return authenticate_as(
-            create_user(email="admin_payments@advocondo.test", role=Role.ADMIN)
-        )
 
     @pytest.fixture
     def first_installment_id(
@@ -726,7 +744,7 @@ class TestInstallmentPayment:
             pytest.param({}, id="without-date"),
             pytest.param({"payment_date": "12/02/2026"}, id="date-not-iso"),
             pytest.param(
-                {"payment_date": "2026-02-12", "amount": "100.00"}, id="unknown-field"
+                {"payment_date": "2026-02-12", "method": "pix"}, id="unknown-field"
             ),
         ],
     )
@@ -914,3 +932,240 @@ class TestCancelledAgreement:
         )
         assert february == []
         assert repaid.status_code == 422
+
+
+class TestPartialPayment:
+    """US28. O relógio dos testes está em 2 de março de 2026."""
+
+    @pytest.fixture
+    def plan_ids(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+    ) -> list[str]:
+        """Quatro parcelas de R$ 100,00, com vencimento no dia 10, de março a junho."""
+        agreement_id = register_agreement("400.00", 4, "2026-03-10")
+        return [
+            item["id"] for item in get_plan(db_client, operator_headers, agreement_id)
+        ]
+
+    def test_partial_payment_keeps_the_remaining_amount_open(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        """US28-CA01"""
+        installment = pay(
+            db_client, operator_headers, plan_ids[0], "2026-03-01", amount="40.00"
+        )
+
+        assert installment["remaining_amount"] == "60.00"
+        assert installment["payment_date"] is None
+        assert installment["status"] == "open"
+
+    def test_payments_that_reach_the_amount_pay_the_installment(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        """US28-CA01: quitada no dia do pagamento que zera o saldo."""
+        pay(db_client, operator_headers, plan_ids[0], "2026-02-20", amount="40.00")
+
+        installment = pay(
+            db_client, operator_headers, plan_ids[0], "2026-03-01", amount="60.00"
+        )
+
+        assert installment["remaining_amount"] == "0.00"
+        assert installment["payment_date"] == "2026-03-01"
+        assert installment["status"] == "paid"
+
+    def test_history_shows_each_payment(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        """US28-CA02"""
+        pay(db_client, operator_headers, plan_ids[0], "2026-02-20", amount="40.00")
+        pay(db_client, operator_headers, plan_ids[0], "2026-03-01", amount="25.50")
+
+        response = db_client.get(
+            f"/installments/{plan_ids[0]}/payments", headers=operator_headers
+        )
+
+        assert response.status_code == 200
+        assert [(item["amount"], item["payment_date"]) for item in response.json()] == [
+            ("40.00", "2026-02-20"),
+            ("25.50", "2026-03-01"),
+        ]
+
+    def test_payment_without_amount_settles_the_remaining_amount(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        """US26-CA01 continua valendo: sem valor, a baixa quita o saldo."""
+        pay(db_client, operator_headers, plan_ids[0], "2026-02-20", amount="40.00")
+
+        installment = pay(db_client, operator_headers, plan_ids[0], "2026-03-01")
+
+        history = db_client.get(
+            f"/installments/{plan_ids[0]}/payments", headers=operator_headers
+        ).json()
+        assert installment["status"] == "paid"
+        assert [item["amount"] for item in history] == ["40.00", "60.00"]
+
+    def test_payment_above_the_remaining_amount_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        pay(db_client, operator_headers, plan_ids[0], "2026-02-20", amount="40.00")
+
+        response = db_client.post(
+            payment_url(plan_ids[0]),
+            json={"payment_date": "2026-03-01", "amount": "60.01"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "O valor pago é maior que o saldo em aberto da parcela."
+        )
+
+    def test_reversal_also_removes_partial_payments(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        """US26-CA02: estornar vale para a parcela paga em parte."""
+        pay(db_client, operator_headers, plan_ids[0], "2026-02-20", amount="40.00")
+
+        response = db_client.delete(payment_url(plan_ids[0]), headers=admin_headers)
+
+        history = db_client.get(
+            f"/installments/{plan_ids[0]}/payments", headers=operator_headers
+        ).json()
+        assert response.status_code == 200
+        assert response.json()["remaining_amount"] == "100.00"
+        assert history == []
+
+    def test_correction_changes_the_date_of_the_payment_that_settled(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        """US26-CA02: a data da baixa é a do pagamento que quitou a parcela."""
+        pay(db_client, operator_headers, plan_ids[0], "2026-02-20", amount="40.00")
+        pay(db_client, operator_headers, plan_ids[0], "2026-03-01", amount="60.00")
+
+        response = db_client.put(
+            payment_url(plan_ids[0]),
+            json={"payment_date": "2026-02-28"},
+            headers=admin_headers,
+        )
+
+        history = db_client.get(
+            f"/installments/{plan_ids[0]}/payments", headers=operator_headers
+        ).json()
+        assert response.json()["payment_date"] == "2026-02-28"
+        assert [item["payment_date"] for item in history] == [
+            "2026-02-20",
+            "2026-02-28",
+        ]
+
+    def test_partially_paid_installment_cannot_be_edited(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        """O novo valor poderia ficar abaixo do que já foi pago (US17-CA03)."""
+        pay(db_client, operator_headers, plan_ids[0], "2026-03-01", amount="40.00")
+
+        response = db_client.patch(
+            f"/installments/{plan_ids[0]}",
+            json={"amount": "30.00"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Parcela com pagamento parcial não pode ser editada."
+        )
+
+    def test_partially_paid_installment_does_not_absorb_a_difference(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+    ) -> None:
+        """A 3ª, paga em parte, fica com o mesmo valor; só a 4ª absorve (US17-CA03)."""
+        pay(db_client, operator_headers, plan_ids[2], "2026-03-01", amount="40.00")
+
+        response = db_client.patch(
+            f"/installments/{plan_ids[1]}",
+            json={"amount": "130.00"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 200
+        assert amounts(response.json()) == ["100.00", "130.00", "100.00", "70.00"]
+
+    @pytest.mark.parametrize(
+        "amount",
+        [
+            pytest.param("0", id="zero"),
+            pytest.param("-10.00", id="negative"),
+            pytest.param("10.001", id="fraction-of-a-cent"),
+        ],
+    )
+    def test_invalid_amount_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        plan_ids: list[str],
+        amount: str,
+    ) -> None:
+        response = db_client.post(
+            payment_url(plan_ids[0]),
+            json={"payment_date": "2026-03-01", "amount": amount},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+
+    def test_history_of_unknown_installment_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(
+            f"/installments/{UNKNOWN_ID}/payments", headers=operator_headers
+        )
+
+        assert response.status_code == 404
+
+    def test_client_user_cannot_see_the_history(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        plan_ids: list[str],
+    ) -> None:
+        headers = authenticate_as(
+            create_user(email="client_partial@advocondo.test", role=Role.CLIENT)
+        )
+
+        response = db_client.get(
+            f"/installments/{plan_ids[0]}/payments", headers=headers
+        )
+
+        assert response.status_code == 403

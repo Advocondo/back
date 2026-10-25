@@ -1,8 +1,10 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from advocondo.common.models import (
@@ -36,6 +38,7 @@ class AuditAction(enum.StrEnum):
     INVITED = "invited"
     STATUS_CHANGED = "status_changed"
     ROLE_CHANGED = "role_changed"
+    CONDOMINIUMS_CHANGED = "condominiums_changed"
 
 
 class User(UuidPrimaryKeyMixin, TimestampsMixin, Base):
@@ -126,6 +129,9 @@ class UserAuditLog(UuidPrimaryKeyMixin, Base):
     )
     old_value: Mapped[str | None] = mapped_column(String(255))
     new_value: Mapped[str | None] = mapped_column(String(255))
+    # Só em CONDOMINIUMS_CHANGED: {"added": [...], "removed": [...]}, cada item com
+    # o id e o nome do condomínio na data da ação. Nas demais ações fica vazio.
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # clock_timestamp() em vez de now() (do CreatedAtMixin): now() retorna o
     # início da transação no PostgreSQL, então várias ações na mesma transação
     # compartilhariam o timestamp e perderiam a ordem.
@@ -135,3 +141,11 @@ class UserAuditLog(UuidPrimaryKeyMixin, Base):
 
     user: Mapped[User] = relationship(foreign_keys=[user_id])
     actor: Mapped[User | None] = relationship(foreign_keys=[actor_id])
+
+    @property
+    def added_condominiums(self) -> list[dict[str, str]]:
+        return list((self.details or {}).get("added", []))
+
+    @property
+    def removed_condominiums(self) -> list[dict[str, str]]:
+        return list((self.details or {}).get("removed", []))

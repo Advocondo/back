@@ -13,9 +13,11 @@ from advocondo.parcelas.errors import (
     InstallmentNotPaidError,
     NoOpenInstallmentAfterError,
     PaidInstallmentCannotBeEditedError,
+    PartiallyPaidInstallmentCannotBeEditedError,
+    PaymentAboveRemainingAmountError,
     PaymentDateInTheFutureError,
 )
-from advocondo.parcelas.models import Installment
+from advocondo.parcelas.models import Installment, InstallmentPayment
 from advocondo.parcelas.plan import (
     absorb_difference,
     first_and_last_day_of_month,
@@ -59,17 +61,33 @@ class InstallmentService:
         )
 
     def record_payment(
-        self, installment_id: uuid.UUID, payment_date: date, today: date
+        self,
+        installment_id: uuid.UUID,
+        payment_date: date,
+        amount: Decimal | None,
+        today: date,
     ) -> Installment:
-        """Dá baixa na parcela em aberto: ela passa a constar como paga (US26-CA01)."""
+        """Registra um pagamento da parcela em aberto. Sem valor, ele quita o saldo e
+        a parcela passa a constar como paga (US26-CA01); com um valor menor, o saldo
+        restante continua em aberto (US28-CA01)."""
         installment = self._get_installment_for_update(installment_id)
         ensure_agreement_is_not_cancelled(installment)
         if installment.is_paid:
             raise InstallmentAlreadyPaidError()
         ensure_payment_date_is_not_in_the_future(payment_date, today)
-        installment.payment_date = payment_date
+        paid_now = installment.remaining_amount if amount is None else amount
+        if paid_now > installment.remaining_amount:
+            raise PaymentAboveRemainingAmountError()
+        installment.receive(paid_now, payment_date)
         self._session.commit()
         return installment
+
+    def list_payments(self, installment_id: uuid.UUID) -> Sequence[InstallmentPayment]:
+        """Pagamentos da parcela, na ordem em que foram registrados (US28-CA02)."""
+        installment = self._installments.get(installment_id)
+        if installment is None:
+            raise InstallmentNotFoundError()
+        return installment.payments
 
     def correct_payment(
         self, installment_id: uuid.UUID, payment_date: date, today: date
@@ -79,17 +97,17 @@ class InstallmentService:
         if not installment.is_paid:
             raise InstallmentNotPaidError()
         ensure_payment_date_is_not_in_the_future(payment_date, today)
-        installment.payment_date = payment_date
+        installment.correct_payment_date(payment_date)
         self._session.commit()
         return installment
 
     def reverse_payment(self, installment_id: uuid.UUID) -> Installment:
-        """Estorna a baixa: a parcela volta a ficar em aberto, ou atrasada se já
-        venceu (US26-CA02)."""
+        """Estorna os pagamentos, inclusive os parciais: a parcela volta a ficar em
+        aberto, ou atrasada se já venceu (US26-CA02)."""
         installment = self._get_installment_for_update(installment_id)
-        if not installment.is_paid:
+        if not installment.has_payments:
             raise InstallmentNotPaidError()
-        installment.payment_date = None
+        installment.reverse_payments()
         self._session.commit()
         return installment
 
@@ -102,6 +120,9 @@ class InstallmentService:
         ensure_agreement_is_not_cancelled(installment)
         if installment.is_paid:
             raise PaidInstallmentCannotBeEditedError()
+        # O novo valor poderia ficar abaixo do que já foi pago (US28).
+        if installment.has_payments:
+            raise PartiallyPaidInstallmentCannotBeEditedError()
 
         plan = self._installments.list_by_agreement(installment.agreement_id)
         if request.amount is not None and request.amount != installment.amount:
@@ -117,15 +138,18 @@ class InstallmentService:
         new_amount: Decimal,
         plan: Sequence[Installment],
     ) -> None:
-        """The following open installments absorb the difference (US17-CA03), and
-        the fee still to be received is split again among the open installments, so
-        each keeps condominium part + fee part = amount (US16-CA02)."""
+        """The following installments without payments absorb the difference
+        (US17-CA03, US28), and the fee still to be received is split again among the
+        open installments, so each keeps condominium part + fee part = amount
+        (US16-CA02)."""
         agreement = self._agreements.get(installment.agreement_id)
         assert agreement is not None  # the installment's foreign key guarantees it
+        # Parcelas com pagamento parcial também não absorvem a diferença: o valor delas
+        # poderia ficar abaixo do que já foi pago (US28).
         following_open = [
             other
             for other in plan
-            if other.number > installment.number and not other.is_paid
+            if other.number > installment.number and not other.has_payments
         ]
         if not following_open:
             raise NoOpenInstallmentAfterError()

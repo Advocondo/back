@@ -9,6 +9,7 @@ from advocondo.parcelas.errors import (
     InstallmentBelowOneCentError,
     PaymentDateInTheFutureError,
 )
+from advocondo.parcelas.models import Installment
 from advocondo.parcelas.plan import (
     absorb_difference,
     first_and_last_day_of_month,
@@ -240,3 +241,64 @@ class TestPaymentDate:
     def test_payment_in_the_future_is_refused(self) -> None:
         with pytest.raises(PaymentDateInTheFutureError):
             ensure_payment_date_is_not_in_the_future(TODAY + timedelta(days=1), TODAY)
+
+
+def installment_of(amount: str) -> Installment:
+    """Parcela sem pagamentos, que vence daqui a cinco dias."""
+    return Installment(
+        amount=Decimal(amount),
+        paid_amount=Decimal(0),
+        due_date=TODAY + timedelta(days=5),
+    )
+
+
+class TestReceivePayment:
+    def test_partial_payment_keeps_the_installment_unpaid(self) -> None:
+        """US28-CA01"""
+        installment = installment_of("100.00")
+
+        installment.receive(Decimal("40.00"), TODAY)
+
+        assert installment.remaining_amount == Decimal("60.00")
+        assert installment.payment_date is None
+        assert installment.status_on(TODAY) == InstallmentStatus.OPEN
+
+    def test_payment_that_settles_the_remaining_amount_pays_the_installment(
+        self,
+    ) -> None:
+        installment = installment_of("100.00")
+        installment.receive(Decimal("40.00"), TODAY - timedelta(days=5))
+
+        installment.receive(Decimal("60.00"), TODAY)
+
+        assert installment.payment_date == TODAY
+        assert [payment.amount for payment in installment.payments] == [
+            Decimal("40.00"),
+            Decimal("60.00"),
+        ]
+
+    def test_correction_changes_only_the_settling_payment(self) -> None:
+        """US26-CA02"""
+        installment = installment_of("100.00")
+        first_date = TODAY - timedelta(days=5)
+        installment.receive(Decimal("40.00"), first_date)
+        installment.receive(Decimal("60.00"), TODAY)
+
+        installment.correct_payment_date(TODAY - timedelta(days=1))
+
+        assert installment.payment_date == TODAY - timedelta(days=1)
+        assert [payment.payment_date for payment in installment.payments] == [
+            first_date,
+            TODAY - timedelta(days=1),
+        ]
+
+    def test_reversal_returns_the_whole_amount_to_open(self) -> None:
+        """US26-CA02"""
+        installment = installment_of("100.00")
+        installment.receive(Decimal("40.00"), TODAY)
+
+        installment.reverse_payments()
+
+        assert installment.remaining_amount == Decimal("100.00")
+        assert installment.payments == []
+        assert not installment.has_payments
