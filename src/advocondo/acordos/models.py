@@ -151,3 +151,29 @@ class LawyerAssignment(UuidPrimaryKeyMixin, Base):
     assigned_by: Mapped[User] = relationship(
         foreign_keys=[assigned_by_id], lazy="joined"
     )
+
+
+class AgreementEditField(enum.StrEnum):
+    DEBTOR = "debtor"
+    TOTAL_AMOUNT = "total_amount"
+    FEE_AMOUNT = "fee_amount"
+
+
+class AgreementEditLog(UuidPrimaryKeyMixin, Base):
+    """Uma mudança feita em um acordo: quem alterou, quando, o quê e de quê para quê (US19)."""
+
+    __tablename__ = "agreement_edit_logs"
+
+    agreement_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agreements.id", ondelete="CASCADE"), index=True
+    )
+    edited_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    # Vem do Clock da aplicação, e não do banco, para ser testável com data fixa.
+    edited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    field: Mapped[AgreementEditField] = mapped_column(
+        string_enum(AgreementEditField, name="agreement_edit_field")
+    )
+    old_value: Mapped[str]
+    new_value: Mapped[str]
+    # Verdadeiro quando o acordo já tinha parcela paga e a alteração foi confirmada.
+    had_paid_installments: Mapped[bool]

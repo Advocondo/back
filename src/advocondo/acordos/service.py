@@ -1,24 +1,36 @@
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
 from advocondo.acordos.errors import (
     AgreementAlreadyCancelledError,
+    AgreementCancelledError,
     AgreementNotFoundError,
     DebtorFromAnotherCondominiumError,
     FeeAboveTotalError,
     OpenInstallmentsNotConfirmedError,
+    PaidInstallmentsNeedConfirmationError,
 )
 from advocondo.acordos.fees import fee_from_percentage
-from advocondo.acordos.models import Agreement
+from advocondo.acordos.models import Agreement, AgreementEditField, AgreementEditLog
+from advocondo.acordos.renegotiation import (
+    fee_after_edit,
+    recalculate_open_installments,
+)
 from advocondo.acordos.repository import AgreementFilters, AgreementRepository
-from advocondo.acordos.schemas import AgreementCancelRequest, AgreementCreateRequest
+from advocondo.acordos.schemas import (
+    AgreementCancelRequest,
+    AgreementCreateRequest,
+    AgreementUpdateRequest,
+)
 from advocondo.common.clock import Clock
 from advocondo.condominios.errors import CondominiumNotFoundError
 from advocondo.condominios.repository import CondominiumRepository
 from advocondo.devedores.errors import DebtorNotFoundError
+from advocondo.devedores.models import Debtor
 from advocondo.devedores.repository import DebtorRepository
 from advocondo.parcelas.models import Installment
 from advocondo.parcelas.plan import monthly_due_dates, split_amount, split_fee
@@ -94,6 +106,112 @@ class AgreementService:
             raise AgreementNotFoundError()
         return agreement
 
+    def update(
+        self, agreement_id: uuid.UUID, request: AgreementUpdateRequest, edited_by: User
+    ) -> Agreement:
+        """Corrige ou renegocia um acordo e guarda quem alterou e quando (US19)."""
+        agreement = self.get(agreement_id)
+        if agreement.is_cancelled:
+            raise AgreementCancelledError()
+        debtor = self._new_debtor(agreement, request)
+        new_total = (
+            agreement.total_amount
+            if request.total_amount is None
+            else request.total_amount
+        )
+        fee = fee_after_edit(
+            new_total,
+            request.fee_percentage,
+            request.fee_amount,
+            agreement.fee_percentage,
+            agreement.fee_amount,
+        )
+        money_changed = (
+            new_total != agreement.total_amount or fee.amount != agreement.fee_amount
+        )
+        if debtor is None and not money_changed:
+            return agreement
+
+        paid = [item for item in agreement.installments if item.is_paid]
+        open_installments = [
+            item for item in agreement.installments if not item.is_paid
+        ]
+        new_values = (
+            recalculate_open_installments(
+                new_total,
+                fee.amount,
+                sum((item.amount for item in paid), Decimal(0)),
+                sum((item.fee_amount for item in paid), Decimal(0)),
+                len(open_installments),
+            )
+            if money_changed
+            else []
+        )
+        if paid and not request.confirm_paid_installments:
+            raise PaidInstallmentsNeedConfirmationError()
+
+        edited_at = self._clock.now()
+        logs: list[AgreementEditLog] = []
+        if debtor is not None:
+            logs.append(
+                edit_log(
+                    agreement,
+                    edited_by,
+                    edited_at,
+                    AgreementEditField.DEBTOR,
+                    describe_debtor(agreement.debtor),
+                    describe_debtor(debtor),
+                )
+            )
+            agreement.debtor = debtor
+        if new_total != agreement.total_amount:
+            logs.append(
+                edit_log(
+                    agreement,
+                    edited_by,
+                    edited_at,
+                    AgreementEditField.TOTAL_AMOUNT,
+                    f"{agreement.total_amount:.2f}",
+                    f"{new_total:.2f}",
+                )
+            )
+            agreement.total_amount = new_total
+        if fee.amount != agreement.fee_amount:
+            logs.append(
+                edit_log(
+                    agreement,
+                    edited_by,
+                    edited_at,
+                    AgreementEditField.FEE_AMOUNT,
+                    f"{agreement.fee_amount:.2f}",
+                    f"{fee.amount:.2f}",
+                )
+            )
+            agreement.fee_amount = fee.amount
+        agreement.fee_percentage = fee.percentage
+        # Sem mudança de valor, new_values é vazio e as parcelas ficam como estão.
+        for installment, values in zip(open_installments, new_values, strict=False):
+            installment.amount = values.amount
+            installment.fee_amount = values.fee_amount
+            installment.condominium_amount = values.amount - values.fee_amount
+
+        self._session.add_all(logs)
+        self._session.commit()
+        return agreement
+
+    def _new_debtor(
+        self, agreement: Agreement, request: AgreementUpdateRequest
+    ) -> Debtor | None:
+        """Devedor novo, ou None quando o devedor não muda."""
+        if request.debtor_id is None or request.debtor_id == agreement.debtor_id:
+            return None
+        debtor = self._debtors.get(request.debtor_id)
+        if debtor is None:
+            raise DebtorNotFoundError()
+        if debtor.condominium_id != agreement.condominium_id:
+            raise DebtorFromAnotherCondominiumError()
+        return debtor
+
     def search(
         self, filters: AgreementFilters, limit: int, offset: int
     ) -> Sequence[Agreement]:
@@ -132,3 +250,26 @@ def build_installments(
             zip(due_dates, amounts, fees, strict=True), start=1
         )
     ]
+
+
+def describe_debtor(debtor: Debtor) -> str:
+    return f"{debtor.name} ({debtor.unit})"
+
+
+def edit_log(
+    agreement: Agreement,
+    edited_by: User,
+    edited_at: datetime,
+    field: AgreementEditField,
+    old_value: str,
+    new_value: str,
+) -> AgreementEditLog:
+    return AgreementEditLog(
+        agreement_id=agreement.id,
+        edited_by_id=edited_by.id,
+        edited_at=edited_at,
+        field=field,
+        old_value=old_value,
+        new_value=new_value,
+        had_paid_installments=any(item.is_paid for item in agreement.installments),
+    )

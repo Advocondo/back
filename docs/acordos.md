@@ -50,6 +50,21 @@ Lista os acordos, do mais recente para o mais antigo. Sem filtro de `status`, v�
 
 Devolve um acordo.
 
+### `PATCH /agreements/{id}`
+
+Equipe Operacional e Administrador corrigem ou renegociam o acordo. Só os campos enviados mudam, e é preciso enviar pelo menos um:
+
+```json
+{"total_amount": "4000.00", "confirm_paid_installments": false}
+```
+
+- **Campos:** `debtor_id` (do mesmo condomínio), `total_amount`, e `fee_percentage` ou `fee_amount` (nunca os dois).
+- **Honorários sem valor novo:** seguem o percentual digitado antes, sobre o novo total. Se o percentual nunca foi digitado, o valor em reais não muda.
+- **Recálculo:** se o total ou os honorários mudam, as parcelas **em aberto** são recalculadas em partes iguais com o que falta receber. As parcelas pagas nunca mudam. Número e datas das parcelas continuam sendo editados em `PATCH /installments/{id}`.
+- **Confirmação extra (US19-CA01):** com parcela paga, o pedido só vale com `"confirm_paid_installments": true`. Sem isso, a resposta é `409`, e o front mostra a confirmação e reenvia.
+- **Registro (US19-CA02):** cada campo alterado gera uma linha em `agreement_edit_logs`, com quem alterou, quando, o valor antigo e o novo, e se o acordo já tinha parcela paga. A consulta desse registro é da US31.
+- Se nada muda de verdade, nada é gravado e nenhuma confirmação é pedida.
+
 ### `PUT /agreements/{id}/responsible-lawyer`
 
 Atribui o acordo a um advogado ou troca o responsável. Corpo: `{"lawyer_id": "…"}`. Resposta `200` com o acordo, que passa a trazer `responsible_lawyer` (`id`, `name`, `oab_number`). Toda troca vai para o histórico, e escolher o advogado que já é o responsável não muda nada (US18-CA01).
@@ -70,7 +85,7 @@ Cancela o acordo ([US20](https://advocondo.github.io/docs/historias/ep03-cadastr
 - `confirm_open_installments` (padrão `false`) precisa ser `true` quando o acordo ainda tem parcelas **sem pagamento**, em aberto ou em atraso. Sem isso a API não cancela e responde `409` com quantas são e quanto somam, por exemplo: `Há 3 parcelas sem pagamento, somando R$ 1.234,56. Confirme para cancelar o acordo.` Um acordo sem parcelas pendentes cancela sem confirmação.
 - A resposta é o acordo, já com `status: "cancelled"`, `cancelled_at` e `cancellation_reason`.
 
-O que muda para as parcelas está em [Parcelas](parcelas.md#acordo-cancelado-us20). Um acordo cancelado também não troca de advogado responsável. Reativar um acordo cancelado ainda não existe; quem cancelou e o histórico completo ficam para o log de alterações financeiras (US31).
+O que muda para as parcelas está em [Parcelas](parcelas.md#acordo-cancelado-us20). Um acordo cancelado também não troca de advogado responsável nem é editado em `PATCH /agreements/{id}`. Reativar um acordo cancelado ainda não existe; quem cancelou e o histórico completo ficam para o log de alterações financeiras (US31).
 
 ## Respostas de erro
 
@@ -80,10 +95,14 @@ O que muda para as parcelas está em [Parcelas](parcelas.md#acordo-cancelado-us2
 | Usuário Cliente | `403` | `Você não tem permissão para esta operação.` |
 | Acordo com parcelas sem pagamento, sem `confirm_open_installments` | `409` | `Há N parcelas sem pagamento, somando R$ …. Confirme para cancelar o acordo.` |
 | Acordo já cancelado (cancelar de novo) | `422` | `O acordo já está cancelado.` |
-| Troca de advogado de acordo cancelado | `422` | `Acordo cancelado não aceita esta operação.` |
+| Edição ou troca de advogado de acordo cancelado | `422` | `Acordo cancelado não aceita esta operação.` |
 | Condomínio, devedor ou acordo inexistente | `404` | `Condomínio não encontrado.` / `Devedor não encontrado.` / `Acordo não encontrado.` |
 | Devedor de outro condomínio | `422` | `O devedor informado não pertence a este condomínio.` |
 | Honorários maiores que o valor total | `422` | `Os honorários não podem ser maiores que o valor total do acordo.` |
+| Acordo com parcela paga, sem confirmação | `409` | `Este acordo já tem parcelas pagas. Confirme a alteração para continuar.` |
+| Novo total menor ou igual ao já pago | `422` | `O novo valor total precisa ser maior que o valor das parcelas já pagas.` |
+| Honorários incompatíveis com o que já foi pago | `422` | `Os honorários não são compatíveis com as parcelas já pagas.` |
+| Todas as parcelas já pagas | `422` | `Todas as parcelas já foram pagas: não há parcela em aberto para recalcular.` |
 | Parcelas abaixo de R$ 0,01 | `422` | `Cada parcela precisa ter pelo menos R$ 0,01. Diminua o número de parcelas.` |
 | Honorários ausentes ou informados nos dois formatos, campo obrigatório ausente (US15-CA02), valor zero, negativo ou com fração de centavo, campo desconhecido ou `status` inválido | `422` | erros de validação do FastAPI |
 | Advogado inexistente | `404` | `Advogado não encontrado.` |
