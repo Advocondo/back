@@ -1,12 +1,19 @@
-from datetime import timedelta
+import uuid
+from collections.abc import Mapping
+from datetime import date, timedelta
+from decimal import Decimal
 from typing import Any
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from advocondo.acordos.models import AgreementEditField, AgreementEditLog
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
+from advocondo.parcelas.models import Installment
 from advocondo.users.models import Role, User, UserStatus
 from tests.fixtures.auth import AuthenticateAs
 from tests.fixtures.condominios import CreateCondominium
@@ -32,6 +39,18 @@ def mirante(create_condominium: CreateCondominium) -> Condominium:
 @pytest.fixture
 def jose(mirante: Condominium, create_debtor: CreateDebtor) -> Debtor:
     return create_debtor(mirante, name="José Simão", unit="Bloco B 304")
+
+
+@pytest.fixture
+def agreement_id(
+    db_client: TestClient,
+    operator_headers: dict[str, str],
+    mirante: Condominium,
+    jose: Debtor,
+) -> str:
+    created = register(db_client, operator_headers, new_agreement(mirante.id, jose.id))
+    value: str = created.json()["id"]
+    return value
 
 
 @pytest.fixture
@@ -75,6 +94,35 @@ def assign_lawyer(
         headers=headers,
     )
     return response
+
+
+def update_agreement(
+    client: TestClient,
+    headers: dict[str, str],
+    agreement_id: str,
+    payload: Mapping[str, object],
+) -> httpx.Response:
+    response: httpx.Response = client.patch(
+        f"/agreements/{agreement_id}", json=payload, headers=headers
+    )
+    return response
+
+
+def installments_of(db_session: Session, agreement_id: str) -> list[Installment]:
+    return list(
+        db_session.scalars(
+            select(Installment)
+            .where(Installment.agreement_id == uuid.UUID(agreement_id))
+            .order_by(Installment.number)
+        )
+    )
+
+
+def pay_installments(db_session: Session, agreement_id: str, count: int) -> None:
+    for installment in installments_of(db_session, agreement_id)[:count]:
+        installment.paid_amount = installment.amount
+        installment.payment_date = date(2026, 2, 1)
+    db_session.flush()
 
 
 class TestRegisterAgreement:
@@ -606,3 +654,572 @@ class TestAgreementsOfALawyer:
 
         assert response.status_code == 200
         assert [item["id"] for item in response.json()] == [mine]
+
+
+class TestUpdateAgreement:
+    def test_total_amount_is_renegotiated_and_open_installments_follow(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """US19"""
+        response = update_agreement(
+            db_client, operator_headers, agreement_id, {"total_amount": "4000.00"}
+        )
+
+        body = response.json()
+        installments = installments_of(db_session, agreement_id)
+        assert response.status_code == 200
+        assert body["total_amount"] == "4000.00"
+        assert body["fee_amount"] == "400.00"
+        assert body["fee_percentage"] == "10.00"
+        assert [item.amount for item in installments] == [Decimal("400.00")] * 10
+        assert [item.fee_amount for item in installments] == [Decimal("40.00")] * 10
+
+    def test_fee_can_be_typed_in_reais(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """US19"""
+        response = update_agreement(
+            db_client, operator_headers, agreement_id, {"fee_amount": "300.00"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["fee_amount"] == "300.00"
+        assert response.json()["fee_percentage"] is None
+        installments = installments_of(db_session, agreement_id)
+        assert [item.fee_amount for item in installments] == [Decimal("30.00")] * 10
+
+    def test_debtor_can_be_corrected(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        create_debtor: CreateDebtor,
+        mirante: Condominium,
+        agreement_id: str,
+    ) -> None:
+        """US19"""
+        carla = create_debtor(mirante, name="Carla Nunes", unit="Bloco A 101")
+
+        response = update_agreement(
+            db_client,
+            operator_headers,
+            agreement_id,
+            {"debtor_id": str(carla.id)},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["debtor"]["name"] == "Carla Nunes"
+
+    def test_debtor_of_another_condominium_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        create_condominium: CreateCondominium,
+        create_debtor: CreateDebtor,
+        agreement_id: str,
+    ) -> None:
+        """US19"""
+        lake_view = create_condominium(name="Cond. Lake View")
+        stranger = create_debtor(lake_view, name="Rui Alves", unit="Casa 7")
+
+        response = update_agreement(
+            db_client,
+            operator_headers,
+            agreement_id,
+            {"debtor_id": str(stranger.id)},
+        )
+
+        assert response.status_code == 422
+
+    def test_unknown_debtor_and_unknown_agreement_are_not_found(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """US19"""
+        unknown_debtor = update_agreement(
+            db_client, operator_headers, agreement_id, {"debtor_id": str(uuid.uuid4())}
+        )
+        unknown_agreement = update_agreement(
+            db_client,
+            operator_headers,
+            str(uuid.uuid4()),
+            {"total_amount": "4000.00"},
+        )
+
+        assert unknown_debtor.status_code == 404
+        assert unknown_agreement.status_code == 404
+
+    def test_request_without_a_token_is_refused(
+        self, db_client: TestClient, agreement_id: str
+    ) -> None:
+        """US19"""
+        response = update_agreement(
+            db_client, {}, agreement_id, {"total_amount": "4000.00"}
+        )
+
+        assert response.status_code == 401
+
+    def test_client_cannot_edit_an_agreement(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        agreement_id: str,
+    ) -> None:
+        """US19"""
+        client_user = create_user(email="sindico@example.com", role=Role.CLIENT)
+
+        response = update_agreement(
+            db_client,
+            authenticate_as(client_user),
+            agreement_id,
+            {"total_amount": "4000.00"},
+        )
+
+        assert response.status_code == 403
+
+    def test_nothing_changed_writes_nothing_and_asks_for_no_confirmation(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator_headers: dict[str, str],
+        jose: Debtor,
+        agreement_id: str,
+    ) -> None:
+        """US19-CA01"""
+        pay_installments(db_session, agreement_id, 1)
+        payloads = [
+            {"total_amount": "5500.00"},
+            {"fee_amount": "550.00"},
+            {"debtor_id": str(jose.id)},
+        ]
+
+        statuses = [
+            update_agreement(
+                db_client, operator_headers, agreement_id, payload
+            ).status_code
+            for payload in payloads
+        ]
+
+        logs = db_session.scalars(select(AgreementEditLog)).all()
+        assert statuses == [200, 200, 200]
+        assert logs == []
+
+
+class TestPaidInstallments:
+    def test_agreement_with_paid_installments_needs_confirmation(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """US19-CA01"""
+        pay_installments(db_session, agreement_id, 1)
+
+        response = update_agreement(
+            db_client, operator_headers, agreement_id, {"total_amount": "4000.00"}
+        )
+
+        fetched = db_client.get(f"/agreements/{agreement_id}", headers=operator_headers)
+        assert response.status_code == 409
+        assert response.json()["detail"] == (
+            "Este acordo já tem parcelas pagas. Confirme a alteração para continuar."
+        )
+        assert fetched.json()["total_amount"] == "5500.00"
+
+    def test_confirmed_edit_leaves_the_paid_installments_alone(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """US19-CA01"""
+        pay_installments(db_session, agreement_id, 1)
+
+        response = update_agreement(
+            db_client,
+            operator_headers,
+            agreement_id,
+            {"total_amount": "4000.00", "confirm_paid_installments": True},
+        )
+
+        paid, *open_installments = installments_of(db_session, agreement_id)
+        assert response.status_code == 200
+        assert (paid.amount, paid.fee_amount) == (Decimal("550.00"), Decimal("55.00"))
+        assert paid.payment_date == date(2026, 2, 1)
+        assert sum(item.amount for item in open_installments) == Decimal("3450.00")
+        assert sum(item.fee_amount for item in open_installments) == Decimal("345.00")
+
+    @pytest.mark.parametrize(
+        ("paid_count", "payload"),
+        [
+            pytest.param(1, {"total_amount": "500.00"}, id="total-below-what-was-paid"),
+            pytest.param(
+                10, {"total_amount": "4000.00"}, id="nothing-left-to-recalculate"
+            ),
+        ],
+    )
+    def test_confirmed_edit_that_cannot_be_recalculated_is_refused(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+        paid_count: int,
+        payload: dict[str, object],
+    ) -> None:
+        """US19-CA01"""
+        pay_installments(db_session, agreement_id, paid_count)
+
+        response = update_agreement(
+            db_client,
+            operator_headers,
+            agreement_id,
+            {**payload, "confirm_paid_installments": True},
+        )
+
+        assert response.status_code == 422
+
+
+class TestEditLog:
+    def test_edit_is_logged_with_who_changed_it_and_when(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        create_debtor: CreateDebtor,
+        authenticate_as: AuthenticateAs,
+        mirante: Condominium,
+        agreement_id: str,
+        clock: FrozenClock,
+    ) -> None:
+        """US19-CA02"""
+        ana = create_user(email="ana.edit@example.com", name="Ana", role=Role.OPERATOR)
+        carla = create_debtor(mirante, name="Carla Nunes", unit="Bloco A 101")
+
+        update_agreement(
+            db_client,
+            authenticate_as(ana),
+            agreement_id,
+            {"debtor_id": str(carla.id), "total_amount": "4000.00"},
+        )
+
+        logs = db_session.scalars(select(AgreementEditLog)).all()
+        assert {log.field for log in logs} == {
+            AgreementEditField.DEBTOR,
+            AgreementEditField.TOTAL_AMOUNT,
+            AgreementEditField.FEE_AMOUNT,
+        }
+        assert all(log.edited_by_id == ana.id for log in logs)
+        assert all(log.edited_at == clock.now() for log in logs)
+        assert all(log.had_paid_installments is False for log in logs)
+        total = next(
+            log for log in logs if log.field == AgreementEditField.TOTAL_AMOUNT
+        )
+        assert (total.old_value, total.new_value) == ("5500.00", "4000.00")
+
+    def test_log_records_that_the_agreement_already_had_paid_installments(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """US19-CA02"""
+        pay_installments(db_session, agreement_id, 1)
+
+        update_agreement(
+            db_client,
+            operator_headers,
+            agreement_id,
+            {"total_amount": "4000.00", "confirm_paid_installments": True},
+        )
+
+        logs = db_session.scalars(select(AgreementEditLog)).all()
+        assert logs != []
+        assert all(log.had_paid_installments is True for log in logs)
+
+
+def cancel(
+    client: TestClient,
+    headers: dict[str, str],
+    agreement_id: object,
+    **body: Any,
+) -> httpx.Response:
+    response: httpx.Response = client.post(
+        f"/agreements/{agreement_id}/cancel", json=body, headers=headers
+    )
+    return response
+
+
+def pay_first_installment(
+    client: TestClient, headers: dict[str, str], agreement_id: str
+) -> None:
+    plan = client.get(f"/agreements/{agreement_id}/installments", headers=headers)
+    response = client.post(
+        f"/installments/{plan.json()[0]['id']}/payment",
+        json={"payment_date": "2026-02-01"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+
+
+class TestCancelAgreement:
+    """US20. O relógio dos testes está em 2 de março de 2026, às 9h UTC."""
+
+    @pytest.fixture
+    def agreement_id(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> str:
+        """Acordo de R$ 5.500,00 em 10 parcelas, todas ainda sem pagamento."""
+        agreement_id: str = register(
+            db_client, operator_headers, new_agreement(mirante.id, jose.id)
+        ).json()["id"]
+        return agreement_id
+
+    def test_open_installments_must_be_confirmed_first(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        response = cancel(db_client, operator_headers, agreement_id)
+
+        assert response.status_code == 409
+        assert response.json() == {
+            "detail": (
+                "Há 10 parcelas sem pagamento, somando R$ 5.500,00. "
+                "Confirme para cancelar o acordo."
+            )
+        }
+        fetched = db_client.get(f"/agreements/{agreement_id}", headers=operator_headers)
+        assert fetched.json()["status"] == "active"
+
+    def test_a_single_open_installment_is_written_in_the_singular(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        agreement_id = register(
+            db_client,
+            operator_headers,
+            new_agreement(mirante.id, jose.id, installment_count=1),
+        ).json()["id"]
+
+        response = cancel(db_client, operator_headers, agreement_id)
+
+        assert response.json()["detail"] == (
+            "Há 1 parcela sem pagamento, somando R$ 5.500,00. "
+            "Confirme para cancelar o acordo."
+        )
+
+    def test_confirmed_cancellation_keeps_the_moment_and_the_reason(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """US20"""
+        response = cancel(
+            db_client,
+            operator_headers,
+            agreement_id,
+            reason="Devedor quebrou o acordo",
+            confirm_open_installments=True,
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "cancelled"
+        assert body["cancelled_at"].startswith("2026-03-02T09:00:00")
+        assert body["cancellation_reason"] == "Devedor quebrou o acordo"
+
+    def test_reason_is_optional(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        response = cancel(
+            db_client, operator_headers, agreement_id, confirm_open_installments=True
+        )
+
+        assert response.status_code == 200
+        assert response.json()["cancellation_reason"] is None
+
+    def test_agreement_fully_paid_needs_no_confirmation(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        agreement_id = register(
+            db_client,
+            operator_headers,
+            new_agreement(mirante.id, jose.id, installment_count=1),
+        ).json()["id"]
+        pay_first_installment(db_client, operator_headers, agreement_id)
+
+        response = cancel(db_client, operator_headers, agreement_id)
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "cancelled"
+
+    def test_only_the_installments_without_payment_are_counted(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        pay_first_installment(db_client, operator_headers, agreement_id)
+
+        response = cancel(db_client, operator_headers, agreement_id)
+
+        assert response.json()["detail"] == (
+            "Há 9 parcelas sem pagamento, somando R$ 4.950,00. "
+            "Confirme para cancelar o acordo."
+        )
+
+    def test_cancelled_agreement_cannot_be_cancelled_again(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        cancel(
+            db_client, operator_headers, agreement_id, confirm_open_installments=True
+        )
+
+        response = cancel(
+            db_client, operator_headers, agreement_id, confirm_open_installments=True
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "O acordo já está cancelado."}
+
+    def test_unknown_agreement_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = cancel(db_client, operator_headers, UNKNOWN_ID)
+
+        assert response.status_code == 404
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param({"reason": "x" * 501}, id="reason-too-long"),
+            pytest.param({"confirm_open_installments": "talvez"}, id="not-a-boolean"),
+            pytest.param({"status": "active"}, id="unknown-field"),
+        ],
+    )
+    def test_invalid_request_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+        body: dict[str, Any],
+    ) -> None:
+        response = cancel(db_client, operator_headers, agreement_id, **body)
+
+        assert response.status_code == 422
+
+    def test_client_user_cannot_cancel(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        agreement_id: str,
+    ) -> None:
+        headers = authenticate_as(
+            create_user(email="sindico@example.com", role=Role.CLIENT)
+        )
+
+        response = cancel(
+            db_client, headers, agreement_id, confirm_open_installments=True
+        )
+
+        assert response.status_code == 403
+
+    def test_cancelling_requires_a_session(
+        self, db_client: TestClient, agreement_id: str
+    ) -> None:
+        response = db_client.post(f"/agreements/{agreement_id}/cancel", json={})
+
+        assert response.status_code == 401
+
+    def test_cancelled_agreement_leaves_the_active_list(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """US20"""
+        cancel(
+            db_client, operator_headers, agreement_id, confirm_open_installments=True
+        )
+
+        active = db_client.get(
+            "/agreements", params={"status": "active"}, headers=operator_headers
+        )
+        cancelled = db_client.get(
+            "/agreements", params={"status": "cancelled"}, headers=operator_headers
+        )
+
+        assert active.json() == []
+        assert [item["id"] for item in cancelled.json()] == [agreement_id]
+
+    def test_lawyer_cannot_be_changed_on_a_cancelled_agreement(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+        lawyer: User,
+    ) -> None:
+        cancel(
+            db_client, operator_headers, agreement_id, confirm_open_installments=True
+        )
+
+        response = assign_lawyer(db_client, operator_headers, agreement_id, lawyer.id)
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Acordo cancelado não aceita esta operação."
+        }
+
+    def test_cancelled_agreement_cannot_be_edited(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """US19 e US20: o cancelado sai da cobrança, então não é renegociado."""
+        cancel(
+            db_client, operator_headers, agreement_id, confirm_open_installments=True
+        )
+
+        response = update_agreement(
+            db_client, operator_headers, agreement_id, {"total_amount": "4000.00"}
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Acordo cancelado não aceita esta operação."
+        }

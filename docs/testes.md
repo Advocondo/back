@@ -91,6 +91,7 @@ O marcador `integration` é aplicado automaticamente a quem usa `db_session` ou 
 - **Teste parametrizado:** `src/advocondo/test_app_unit.py`. Um mesmo teste roda com vários casos via `@pytest.mark.parametrize`, usando `pytest.param(..., id=...)` para dar nomes legíveis aos casos.
 - **Teste de integração:** `src/advocondo/test_app_integration.py`. Faz uma requisição à API, que usa o banco de teste de verdade.
 - **Parametrizado + integração:** `src/advocondo/test_app_integration.py`.
+- **Conteúdo de PDF:** `src/advocondo/documentos/test_documentos_integration.py`. O texto do PDF é extraído com `pdf_text` (`tests/support/pdf.py`), e o bucket é simulado por um cliente S3 em memória (`tests/support/storage.py`).
 
 ## Fixtures de domínio
 

@@ -26,6 +26,7 @@ As variáveis são definidas no painel do Coolify, em cada recurso (**Environmen
 
 - **API**: **todas** as variáveis do `.env.example`, com os valores de produção (ver [Observabilidade](observabilidade.md) e [Autenticação](auth.md#configuracao)). As que não se aplicam ficam definidas com valor vazio.
 - **PostgreSQL**: usuário, senha e banco são definidos pelo próprio Coolify ao criar o recurso. A `DATABASE_URL` da API usa a URL interna que o Coolify mostra na página do banco.
+- **Bucket de arquivos (opcional)**: sem as variáveis `S3_`, os PDFs gerados ficam no banco. Para guardá-los em um bucket S3-compatível, crie no serviço (Amazon S3, Cloudflare R2 ou Backblaze B2) um bucket **privado** e uma chave de acesso que só leia e grave nele. Depois defina na API `S3_ENDPOINT_URL` (vazia no Amazon S3), `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID` e `S3_SECRET_ACCESS_KEY`. Defina todas ou nenhuma: configuração pela metade impede a API de subir. Veja [Documentos](documentos.md#onde-os-arquivos-ficam).
 
 Regras:
 
@@ -59,6 +60,8 @@ A imagem do Postgres só lê `POSTGRES_PASSWORD` na primeira inicialização. Po
 Entre os passos 2 e 4, conexões novas da API falham. Por isso, faça os passos em sequência, em um horário de pouco uso.
 
 ### Chaves de APIs externas
+
+Vale também para a chave do bucket (`S3_ACCESS_KEY_ID` e `S3_SECRET_ACCESS_KEY`), que muda sempre em par.
 
 1. Gere uma nova chave no painel do serviço externo, sem revogar a antiga ainda.
 2. Atualize a variável no Coolify e faça o redeploy da API.

@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from advocondo.common.models import TimestampsMixin, UuidPrimaryKeyMixin, string_enum
@@ -19,10 +19,12 @@ if TYPE_CHECKING:
 # Money is stored as NUMERIC with cents, never as float.
 MONEY = Numeric(12, 2)
 PERCENTAGE = Numeric(5, 2)
+MAX_CANCELLATION_REASON_LENGTH = 500
 
 
 class AgreementStatus(enum.StrEnum):
     ACTIVE = "active"
+    CANCELLED = "cancelled"
 
 
 class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
@@ -61,6 +63,12 @@ class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
         string_enum(AgreementStatus, name="agreement_status"),
         default=AgreementStatus.ACTIVE,
     )
+    # Preenchidos no cancelamento (US20). As parcelas sem pagamento ficam
+    # guardadas, mas saem da cobrança enquanto o acordo estiver cancelado.
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancellation_reason: Mapped[str | None] = mapped_column(
+        String(MAX_CANCELLATION_REASON_LENGTH)
+    )
 
     condominium: Mapped[Condominium] = relationship(lazy="joined")
     debtor: Mapped[Debtor] = relationship(lazy="joined")
@@ -84,6 +92,21 @@ class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     @property
     def installment_count(self) -> int:
         return len(self.installments)
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self.status == AgreementStatus.CANCELLED
+
+    @property
+    def unpaid_installments(self) -> list["Installment"]:
+        return [item for item in self.installments if not item.is_paid]
+
+    def cancel(self, reason: str | None, now: datetime) -> None:
+        """Marca o acordo como cancelado (US20). Quem chama confere antes se ele
+        ainda está ativo e se o usuário confirmou as parcelas sem pagamento."""
+        self.status = AgreementStatus.CANCELLED
+        self.cancelled_at = now
+        self.cancellation_reason = reason
 
     def assign_lawyer(self, lawyer: User, assigned_by: User, now: datetime) -> bool:
         """Passa o acordo para `lawyer` e guarda a troca no histórico (US18).
@@ -128,3 +151,29 @@ class LawyerAssignment(UuidPrimaryKeyMixin, Base):
     assigned_by: Mapped[User] = relationship(
         foreign_keys=[assigned_by_id], lazy="joined"
     )
+
+
+class AgreementEditField(enum.StrEnum):
+    DEBTOR = "debtor"
+    TOTAL_AMOUNT = "total_amount"
+    FEE_AMOUNT = "fee_amount"
+
+
+class AgreementEditLog(UuidPrimaryKeyMixin, Base):
+    """Uma mudança feita em um acordo: quem alterou, quando, o quê e de quê para quê (US19)."""
+
+    __tablename__ = "agreement_edit_logs"
+
+    agreement_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agreements.id", ondelete="CASCADE"), index=True
+    )
+    edited_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    # Vem do Clock da aplicação, e não do banco, para ser testável com data fixa.
+    edited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    field: Mapped[AgreementEditField] = mapped_column(
+        string_enum(AgreementEditField, name="agreement_edit_field")
+    )
+    old_value: Mapped[str]
+    new_value: Mapped[str]
+    # Verdadeiro quando o acordo já tinha parcela paga e a alteração foi confirmada.
+    had_paid_installments: Mapped[bool]

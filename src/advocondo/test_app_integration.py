@@ -133,3 +133,22 @@ class TestMigrations:
         command.downgrade(alembic_config, "base")
 
         assert inspect(migrations_engine).get_table_names() == ["alembic_version"]
+
+    def test_upgrade_lets_an_agreement_be_cancelled(
+        self, alembic_config: Config, migrations_engine: Engine
+    ) -> None:
+        """O `compare_metadata` não compara CHECK, então a ampliação do status
+        precisa ser conferida à parte."""
+        command.upgrade(alembic_config, "head")
+
+        inspector = inspect(migrations_engine)
+        status_checks = [
+            check["sqltext"]
+            for check in inspector.get_check_constraints("agreements")
+            if check["name"] == "ck_agreements_agreement_status"
+        ]
+        columns = {column["name"] for column in inspector.get_columns("agreements")}
+
+        assert len(status_checks) == 1
+        assert "'cancelled'" in status_checks[0]
+        assert {"cancelled_at", "cancellation_reason"} <= columns

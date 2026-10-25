@@ -1,7 +1,8 @@
 import logging
 import smtplib
 from datetime import UTC, date, datetime
-from typing import Any, ClassVar, Self
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
 import pytest
 
@@ -22,10 +23,31 @@ from advocondo.common.errors import (
     NotFoundError,
     PermissionDeniedError,
 )
+from advocondo.common.money import format_brl
 from advocondo.common.normalization import comparable_text, keep_only_digits
 from advocondo.common.passwords import PasswordHasher
+from advocondo.common.pdf import (
+    PdfDocument,
+    PdfSection,
+    PdfTable,
+    format_date,
+    format_money,
+    render_pdf,
+)
+from advocondo.common.storage import (
+    DatabaseStorage,
+    FileUnavailableError,
+    ObjectStorage,
+    StoredFileMixin,
+    build_file_storage,
+)
 from advocondo.common.tokens import generate_opaque_token, hash_token
+from tests.support.pdf import pdf_text
 from tests.support.settings import make_settings
+from tests.support.storage import FakeS3Client
+
+if TYPE_CHECKING:
+    from mypy_boto3_s3 import S3Client
 
 
 class ExpiredLinkError(AuthenticationError):
@@ -268,3 +290,121 @@ class TestNormalization:
 
     def test_comparable_text_ignores_accents_case_and_spaces(self) -> None:
         assert comparable_text("  José   SIMÃO ") == "jose simao"
+
+
+class TestFormatBrl:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param(Decimal("1234.56"), "R$ 1.234,56", id="thousands"),
+            pytest.param(Decimal("1234567.8"), "R$ 1.234.567,80", id="millions"),
+            pytest.param(Decimal(0), "R$ 0,00", id="zero"),
+            pytest.param(Decimal(5), "R$ 5,00", id="whole-number"),
+            pytest.param(Decimal("999.99"), "R$ 999,99", id="below-a-thousand"),
+        ],
+    )
+    def test_amount_is_written_the_brazilian_way(
+        self, value: Decimal, expected: str
+    ) -> None:
+        assert format_brl(value) == expected
+
+
+class TestPdf:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param(Decimal(5500), "R$ 5.500,00", id="thousands"),
+            pytest.param(Decimal("0.01"), "R$ 0,01", id="cents"),
+            pytest.param(Decimal("1234567.8"), "R$ 1.234.567,80", id="millions"),
+        ],
+    )
+    def test_format_money(self, value: Decimal, expected: str) -> None:
+        assert format_money(value) == expected
+
+    def test_format_date(self) -> None:
+        assert format_date(date(2026, 1, 5)) == "05/01/2026"
+
+    def test_render_writes_every_block(self) -> None:
+        document = PdfDocument(
+            title="Relatório",
+            subtitle="Gerado hoje",
+            blocks=(
+                PdfSection("Dados", [("Nome", "Ação & <Cia>")]),
+                PdfTable("Itens", header=("Nº", "Valor"), rows=[("1", "R$ 1,00")]),
+            ),
+        )
+
+        content = render_pdf(document)
+
+        assert content.startswith(b"%PDF")
+        text = pdf_text(content)
+        for expected in ("Relatório", "Gerado hoje", "Nome", "Nº", "R$ 1,00"):
+            assert expected in text
+        # Markup characters come out as typed (ReportLab splits them in text runs).
+        assert "Ação & <Cia>" in text.replace("\n", "")
+
+
+class StoredFile(StoredFileMixin):
+    """A stored file outside the database, for the storage tests."""
+
+
+BUCKET = "advocondo-arquivos"
+KEY = "agreements/1/pdfs/2.pdf"
+
+
+class TestFileStorage:
+    def test_database_storage_keeps_the_bytes_in_the_row(self) -> None:
+        file = StoredFile()
+
+        DatabaseStorage().save(file, KEY, b"%PDF-1.4", "application/pdf")
+
+        assert file.content == b"%PDF-1.4"
+        assert file.storage_key is None
+        assert file.size_bytes == 8
+        assert file.content_type == "application/pdf"
+        assert DatabaseStorage().load(file) == b"%PDF-1.4"
+
+    def test_database_storage_cannot_read_a_file_in_the_bucket(self) -> None:
+        file = StoredFile()
+        file.content = None
+        file.storage_key = KEY
+
+        with pytest.raises(FileUnavailableError, match="S3_"):
+            DatabaseStorage().load(file)
+
+    def test_object_storage_puts_the_bytes_in_the_bucket(self) -> None:
+        client = FakeS3Client()
+        storage = ObjectStorage(cast("S3Client", client), BUCKET)
+        file = StoredFile()
+
+        storage.save(file, KEY, b"%PDF-1.4", "application/pdf")
+
+        assert client.objects == {(BUCKET, KEY): b"%PDF-1.4"}
+        assert client.content_types == {(BUCKET, KEY): "application/pdf"}
+        assert file.content is None
+        assert file.storage_key == KEY
+        assert file.size_bytes == 8
+        assert storage.load(file) == b"%PDF-1.4"
+
+    def test_object_storage_still_reads_files_saved_in_the_database(self) -> None:
+        """Files saved before the bucket was configured keep working."""
+        file = StoredFile()
+        DatabaseStorage().save(file, KEY, b"%PDF-antigo", "application/pdf")
+
+        storage = ObjectStorage(cast("S3Client", FakeS3Client()), BUCKET)
+
+        assert storage.load(file) == b"%PDF-antigo"
+
+    def test_database_is_the_default(self) -> None:
+        assert isinstance(build_file_storage(make_settings()), DatabaseStorage)
+
+    def test_bucket_when_configured(self) -> None:
+        settings = make_settings(
+            s3_endpoint_url="https://conta.r2.cloudflarestorage.com",
+            s3_region="auto",
+            s3_bucket=BUCKET,
+            s3_access_key_id="chave",
+            s3_secret_access_key="segredo",  # gitleaks:allow (fake test value)
+        )
+
+        assert isinstance(build_file_storage(settings), ObjectStorage)
