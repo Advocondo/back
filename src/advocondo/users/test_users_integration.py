@@ -1678,6 +1678,233 @@ class TestLinkClientToCondominiums:
         ]
 
 
+def get_history(
+    client: TestClient, headers: dict[str, str], user: User
+) -> list[dict[str, Any]]:
+    response = client.get(f"/users/{user.id}/history", headers=headers)
+    assert response.status_code == 200
+    logs: list[dict[str, Any]] = response.json()["logs"]
+    return logs
+
+
+class TestCondominiumsHistory:
+    def test_linking_records_the_added_condominiums(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US11-CA01"""
+        headers, admin = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        bosque = create_condominium(name="Bosque")
+
+        put_condominiums(db_client, headers, client_user, [mirante.id, bosque.id])
+
+        logs = get_history(db_client, headers, client_user)
+        assert len(logs) == 1
+        assert logs[0]["action"] == AuditAction.CONDOMINIUMS_CHANGED.value
+        assert logs[0]["actor"] == {"id": str(admin.id), "name": admin.name}
+        assert logs[0]["old_value"] is None
+        assert logs[0]["new_value"] is None
+        assert logs[0]["added_condominiums"] == [
+            {"id": str(bosque.id), "name": "Bosque"},
+            {"id": str(mirante.id), "name": "Mirante"},
+        ]
+        assert logs[0]["removed_condominiums"] == []
+        assert "created_at" in logs[0]
+
+    def test_replacing_records_only_the_difference(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US11-CA01"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        first = create_condominium(name="Primeiro")
+        second = create_condominium(name="Segundo")
+        third = create_condominium(name="Terceiro")
+        put_condominiums(db_client, headers, client_user, [first.id, second.id])
+
+        put_condominiums(db_client, headers, client_user, [second.id, third.id])
+
+        logs = get_history(db_client, headers, client_user)
+        assert len(logs) == 2
+        assert logs[0]["added_condominiums"] == [
+            {"id": str(third.id), "name": "Terceiro"}
+        ]
+        assert logs[0]["removed_condominiums"] == [
+            {"id": str(first.id), "name": "Primeiro"}
+        ]
+
+    def test_unlinking_everything_records_the_removed_condominiums(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US11-CA01"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        put_condominiums(db_client, headers, client_user, [mirante.id])
+
+        put_condominiums(db_client, headers, client_user, [])
+
+        logs = get_history(db_client, headers, client_user)
+        assert len(logs) == 2
+        assert logs[0]["added_condominiums"] == []
+        assert logs[0]["removed_condominiums"] == [
+            {"id": str(mirante.id), "name": "Mirante"}
+        ]
+
+    def test_sending_the_same_set_records_nothing(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        bosque = create_condominium(name="Bosque")
+        put_condominiums(db_client, headers, client_user, [mirante.id, bosque.id])
+
+        response = put_condominiums(
+            db_client, headers, client_user, [bosque.id, mirante.id, bosque.id]
+        )
+
+        assert response.status_code == 200
+        assert len(get_history(db_client, headers, client_user)) == 1
+
+    def test_empty_list_for_a_client_without_links_records_nothing(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+
+        response = put_condominiums(db_client, headers, client_user, [])
+
+        assert response.status_code == 200
+        assert get_history(db_client, headers, client_user) == []
+
+    def test_refused_change_records_nothing(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+
+        response = put_condominiums(
+            db_client, headers, client_user, [mirante.id, uuid.uuid4()]
+        )
+
+        assert response.status_code == 422
+        assert get_history(db_client, headers, client_user) == []
+
+    def test_history_keeps_the_name_the_condominium_had(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        client_user = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        put_condominiums(db_client, headers, client_user, [mirante.id])
+
+        rename = db_client.patch(
+            f"/condominiums/{mirante.id}",
+            json={"name": "Mirante do Vale"},
+            headers=headers,
+        )
+
+        assert rename.status_code == 200
+        logs = get_history(db_client, headers, client_user)
+        assert logs[0]["added_condominiums"] == [
+            {"id": str(mirante.id), "name": "Mirante"}
+        ]
+
+    def test_role_change_records_the_dropped_links_after_the_role(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US11-CA01"""
+        headers, admin = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="cliente@example.com", role=Role.CLIENT)
+        mirante = create_condominium(name="Mirante")
+        bosque = create_condominium(name="Bosque")
+        put_condominiums(db_client, headers, target, [mirante.id, bosque.id])
+
+        change_role(db_client, headers, target.id, Role.OPERATOR.value)
+
+        logs = get_history(db_client, headers, target)
+        assert [log["action"] for log in logs] == [
+            AuditAction.CONDOMINIUMS_CHANGED.value,
+            AuditAction.ROLE_CHANGED.value,
+            AuditAction.CONDOMINIUMS_CHANGED.value,
+        ]
+        assert logs[0]["actor"]["id"] == str(admin.id)
+        assert logs[0]["added_condominiums"] == []
+        assert logs[0]["removed_condominiums"] == [
+            {"id": str(bosque.id), "name": "Bosque"},
+            {"id": str(mirante.id), "name": "Mirante"},
+        ]
+        assert logs[1]["old_value"] == Role.CLIENT.value
+        assert logs[1]["new_value"] == Role.OPERATOR.value
+        assert logs[1]["added_condominiums"] == []
+        assert logs[1]["removed_condominiums"] == []
+
+    def test_role_change_of_a_client_without_links_records_only_the_role(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="cliente@example.com", role=Role.CLIENT)
+
+        change_role(db_client, headers, target.id, Role.OPERATOR.value)
+
+        logs = get_history(db_client, headers, target)
+        assert [log["action"] for log in logs] == [AuditAction.ROLE_CHANGED.value]
+
+    def test_keeping_the_client_role_records_nothing_about_links(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        create_condominium: CreateCondominium,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="cliente@example.com", role=Role.CLIENT)
+        put_condominiums(
+            db_client, headers, target, [create_condominium(name="Mirante").id]
+        )
+
+        change_role(db_client, headers, target.id, Role.CLIENT.value)
+
+        assert len(get_history(db_client, headers, target)) == 1
+
+
 class TestListLawyers:
     def test_lists_only_active_lawyers_ordered_by_name(
         self,
