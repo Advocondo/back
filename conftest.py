@@ -18,11 +18,16 @@ from tests.support.email import Outbox
 from tests.support.settings import make_settings
 
 pytest_plugins = [
+    "tests.fixtures.metas",
+    "tests.fixtures.users",
+    "tests.fixtures.auth",
+    "tests.fixtures.email",
     "tests.fixtures.users",
     "tests.fixtures.auth",
     "tests.fixtures.email",
     "tests.fixtures.condominios",
     "tests.fixtures.devedores",
+    "tests.fixtures.painel_cliente",
 ]
 
 # Fixtures que precisam do Postgres de teste; quem as usa vira teste de integração.

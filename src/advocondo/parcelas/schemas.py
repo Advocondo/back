@@ -1,10 +1,15 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from advocondo.acordos.schemas import MoneyAmount, MoneyResponse
+from advocondo.acordos.schemas import (
+    CondominiumSummary,
+    DebtorSummary,
+    MoneyAmount,
+    MoneyResponse,
+)
 from advocondo.parcelas.models import Installment
 from advocondo.parcelas.status import InstallmentStatus
 
@@ -20,6 +25,8 @@ class InstallmentResponse(BaseModel):
     condominium_amount: MoneyResponse
     fee_amount: MoneyResponse
     payment_date: date | None
+    # Quanto falta pagar; menor que `amount` depois de um pagamento parcial (US28).
+    remaining_amount: MoneyResponse
     status: InstallmentStatus
 
     @classmethod
@@ -33,8 +40,56 @@ class InstallmentResponse(BaseModel):
             condominium_amount=installment.condominium_amount,
             fee_amount=installment.fee_amount,
             payment_date=installment.payment_date,
+            remaining_amount=installment.remaining_amount,
             status=installment.status_on(today),
         )
+
+
+class InstallmentWithDebtorResponse(InstallmentResponse):
+    """Parcela da listagem do mês, com quem deve e de qual condomínio
+    (US25-CA01)."""
+
+    condominium: CondominiumSummary
+    debtor: DebtorSummary
+
+    @classmethod
+    def from_installment(cls, installment: Installment, today: date) -> Self:
+        installment_fields = InstallmentResponse.from_installment(installment, today)
+        agreement = installment.agreement
+        return cls(
+            **dict(installment_fields),
+            condominium=CondominiumSummary.model_validate(agreement.condominium),
+            debtor=DebtorSummary.model_validate(agreement.debtor),
+        )
+
+
+class PaymentRequest(BaseModel):
+    """Pagamento recebido. Sem `amount`, quita o saldo da parcela (US26); com um
+    valor menor que o saldo, é um pagamento parcial (US28)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    payment_date: date
+    amount: MoneyAmount | None = None
+
+
+class PaymentCorrectionRequest(BaseModel):
+    """Nova data da baixa (US26-CA02)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    payment_date: date
+
+
+class PaymentResponse(BaseModel):
+    """Um pagamento do histórico da parcela (US28-CA02)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    amount: MoneyResponse
+    payment_date: date
+    created_at: datetime
 
 
 class InstallmentUpdateRequest(BaseModel):

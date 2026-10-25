@@ -47,6 +47,11 @@ class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
         ForeignKey("condominiums.id"), index=True
     )
     debtor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("debtors.id"), index=True)
+    # Colaborador que fechou o acordo: é dele o que o acordo rende na meta (US36).
+    # Fica vazio nos acordos cadastrados antes desta coluna existir.
+    closed_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), index=True
+    )
     total_amount: Mapped[Decimal] = mapped_column(MONEY)
     # The office's share of the total (US16). The percentage is kept only when the
     # user typed it, to show it again; the amount is what every calculation uses.
@@ -71,7 +76,9 @@ class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
         order_by="LawyerAssignment.assigned_at", cascade="all, delete-orphan"
     )
     installments: Mapped[list["Installment"]] = relationship(
-        order_by="Installment.number", cascade="all, delete-orphan"
+        order_by="Installment.number",
+        cascade="all, delete-orphan",
+        back_populates="agreement",
     )
 
     @property

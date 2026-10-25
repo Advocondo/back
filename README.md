@@ -69,11 +69,13 @@ O usuário logado edita o próprio nome, e-mail e senha em `PATCH /users/me`. O 
 
 A equipe do escritório cadastra, busca e edita condomínios em `/condominiums`. Veja [Condomínios](docs/condominios.md).
 
-Os devedores de cada condomínio ficam em `/debtors`, com alerta de cadastro duplicado. Veja [Devedores](docs/devedores.md).
+Os devedores de cada condomínio ficam em `/debtors`, com alerta de cadastro duplicado e importação em lote por planilha. Veja [Devedores](docs/devedores.md).
 
 Os acordos com cada devedor ficam em `/agreements`. Veja [Acordos](docs/acordos.md).
 
-O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`. Veja [Parcelas](docs/parcelas.md).
+O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`, onde também ficam as faturas do mês (`GET /installments`) e a baixa de cada parcela, total ou parcial, com o histórico de pagamentos (`/installments/{id}/payment` e `/payments`). Veja [Parcelas](docs/parcelas.md).
+
+O Cliente consulta o status dos acordos dos seus condomínios em `/client-panel`. Veja [Painel do Cliente](docs/painel-cliente.md).
 
 ### Migrations
 

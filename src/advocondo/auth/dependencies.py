@@ -111,3 +111,13 @@ def require_operational_staff(current_user: CurrentUser) -> User:
 
 
 CurrentOperator = Annotated[User, Depends(require_operational_staff)]
+
+
+def require_client(current_user: CurrentUser) -> User:
+    """The Client panel (EP06) is only for Client users; it shows their own condominiums."""
+    if current_user.role != Role.CLIENT:
+        raise PermissionDeniedError()
+    return current_user
+
+
+CurrentClient = Annotated[User, Depends(require_client)]

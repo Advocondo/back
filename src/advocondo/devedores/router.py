@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Form, Query, Response, UploadFile, status
 from fastapi.responses import JSONResponse
 
 from advocondo.auth.dependencies import require_office_staff
@@ -9,11 +9,17 @@ from advocondo.devedores.dependencies import get_debtor_service
 from advocondo.devedores.errors import SimilarDebtorsFoundError
 from advocondo.devedores.schemas import (
     DebtorCreateRequest,
+    DebtorImportResponse,
     DebtorResponse,
     DebtorUpdateRequest,
     SimilarDebtorsResponse,
 )
 from advocondo.devedores.service import DebtorService
+from advocondo.devedores.spreadsheet import (
+    MAX_FILE_BYTES,
+    XLSX_MEDIA_TYPE,
+    build_template,
+)
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
@@ -42,6 +48,36 @@ def register_debtor(
         # Unlike other errors, the answer carries the similar debtors to show the user.
         return similar_debtors_response(warning)
     return DebtorResponse.model_validate(debtor)
+
+
+@router.post("/import")
+def import_debtors(
+    debtor_service: DebtorServiceDependency,
+    condominium_id: Annotated[uuid.UUID, Form()],
+    file: Annotated[UploadFile, Form(description="Planilha .xlsx (ver o modelo)")],
+    confirm: Annotated[
+        bool, Form(description="false só valida; true grava as linhas válidas")
+    ] = False,
+) -> DebtorImportResponse:
+    # One byte over the limit is enough for the service to refuse the file.
+    content = file.file.read(MAX_FILE_BYTES + 1)
+    result = debtor_service.import_spreadsheet(condominium_id, content, confirm=confirm)
+    return DebtorImportResponse.model_validate(result)
+
+
+@router.get(
+    "/import/template",
+    response_class=Response,
+    responses={status.HTTP_200_OK: {"content": {XLSX_MEDIA_TYPE: {}}}},
+)
+def download_import_template() -> Response:
+    return Response(
+        build_template(),
+        media_type=XLSX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": 'attachment; filename="modelo-inadimplentes.xlsx"'
+        },
+    )
 
 
 @router.get("")

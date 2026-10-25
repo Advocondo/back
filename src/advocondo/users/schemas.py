@@ -134,6 +134,13 @@ class ActorResponse(BaseModel):
     name: str
 
 
+class UserCondominiumResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+
+
 class UserAuditLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -142,6 +149,9 @@ class UserAuditLogResponse(BaseModel):
     action: AuditAction
     old_value: str | None
     new_value: str | None
+    # Preenchidas só em condominiums_changed; vazias nas demais ações.
+    added_condominiums: list[UserCondominiumResponse]
+    removed_condominiums: list[UserCondominiumResponse]
     actor: ActorResponse | None
 
 
@@ -156,10 +166,3 @@ class UserCondominiumsUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     condominium_ids: list[uuid.UUID] = Field(max_length=MAX_LINKED_CONDOMINIUMS)
-
-
-class UserCondominiumResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    name: str

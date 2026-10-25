@@ -38,6 +38,12 @@ def monthly_due_dates(first_due_date: date, installment_count: int) -> list[date
     return [add_months(first_due_date, months) for months in range(installment_count)]
 
 
+def first_and_last_day_of_month(year: int, month: int) -> tuple[date, date]:
+    """Primeiro e último dia do mês, para achar as parcelas que vencem nele (US25)."""
+    last_day_of_month = calendar.monthrange(year, month)[1]
+    return date(year, month, 1), date(year, month, last_day_of_month)
+
+
 def add_months(start: date, months: int) -> date:
     month_index = start.month - 1 + months
     year = start.year + month_index // 12

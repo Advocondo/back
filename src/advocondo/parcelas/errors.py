@@ -17,10 +17,30 @@ class PaidInstallmentCannotBeEditedError(BusinessRuleError):
 
 class NoOpenInstallmentAfterError(BusinessRuleError):
     message = (
-        "Não há parcela seguinte em aberto para absorver a diferença de valor. "
+        "Não há parcela seguinte sem pagamento para absorver a diferença de valor. "
         "Para mudar o total, edite o acordo."
     )
 
 
 class FollowingInstallmentWouldBeEmptyError(BusinessRuleError):
     message = "A diferença deixaria alguma parcela seguinte sem valor."
+
+
+class InstallmentAlreadyPaidError(BusinessRuleError):
+    message = "Parcela já paga. Para mudar a data do pagamento, corrija a baixa."
+
+
+class InstallmentNotPaidError(BusinessRuleError):
+    message = "A parcela ainda não foi paga."
+
+
+class PaymentDateInTheFutureError(BusinessRuleError):
+    message = "A data do pagamento não pode ser futura."
+
+
+class PaymentAboveRemainingAmountError(BusinessRuleError):
+    message = "O valor pago é maior que o saldo em aberto da parcela."
+
+
+class PartiallyPaidInstallmentCannotBeEditedError(BusinessRuleError):
+    message = "Parcela com pagamento parcial não pode ser editada."
