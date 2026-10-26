@@ -14,7 +14,11 @@ from advocondo.acordos.models import Agreement
 from advocondo.common.storage import ObjectStorage, get_file_storage
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
-from advocondo.documentos.models import AgreementDocument, AgreementPdf
+from advocondo.documentos.models import (
+    AgreementDocument,
+    AgreementDocumentFile,
+    AgreementPdf,
+)
 from advocondo.documentos.rules import MAX_DOCUMENT_SIZE
 from advocondo.main import app
 from advocondo.users.models import Role, User
@@ -518,7 +522,10 @@ class TestAgreementDocuments:
         assert body["size"] == len(content)
         assert body["uploaded_by"] == {"id": str(operator.id), "name": operator.name}
         saved = db_session.scalars(select(AgreementDocument)).one()
-        assert saved.content == content
+        # Sem bucket configurado, os bytes ficam no banco.
+        assert saved.file is not None
+        assert saved.file.content == content
+        assert saved.file.storage_key is None
 
         listed = db_client.get(
             f"/agreements/{agreement.id}/documents", headers=operator_headers
@@ -900,10 +907,10 @@ class TestLinkInTheList:
 
 class TestFileOrLinkConstraint:
     @pytest.mark.parametrize(
-        ("content", "url"),
+        ("with_file", "url"),
         [
-            pytest.param(DOCUMENT_PDF, "https://example.com/termo.pdf", id="both"),
-            pytest.param(None, None, id="neither"),
+            pytest.param(True, "https://example.com/termo.pdf", id="both"),
+            pytest.param(False, None, id="neither"),
         ],
     )
     def test_database_refuses_a_document_that_is_not_a_file_or_a_link(
@@ -912,15 +919,24 @@ class TestFileOrLinkConstraint:
         operator: User,
         agreement: Agreement,
         clock: FrozenClock,
-        content: bytes | None,
+        with_file: bool,
         url: str | None,
     ) -> None:
         """US21-CA01"""
+        file = (
+            AgreementDocumentFile(
+                content_type="application/pdf",
+                size_bytes=len(DOCUMENT_PDF),
+                content=DOCUMENT_PDF,
+            )
+            if with_file
+            else None
+        )
         db_session.add(
             AgreementDocument(
                 agreement_id=agreement.id,
                 filename="termo.pdf",
-                content=content,
+                file=file,
                 url=url,
                 uploaded_by=operator,
                 uploaded_at=clock.now(),
@@ -929,3 +945,88 @@ class TestFileOrLinkConstraint:
 
         with pytest.raises(IntegrityError):
             db_session.flush()
+
+
+class TestDocumentInBucket:
+    """US21: com o bucket configurado, o arquivo vai para ele, como os PDFs."""
+
+    @pytest.fixture
+    def s3_client(self) -> Iterator[FakeS3Client]:
+        fake = FakeS3Client()
+        storage = ObjectStorage(cast("S3Client", fake), BUCKET)
+        app.dependency_overrides[get_file_storage] = lambda: storage
+        try:
+            yield fake
+        finally:
+            app.dependency_overrides.pop(get_file_storage, None)
+
+    def test_bytes_go_to_the_bucket_and_the_row_keeps_the_key(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        s3_client: FakeS3Client,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = upload(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            DOCUMENT_PDF,
+            "termo.pdf",
+            "application/pdf",
+        )
+
+        assert response.status_code == 201
+        assert response.json()["size"] == len(DOCUMENT_PDF)
+        file = db_session.scalars(select(AgreementDocumentFile)).one()
+        key = f"agreements/{agreement.id}/documents/{file.id}"
+        assert file.storage_key == key
+        assert file.content is None
+        assert s3_client.objects[BUCKET, key] == DOCUMENT_PDF
+        assert s3_client.content_types[BUCKET, key] == "application/pdf"
+
+    def test_download_is_served_by_the_api(
+        self,
+        db_client: TestClient,
+        s3_client: FakeS3Client,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        body = upload(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            DOCUMENT_PDF,
+            "termo.pdf",
+            "application/pdf",
+        ).json()
+
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents/{body['id']}",
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.content == DOCUMENT_PDF
+        assert response.headers["content-type"] == "application/pdf"
+
+    def test_link_puts_nothing_in_the_bucket(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        s3_client: FakeS3Client,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = attach_link(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            "https://drive.example.com/d/termo-assinado",
+            "Termo assinado",
+        )
+
+        assert response.status_code == 201
+        assert s3_client.objects == {}
+        assert db_session.scalars(select(AgreementDocumentFile)).all() == []
