@@ -12,7 +12,7 @@ Comissões, faturamento, indicadores e exportação da equipe ([US32](https://ad
 
 ### `GET /operator-panel/financial` (US32)
 
-Só para a Equipe Operacional; Administrador e Cliente recebem `403`. Traz só os dados de quem consulta (US32-CA01):
+Só para a Equipe Operacional; Administrador e Cliente recebem `403`. Traz só os dados de quem consulta (US32-CA01), com a meta do mês atual definida pelo Administrador na [US36](metas.md):
 
 ```json
 {"goal": "100.00", "accumulated_commission": "20.00", "remaining_to_goal": "80.00", "period": {"month": 3, "year": 2026}}
@@ -20,9 +20,9 @@ Só para a Equipe Operacional; Administrador e Cliente recebem `403`. Traz só o
 
 | Campo | Regra |
 | --- | --- |
-| `goal` | Meta mensal gravada em `users.monthly_goal` (ver Pendências). |
+| `goal` | Meta do mês atual na tabela `goals` (`PUT /users/{id}/goals/{year}/{month}`, [US36](metas.md)). `null` se o Administrador ainda não definiu a meta do mês; a meta de outro mês não vale. |
 | `accumulated_commission` | Comissão do mês atual. |
-| `remaining_to_goal` | Quanto falta para a meta; nunca negativo. |
+| `remaining_to_goal` | Quanto falta para a meta; nunca negativo. `null` sem meta no mês. |
 
 Não há faturamento do escritório nem dado de outros membros (US32-CA02); um teste confere o conjunto exato de campos.
 
@@ -54,7 +54,7 @@ Indicadores de um mês (US34-CA02). `year` e `month` são obrigatórios; mês fo
 | --- | --- |
 | `active_agreements` | Acordos ativos hoje (cancelados ficam de fora). Não depende do mês. |
 | `installments_due` | Parcelas que vencem no mês. |
-| `overdue_installments` | Dessas, as que estavam atrasadas no último dia do mês: sem pagamento ou pagas depois dele. |
+| `overdue_installments` | Dessas, as que estavam atrasadas na data de referência: sem pagamento ou pagas depois dela. A referência é o último dia do mês, para um mês fechado, e hoje, para o mês atual: a parcela que ainda vai vencer não conta. Num mês futuro, nada está atrasado. |
 | `monthly_default_rate` | `overdue_installments ÷ installments_due × 100`, com 2 casas; `0` sem parcelas no mês. |
 | `paid_commissions` | Honorários recebidos no mês. |
 
@@ -78,7 +78,5 @@ Planilha `.xlsx` (`acompanhamento_AAAA_MM.xlsx`) com as parcelas que vencem no m
 
 Encontradas ao escrever os testes; o comportamento atual está descrito acima e ainda não foi mudado.
 
-- **Meta em dois lugares.** O painel lê `users.monthly_goal` (`PATCH /users/{id}/monthly-goal`), mas a meta da [US36](metas.md) fica na tabela `goals`, por mês. Uma meta definida pela US36 não aparece aqui (risco R1 do repositório `docs`).
-- **Atraso do mês atual.** O dashboard mede o atraso no último dia do mês. Para o mês atual, isso conta como atrasada uma parcela que ainda não venceu (vence no dia 20, consulta no dia 10).
 - **Administrador responsável por acordo.** `team_commissions` lista só a Equipe Operacional. A comissão de um Administrador que é o advogado responsável entra em `office_total_revenue`, mas não aparece para ninguém.
 - **Quem recebe o mérito.** A comissão daqui conta os acordos do advogado **responsável**; o atingimento da meta da [US36](metas.md) conta os acordos que o membro **cadastrou**. Os dois números podem não bater para a mesma pessoa.
