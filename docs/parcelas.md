@@ -140,6 +140,16 @@ Devolve as parcelas do acordo, em ordem:
 ]
 ```
 
+### `GET /installments/{id}`
+
+Uma parcela pelo id ([#89](https://github.com/Advocondo/back/issues/89)), com os mesmos campos do plano e, como na listagem do mês, o condomínio e o devedor do acordo:
+
+```json
+{"id": "…", "agreement_id": "…", "number": 1, "due_date": "2026-01-31", "amount": "33.33", "condominium_amount": "30.00", "fee_amount": "3.33", "payment_date": null, "remaining_amount": "33.33", "invoice_number": null, "invoice_date": null, "status": "overdue", "condominium": {"id": "…", "name": "Residencial Mirante"}, "debtor": {"id": "…", "name": "José Simão", "unit": "Bloco B 304"}}
+```
+
+Parcela inexistente: `404`. O Cliente vê as parcelas pelo [Painel do Cliente](painel-cliente.md), sem honorários.
+
 ### `PATCH /installments/{id}`
 
 Edita o vencimento ou o valor de uma parcela **antes da baixa** (US17-CA03). Só os campos enviados mudam:
