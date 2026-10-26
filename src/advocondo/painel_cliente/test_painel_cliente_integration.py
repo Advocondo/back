@@ -1,9 +1,12 @@
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
+from advocondo.acordos.models import Agreement
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
 from advocondo.users.models import Role, User
@@ -441,3 +444,162 @@ def test_agreements_are_ordered_by_condominium_then_debtor_name(
         ("Residencial Mirante", "Ana"),
         ("Residencial Mirante", "Bia"),
     ]
+
+
+def installments_url(agreement_id: object) -> str:
+    return f"{URL}/{agreement_id}/installments"
+
+
+class TestClientInstallments:
+    """#89-CA02 e CA03. Hoje é 2 de março de 2026."""
+
+    @pytest.fixture
+    def agreement(
+        self,
+        create_agreement_with_installments: CreateAgreementWithInstallments,
+        link_client: LinkClient,
+        client_user: User,
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> Agreement:
+        """Três parcelas de R$ 100,00: a primeira paga, a segunda atrasada e a
+        terceira em aberto."""
+        link_client(client_user, mirante)
+        return create_agreement_with_installments(
+            mirante,
+            jose,
+            [
+                (date(2026, 2, 10), date(2026, 2, 12)),
+                (date(2026, 2, 28), None),
+                (date(2026, 3, 31), None),
+            ],
+        )
+
+    def test_lists_only_the_unpaid_installments(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """#89-CA02"""
+        response = db_client.get(installments_url(agreement.id), headers=client_headers)
+
+        assert response.status_code == 200
+        assert response.json() == [
+            {
+                "number": 2,
+                "due_date": "2026-02-28",
+                "amount": "100.00",
+                "remaining_amount": "100.00",
+                "status": "overdue",
+            },
+            {
+                "number": 3,
+                "due_date": "2026-03-31",
+                "amount": "100.00",
+                "remaining_amount": "100.00",
+                "status": "open",
+            },
+        ]
+
+    def test_fees_and_the_split_of_the_amount_are_not_shown(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """#89-CA02 e US38-CA01"""
+        response = db_client.get(installments_url(agreement.id), headers=client_headers)
+
+        for item in response.json():
+            assert set(item) == {
+                "number",
+                "due_date",
+                "amount",
+                "remaining_amount",
+                "status",
+            }
+
+    def test_partly_paid_installment_shows_what_is_left(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        client_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """US28: o pagamento parcial não quita a parcela."""
+        agreement.installments[1].receive(Decimal("40.00"), date(2026, 3, 1))
+        db_session.commit()
+
+        response = db_client.get(installments_url(agreement.id), headers=client_headers)
+
+        second = response.json()[0]
+        assert second["number"] == 2
+        assert second["amount"] == "100.00"
+        assert second["remaining_amount"] == "60.00"
+
+    def test_agreement_of_another_condominium_is_not_found(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        agreement: Agreement,
+        create_agreement_with_installments: CreateAgreementWithInstallments,
+        aurora: Condominium,
+        maria: Debtor,
+    ) -> None:
+        """#89-CA03"""
+        other = create_agreement_with_installments(
+            aurora, maria, [(date(2026, 3, 31), None)]
+        )
+
+        response = db_client.get(installments_url(other.id), headers=client_headers)
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Acordo não encontrado."}
+
+    def test_cancelled_agreement_is_not_found(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        client_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """#89-CA03"""
+        agreement.cancel(None, datetime(2026, 3, 1, tzinfo=UTC))
+        db_session.commit()
+
+        response = db_client.get(installments_url(agreement.id), headers=client_headers)
+
+        assert response.status_code == 404
+
+    def test_unknown_agreement_is_not_found(
+        self, db_client: TestClient, client_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(
+            installments_url("00000000-0000-0000-0000-000000000000"),
+            headers=client_headers,
+        )
+
+        assert response.status_code == 404
+
+    def test_office_staff_cannot_use_the_client_panel(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        agreement: Agreement,
+    ) -> None:
+        headers = authenticate_as(
+            create_user(role=Role.OPERATOR, email="o@example.com")
+        )
+
+        response = db_client.get(installments_url(agreement.id), headers=headers)
+
+        assert response.status_code == 403
+
+    def test_requires_a_session(
+        self, db_client: TestClient, agreement: Agreement
+    ) -> None:
+        response = db_client.get(installments_url(agreement.id))
+
+        assert response.status_code == 401
