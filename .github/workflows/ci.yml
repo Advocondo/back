@@ -55,9 +55,11 @@ jobs:
       - name: Checagem de tipos (mypy)
         run: uv run mypy
 
+      # A cobertura de linhas e ramos precisa ser 100%. Fica só aqui, e não no
+      # pyproject, para rodar um arquivo de teste sozinho não falhar por cobertura.
       - name: Testes com cobertura (pytest)
         id: tests
-        run: uv run pytest --cov-report=xml
+        run: uv run pytest --cov-report=xml --cov-fail-under=100
 
       - name: Resumo da cobertura
         if: always() && steps.tests.outcome != 'skipped'
