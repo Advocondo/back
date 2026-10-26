@@ -42,7 +42,9 @@ O sistema envia um e-mail informativo aos usuários Cliente ativos vinculados ao
 
 O corpo do e-mail contém uma mensagem genérica, o nome do condomínio e o endereço configurado em `FRONTEND_URL`. Não inclui honorários, divisão financeira, devedor, unidade ou dados internos. Cada entrega bem-sucedida cria uma linha em `client_notification_logs` com Cliente, condomínio, tipo do evento, mensagem, link e data/hora (`sent_at`). Uma falha de e-mail é registrada no log da aplicação e não desfaz a alteração de negócio; ela não gera linha de envio bem-sucedido.
 
-O projeto ainda não tem um fechamento mensal automático nem um agendador. Por isso, `monthly_report_ready` está previsto como tipo de evento, mas não é disparado pela exportação mensal manual da equipe.
+O comando `python -m advocondo.painel_cliente.monthly_report_task` fecha o mês anterior, gera e armazena um PDF por condomínio com Clientes ativos vinculados e envia uma notificação de relatório pronto. A execução é idempotente: um relatório existente é reutilizado e um e-mail já registrado para aquele condomínio/período não é reenviado. O PDF fica acessível somente a Clientes vinculados, pelo endpoint `GET /client-panel/condominiums/{condominium_id}/reports/{year}/{month}`.
+
+Configure o comando como *Scheduled Task* diário no Coolify, às 03:00 (`0 3 * * *`), no container da API. A rotina sempre processa o mês civil anterior no horário de Brasília e pode ser repetida com segurança. O link para a rota de relatório no frontend fica pendente da implementação da tela; até lá, o e-mail informa que o PDF está disponível no painel, sem incluir um link inválido.
 
 ## Regras
 

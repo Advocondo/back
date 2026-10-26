@@ -35,6 +35,9 @@ class ClientNotificationService:
         event_type: ClientNotificationEvent,
         message: str,
         link: str | None = None,
+        *,
+        include_frontend_link: bool = True,
+        skip_already_sent: bool = False,
     ) -> None:
         """Notify active Clients linked to the condominium and log each delivery.
 
@@ -42,8 +45,12 @@ class ClientNotificationService:
         failures are reported, but never roll back or fail the completed operation.
         """
         recipients = self._notifications.list_active_clients(condominium_id)
-        email_link = link or self._frontend_url
+        email_link = (link or self._frontend_url) if include_frontend_link else None
         for user, condominium_name in recipients:
+            if skip_already_sent and self._notifications.was_sent(
+                user.id, condominium_id, event_type, message
+            ):
+                continue
             email = build_condominium_update_email(
                 user.name,
                 user.email,
@@ -84,14 +91,11 @@ def build_condominium_update_email(
     email: str,
     condominium_name: str,
     message: str,
-    link: str,
+    link: str | None,
 ) -> EmailMessage:
-    body = (
-        f"Olá, {client_name}.\n\n"
-        f"{message}\n\n"
-        f"Condomínio: {condominium_name}\n\n"
-        f"Acesse o painel do cliente: {link}\n"
-    )
+    body = f"Olá, {client_name}.\n\n{message}\n\nCondomínio: {condominium_name}\n"
+    if link is not None:
+        body += f"\nAcesse o painel do cliente: {link}\n"
     return EmailMessage(
         to=email,
         subject=f"Atualização do condomínio {condominium_name}",

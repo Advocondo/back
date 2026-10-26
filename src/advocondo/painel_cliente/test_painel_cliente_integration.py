@@ -3,9 +3,26 @@ from datetime import UTC, date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from advocondo.common.storage import DatabaseStorage
 from advocondo.condominios.models import Condominium
+from advocondo.config import Settings
 from advocondo.devedores.models import Debtor
+from advocondo.notificacoes.models import (
+    ClientNotificationEvent,
+    ClientNotificationLog,
+)
+from advocondo.notificacoes.repository import ClientNotificationRepository
+from advocondo.notificacoes.service import ClientNotificationService
+from advocondo.painel_cliente.models import CondominiumMonthlyReport
+from advocondo.painel_cliente.monthly_report_repository import (
+    CondominiumMonthlyReportRepository,
+)
+from advocondo.painel_cliente.monthly_report_service import (
+    CondominiumMonthlyReportService,
+)
 from advocondo.users.models import Role, User
 from tests.fixtures.auth import AuthenticateAs
 from tests.fixtures.condominios import CreateCondominium
@@ -16,6 +33,7 @@ from tests.fixtures.painel_cliente import (
 )
 from tests.fixtures.users import CreateUser
 from tests.support.clock import FrozenClock
+from tests.support.email import Outbox
 from tests.support.pdf import pdf_text
 
 URL = "/client-panel/agreements"
@@ -147,9 +165,7 @@ class TestCondominiumReport:
             jose,
             [(date(2026, 2, 1), date(2026, 2, 5)), (date(2026, 4, 10), None)],
         )
-        create_agreement_with_installments(
-            aurora, maria, [(date(2026, 2, 1), None)]
-        )
+        create_agreement_with_installments(aurora, maria, [(date(2026, 2, 1), None)])
         link_client(client_user, mirante)
 
         response = db_client.get(
@@ -181,6 +197,7 @@ class TestCondominiumReport:
         )
 
         assert response.status_code == 404
+
 
 class TestAgreementStatusFollowsInstallments:
     def test_response_shape_and_ordering(
@@ -454,3 +471,114 @@ def test_agreements_are_ordered_by_condominium_then_debtor_name(
         ("Residencial Mirante", "Ana"),
         ("Residencial Mirante", "Bia"),
     ]
+
+
+def test_monthly_report_is_snapshotted_notified_and_downloadable(
+    db_client: TestClient,
+    db_session: Session,
+    outbox: Outbox,
+    clock: FrozenClock,
+    settings: Settings,
+    client_user: User,
+    client_headers: dict[str, str],
+    link_client: LinkClient,
+    mirante: Condominium,
+    jose: Debtor,
+    create_agreement_with_installments: CreateAgreementWithInstallments,
+) -> None:
+    create_agreement_with_installments(
+        mirante,
+        jose,
+        [(date(2026, 2, 10), date(2026, 2, 12))],
+    )
+    link_client(client_user, mirante)
+    notification_service = ClientNotificationService(
+        db_session,
+        ClientNotificationRepository(db_session),
+        outbox,
+        clock,
+        settings.frontend_url,
+    )
+    report_service = CondominiumMonthlyReportService(
+        db_session,
+        CondominiumMonthlyReportRepository(db_session),
+        notification_service,
+        DatabaseStorage(),
+        clock,
+    )
+
+    result = report_service.close_previous_month()
+    report = db_session.scalars(select(CondominiumMonthlyReport)).one()
+    response = db_client.get(
+        f"/client-panel/condominiums/{mirante.id}/reports/2026/2",
+        headers=client_headers,
+    )
+
+    assert result.year == 2026
+    assert result.month == 2
+    assert result.reports_created == 1
+    assert report.condominium_id == mirante.id
+    assert report.generated_at == clock.now()
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["cache-control"] == "no-store"
+    assert "Período: 02/2026" in pdf_text(response.content)
+    assert outbox.messages[-1].to == client_user.email
+    assert "relatório mensal referente a 02/2026" in outbox.messages[-1].body
+    assert "Acesse o painel" not in outbox.messages[-1].body
+    logs = db_session.scalars(select(ClientNotificationLog)).all()
+    assert len(logs) == 1
+    assert logs[0].event_type == ClientNotificationEvent.MONTHLY_REPORT_READY
+    assert logs[0].sent_at == clock.now()
+    assert logs[0].link is None
+
+    repeated = report_service.close_previous_month()
+
+    assert repeated.reports_created == 0
+    assert len(outbox.messages) == 1
+    assert len(db_session.scalars(select(ClientNotificationLog)).all()) == 1
+
+
+def test_monthly_report_is_not_downloadable_by_unlinked_client(
+    db_client: TestClient,
+    db_session: Session,
+    outbox: Outbox,
+    clock: FrozenClock,
+    settings: Settings,
+    client_user: User,
+    link_client: LinkClient,
+    create_agreement_with_installments: CreateAgreementWithInstallments,
+    mirante: Condominium,
+    jose: Debtor,
+    create_user: CreateUser,
+    authenticate_as: AuthenticateAs,
+) -> None:
+    link_client(client_user, mirante)
+    create_agreement_with_installments(
+        mirante, jose, [(date(2026, 2, 10), date(2026, 2, 12))]
+    )
+    notifications = ClientNotificationService(
+        db_session,
+        ClientNotificationRepository(db_session),
+        outbox,
+        clock,
+        settings.frontend_url,
+    )
+    reports = CondominiumMonthlyReportService(
+        db_session,
+        CondominiumMonthlyReportRepository(db_session),
+        notifications,
+        DatabaseStorage(),
+        clock,
+    )
+    reports.close_previous_month()
+    headers = authenticate_as(
+        create_user(role=Role.CLIENT, email="unlinked@example.com")
+    )
+
+    response = db_client.get(
+        f"/client-panel/condominiums/{mirante.id}/reports/2026/2",
+        headers=headers,
+    )
+
+    assert response.status_code == 404

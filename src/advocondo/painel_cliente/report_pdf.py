@@ -26,6 +26,7 @@ def render_condominium_report(
     condominium: Condominium,
     agreements: list[Agreement],
     today: date,
+    period_label: str | None = None,
 ) -> bytes:
     rows: list[tuple[str, str, str, str, str, str]] = []
     total_paid = Decimal(0)
@@ -64,10 +65,15 @@ def render_condominium_report(
     if condominium.cnpj:
         condominium_rows.append(("CNPJ", condominium.cnpj))
 
+    subtitle = (
+        f"Período: {period_label} | Fechado em {format_date(today)}"
+        if period_label is not None
+        else f"Cliente: {client_name} | Gerado em {format_date(today)}"
+    )
     return render_pdf(
         PdfDocument(
             title="Relatório simplificado do condomínio",
-            subtitle=f"Cliente: {client_name} | Gerado em {format_date(today)}",
+            subtitle=subtitle,
             blocks=(
                 PdfSection("Condomínio", condominium_rows),
                 PdfSection(

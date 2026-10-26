@@ -1,10 +1,11 @@
 """Fixtures compartilhadas por todos os testes. Ver docs/testes.md."""
 
+import uuid
 from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session
 
 # Fills the missing environment variables before the app reads its settings on import.
@@ -43,14 +44,25 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 @pytest.fixture(scope="session")
 def db_engine() -> Iterator[Engine]:
-    """Banco de testes isolado, com o schema recriado a cada execução da suíte."""
+    """Schema temporário isolado na base de testes, recriado a cada suíte."""
     url = get_test_database_url()
     ensure_database_exists(url)
-    engine = create_engine(url)
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
-    yield engine
-    engine.dispose()
+    schema = f"test_{uuid.uuid4().hex}"
+    admin_engine = create_engine(url)
+    with admin_engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(
+        url,
+        connect_args={"options": f"-csearch_path={schema}"},
+    )
+    try:
+        Base.metadata.create_all(engine)
+        yield engine
+    finally:
+        engine.dispose()
+        with admin_engine.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin_engine.dispose()
 
 
 @pytest.fixture

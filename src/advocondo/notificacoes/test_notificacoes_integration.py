@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,7 +18,7 @@ from advocondo.users.models import Role, User, UserStatus
 from tests.fixtures.auth import AuthenticateAs
 from tests.fixtures.condominios import CreateCondominium
 from tests.fixtures.devedores import CreateDebtor
-from tests.fixtures.painel_cliente import LinkClient
+from tests.fixtures.painel_cliente import CreateAgreementWithInstallments, LinkClient
 from tests.fixtures.users import CreateUser
 
 
@@ -206,3 +207,95 @@ def test_visible_condominium_update_notifies_linked_client(
     assert len(logs) == 1
     assert logs[0].event_type == ClientNotificationEvent.CONDOMINIUM_UPDATED
     assert logs[0].user_id == client_user.id
+
+
+def test_agreement_renegotiation_notifies_linked_client(
+    db_client: TestClient,
+    db_session: Session,
+    recording_sender: RecordingEmailSender,
+    create_user: CreateUser,
+    authenticate_as: AuthenticateAs,
+    create_condominium: CreateCondominium,
+    create_debtor: CreateDebtor,
+    link_client: LinkClient,
+) -> None:
+    condominium = create_condominium()
+    debtor = create_debtor(condominium)
+    client_user = create_user(role=Role.CLIENT, email="cliente@example.com")
+    link_client(client_user, condominium)
+    operator = create_user(role=Role.OPERATOR, email="operador@example.com")
+    headers = authenticate_as(operator)
+    created = db_client.post(
+        "/agreements",
+        json={
+            "condominium_id": str(condominium.id),
+            "debtor_id": str(debtor.id),
+            "total_amount": "1000.00",
+            "installment_count": 2,
+            "first_due_date": "2026-11-10",
+            "fee_percentage": "10",
+        },
+        headers=headers,
+    )
+
+    response = db_client.patch(
+        f"/agreements/{created.json()['id']}",
+        json={"total_amount": "1200.00"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert len(recording_sender.messages) == 2
+    logs = db_session.scalars(select(ClientNotificationLog)).all()
+    assert [log.event_type for log in logs] == [
+        ClientNotificationEvent.AGREEMENT_CREATED,
+        ClientNotificationEvent.AGREEMENT_UPDATED,
+    ]
+    assert all(log.user_id == client_user.id for log in logs)
+
+
+def test_installment_change_and_payment_notify_linked_client(
+    db_client: TestClient,
+    db_session: Session,
+    recording_sender: RecordingEmailSender,
+    create_user: CreateUser,
+    authenticate_as: AuthenticateAs,
+    create_condominium: CreateCondominium,
+    create_debtor: CreateDebtor,
+    create_agreement_with_installments: CreateAgreementWithInstallments,
+    link_client: LinkClient,
+) -> None:
+    condominium = create_condominium()
+    debtor = create_debtor(condominium)
+    agreement = create_agreement_with_installments(
+        condominium, debtor, [(date(2026, 4, 10), None)]
+    )
+    client_user = create_user(role=Role.CLIENT, email="cliente@example.com")
+    link_client(client_user, condominium)
+    operator = create_user(role=Role.OPERATOR, email="operador@example.com")
+    headers = authenticate_as(operator)
+    plan = db_client.get(
+        f"/agreements/{agreement.id}/installments", headers=headers
+    ).json()
+    installment_id = plan[0]["id"]
+
+    updated = db_client.patch(
+        f"/installments/{installment_id}",
+        json={"due_date": "2026-04-15"},
+        headers=headers,
+    )
+    paid = db_client.post(
+        f"/installments/{installment_id}/payment",
+        json={"payment_date": "2026-03-02"},
+        headers=headers,
+    )
+
+    assert updated.status_code == 200
+    assert paid.status_code == 200
+    logs = db_session.scalars(select(ClientNotificationLog)).all()
+    assert [log.event_type for log in logs] == [
+        ClientNotificationEvent.AGREEMENT_UPDATED,
+        ClientNotificationEvent.PAYMENT_UPDATED,
+    ]
+    assert all(log.user_id == client_user.id for log in logs)
+    assert len(recording_sender.messages) == 2

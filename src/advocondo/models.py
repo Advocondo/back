@@ -4,6 +4,7 @@ from advocondo.acordos.models import Agreement, AgreementEditLog, LawyerAssignme
 from advocondo.auth.models import PasswordResetLink, UserSession
 from advocondo.metas.models import Goal
 from advocondo.notificacoes.models import ClientNotificationLog
+from advocondo.painel_cliente.models import CondominiumMonthlyReport
 from advocondo.users.models import User
 
 __all__ = ["Goal", "PasswordResetLink", "User", "UserSession"]
@@ -19,6 +20,7 @@ __all__ = [
     "AgreementEditLog",
     "AgreementPdf",
     "ClientNotificationLog",
+    "CondominiumMonthlyReport",
     "Condominium",
     "Debtor",
     "Installment",

@@ -29,7 +29,7 @@ uv run pytest -m "not integration"
 - A configuração da aplicação nos testes vem do `.env.example` (fixture `settings`), não do `.env` de quem roda. Testes que dependem de um valor de configuração leem o valor de `settings`, em vez de repetir o número.
 - Antes de importar a aplicação, os testes preenchem com o `.env.example` as variáveis que faltarem no ambiente (`tests/support/environment.py`), sem sobrescrever as que já existem. É o que permite rodar no CI, que só define `TEST_DATABASE_URL`.
 - O nome do banco **precisa terminar em `_test`**. Os testes apagam e recriam o schema, então se a URL apontar para outro banco a suíte para com erro antes de tocar em qualquer dado.
-- O banco é criado automaticamente na primeira execução. O schema é recriado a partir dos modelos (`Base.metadata`) a cada execução da suíte. As migrations são testadas à parte, em `test_app_integration.py` (ver [Migrations](migracoes.md#testes)).
+- O banco é criado automaticamente na primeira execução. Cada execução cria um schema PostgreSQL temporário, constrói nele as tabelas a partir dos modelos (`Base.metadata`) e o remove ao terminar. Tabelas antigas no schema `public` da base não são alteradas. As migrations são testadas à parte, em `test_app_integration.py` (ver [Migrations](migracoes.md#testes)).
 - No CI, o job sobe um Postgres próprio, descartado ao final.
 
 ## Isolamento entre testes
