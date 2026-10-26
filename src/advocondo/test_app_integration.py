@@ -152,3 +152,51 @@ class TestMigrations:
         assert len(status_checks) == 1
         assert "'cancelled'" in status_checks[0]
         assert {"cancelled_at", "cancellation_reason"} <= columns
+
+    def test_upgrade_moves_the_monthly_goal_to_the_goals_table(
+        self, alembic_config: Config, migrations_engine: Engine
+    ) -> None:
+        """R1: a meta gravada no usuário vira a meta do mês atual da US36, sem
+        sobrescrever uma meta que já existe nem criar meta para outros perfis."""
+        command.upgrade(alembic_config, "ee9f5a69e771")
+        with migrations_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO users (email, name, role, status, password_hash,"
+                    " monthly_goal) VALUES"
+                    " ('ana@example.com', 'Ana', 'operator', 'active', 'x', 300),"
+                    " ('bruno@example.com', 'Bruno', 'operator', 'active', 'x', 0),"
+                    " ('carla@example.com', 'Carla', 'operator', 'active', 'x', 200),"
+                    " ('sindico@example.com', 'Síndico', 'client', 'active', 'x', 50)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO goals (user_id, year, month, target_amount)"
+                    " SELECT id,"
+                    " EXTRACT(YEAR FROM now() AT TIME ZONE 'America/Sao_Paulo'),"
+                    " EXTRACT(MONTH FROM now() AT TIME ZONE 'America/Sao_Paulo'),"
+                    " 900 FROM users WHERE email = 'carla@example.com'"
+                )
+            )
+
+        command.upgrade(alembic_config, "71e2626a3918")
+
+        with migrations_engine.connect() as connection:
+            goals: dict[str, int] = dict(
+                connection.execute(
+                    text(
+                        "SELECT users.name, goals.target_amount FROM goals"
+                        " JOIN users ON users.id = goals.user_id"
+                        " WHERE (goals.year, goals.month) = ("
+                        " EXTRACT(YEAR FROM now() AT TIME ZONE 'America/Sao_Paulo'),"
+                        " EXTRACT(MONTH FROM now() AT TIME ZONE 'America/Sao_Paulo'))"
+                    )
+                ).all()
+            )
+        columns = {
+            column["name"] for column in inspect(migrations_engine).get_columns("users")
+        }
+
+        assert goals == {"Ana": 300, "Carla": 900}
+        assert "monthly_goal" not in columns
