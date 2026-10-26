@@ -160,7 +160,7 @@ Em produção, o back-end roda em uma instância da **Oracle Cloud**, gerenciada
 - Os PDFs gerados ficam no banco, a não ser que as variáveis `S3_` apontem para um bucket S3-compatível (Amazon S3, Cloudflare R2, Backblaze B2). Veja [Documentos](docs/documentos.md#onde-os-arquivos-ficam).
 - As variáveis de ambiente e segredos são configurados no painel do Coolify, nunca no repositório. Veja [Variáveis de ambiente e segredos](docs/segredos.md), que também traz a rotina de rotação de credenciais.
 - O `docker-compose.yml` é usado só em desenvolvimento.
-- As migrations rodam pelo *Pre-deployment command* do Coolify (`alembic upgrade head`). Veja [Migrations do banco de dados](docs/migracoes.md).
+- As migrations rodam quando o container sobe (`alembic upgrade head` antes da API, no `CMD` do `Dockerfile.prod`); se uma falhar, a versão nova não sobe. Os campos *Pre-deployment* e *Post-deployment* do Coolify ficam vazios. Veja [Migrations do banco de dados](docs/migracoes.md#deploy).
 - Depois do primeiro deploy, crie o primeiro Administrador pela rota `POST /setup`, com o `SETUP_TOKEN` configurado. Veja [Autenticação](docs/auth.md#primeiro-administrador).
 - Uma *Scheduled Task* diária do Coolify roda `python -m advocondo.auth.cleanup`, que apaga as sessões e os links de redefinição de senha expirados. Veja [Autenticação](docs/auth.md#limpeza-de-sessões-e-links-expirados).
 - Outra *Scheduled Task* diária roda `python -m advocondo.notificacoes.overdue`, logo depois da meia-noite de Brasília, que notifica as parcelas que ficaram atrasadas. Veja [Notificações](docs/notificacoes.md#comando-diário).

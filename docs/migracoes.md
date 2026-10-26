@@ -56,10 +56,18 @@ Para corrigir, atualize a branch com a `main` (`git merge origin/main`) e mude o
 
 ## Deploy
 
-As migrations **não** rodam sozinhas. Em produção, configure no Coolify o *Pre-deployment command* do back-end:
+Em produção, **o próprio container aplica as migrations ao subir**. O comando da imagem (`Dockerfile.prod`) é:
 
 ```bash
-alembic upgrade head
+alembic upgrade head && exec python -m advocondo
 ```
 
-Assim o schema é atualizado antes de a nova versão da API subir. Sempre que possível, escreva migrations compatíveis com a versão anterior da API (ex.: coluna nova com valor padrão ou opcional), para que um deploy com problema possa voltar sem desfazer o banco.
+- A migration roda com o código novo, antes de a API aceitar requisições.
+- Se ela falhar, o container sai com erro e a API não sobe; com o health check, o Coolify mantém o container anterior no ar. O erro aparece no log do deploy.
+- Sem migration pendente, o `alembic upgrade head` não faz nada, então reiniciar o container é seguro.
+
+**Deixe vazios os campos *Pre-deployment* e *Post-deployment* do Coolify.** O *Pre-deployment* roda no container **antigo**, que ainda não tem os arquivos das migrations novas (e é pulado no primeiro deploy); o *Post-deployment* roda no novo, mas só depois de o deploy ser dado como concluído, e uma falha ali não falha o deploy ([documentação do Coolify](https://coolify.io/docs/applications/build-packs/dockerfile)).
+
+Durante a troca, por alguns segundos, o container antigo ainda atende com o schema novo. Por isso, escreva migrations compatíveis com a versão anterior da API (ex.: coluna nova com valor padrão ou opcional), o que também permite voltar um deploy com problema sem desfazer o banco. A API roda com uma réplica; com mais de uma, as migrations precisariam de uma trava para não rodarem ao mesmo tempo.
+
+Para conferir em que migration o banco está, rode no terminal do container, no Coolify: `alembic current`.

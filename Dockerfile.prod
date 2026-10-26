@@ -47,5 +47,9 @@ USER nonroot
 # Use `/app` as the working directory
 WORKDIR /app
 
-# Run the FastAPI application by default (JSON logs; see src/advocondo/__main__.py)
-CMD ["python", "-m", "advocondo"]
+# Apply pending migrations, then run the FastAPI application (JSON logs; see
+# src/advocondo/__main__.py). Migrating here, and not in Coolify's Pre-deployment
+# command, matters: that command runs in the old container, which does not have
+# the new migration files. If a migration fails, this container never starts and
+# Coolify keeps the previous one running. See docs/migracoes.md.
+CMD ["sh", "-c", "alembic upgrade head && exec python -m advocondo"]
