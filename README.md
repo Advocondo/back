@@ -139,7 +139,7 @@ O workflow `.github/workflows/ci.yml` roda em todo push e em todo PR para `main`
 - busca de segredos commitados (gitleaks);
 - lint e formatação (ruff);
 - checagem de tipos (mypy);
-- testes unitários e de integração com relatório de cobertura (pytest-cov), usando um Postgres próprio do job, com o resumo da cobertura no próprio job e o `coverage.xml` como artefato;
+- testes unitários e de integração com relatório de cobertura (pytest-cov), usando um Postgres próprio do job, com o resumo da cobertura no próprio job e o `coverage.xml` como artefato; o job falha se a cobertura de linhas e ramos ficar abaixo de 100%;
 - build do `Dockerfile.prod`.
 
 A branch `main` é protegida: o PR só pode ser mergeado se os jobs **Lint e testes** e **Build da imagem de produção** passarem. O deploy (CD) é feito pelo Coolify quando o código chega na `main`.
