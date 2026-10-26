@@ -30,7 +30,7 @@ Ao trocar a senha, as sessões em outros dispositivos são encerradas e precisam
 
 ### Convites (US07)
 
-Os usuários, fora o primeiro Administrador, entram por convite. As rotas de gestão (`/users/invites`, `/users/{user_id}/…`) exigem um **Administrador** (US07-CA02); a Equipe Operacional e o Cliente recebem `403`.
+Os usuários, fora o primeiro Administrador, entram por convite. As rotas de gestão (`POST /users/invites`, `/users/{user_id}/…`) exigem um **Administrador** (US07-CA02); a Equipe Operacional e o Cliente recebem `403`. Só `POST /users/invites/accept` é pública.
 
 #### `POST /users/invites`
 
@@ -71,7 +71,7 @@ Só para o Administrador (US11-CA02). Responde `{"logs": [...]}`, da ação mais
 
 ### `PATCH /users/{user_id}/monthly-goal`
 
-Corpo `{"monthly_goal": "5000.00"}`, de zero para cima, só para a Equipe Operacional (`422` para os outros perfis). É o valor que o painel da Equipe Operacional mostra como meta ([Painéis financeiros](paineis-financeiros.md)).
+Corpo `{"monthly_goal": "5000.00"}`, de zero para cima. Só o Administrador chama a rota, e o usuário alvo precisa ser da Equipe Operacional (`422` para os outros perfis). É o valor que o painel da Equipe Operacional mostra como meta ([Painéis financeiros](paineis-financeiros.md)).
 
 Esta meta duplica a meta mensal da [US36](metas.md), gravada em outra tabela e por mês (ver Pendências).
 
