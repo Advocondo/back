@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends, Response
 from advocondo.auth.dependencies import CurrentClient
 from advocondo.common.dependencies import Today
 from advocondo.painel_cliente.dependencies import get_client_panel_service
-from advocondo.painel_cliente.schemas import AgreementSummary
+from advocondo.painel_cliente.schemas import (
+    AgreementSummary,
+    ClientInstallment,
+    DebtorPaymentHistory,
+)
 from advocondo.painel_cliente.service import ClientPanelService
 
 router = APIRouter(prefix="/client-panel", tags=["client-panel"])
@@ -47,3 +51,25 @@ def download_condominium_report(
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.get("/agreements/{agreement_id}/installments")
+def list_unpaid_installments(
+    agreement_id: uuid.UUID,
+    current_client: CurrentClient,
+    panel_service: ClientPanelServiceDependency,
+    today: Today,
+) -> list[ClientInstallment]:
+    return panel_service.list_unpaid_installments(
+        current_client.id, agreement_id, today
+    )
+
+
+@router.get("/debtors/{debtor_id}/history")
+def get_debtor_history(
+    debtor_id: uuid.UUID,
+    current_client: CurrentClient,
+    panel_service: ClientPanelServiceDependency,
+    today: Today,
+) -> DebtorPaymentHistory:
+    return panel_service.debtor_history(current_client.id, debtor_id, today)

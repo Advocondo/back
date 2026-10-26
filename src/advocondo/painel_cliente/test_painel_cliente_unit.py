@@ -10,8 +10,12 @@ from advocondo.painel_cliente.repository import (
     ClientPanelRepository,
     client_agreements_query,
 )
-from advocondo.painel_cliente.schemas import AgreementStanding
-from advocondo.painel_cliente.service import ClientPanelService, summarize_agreement
+from advocondo.painel_cliente.schemas import AgreementStanding, MonthStanding
+from advocondo.painel_cliente.service import (
+    ClientPanelService,
+    summarize_agreement,
+    summarize_months,
+)
 from advocondo.parcelas.models import Installment
 
 TODAY = date(2026, 3, 10)
@@ -26,7 +30,7 @@ def make_agreement(
     agreement = Agreement(
         id=uuid.uuid4(),
         condominium=Condominium(name=condominium_name),
-        debtor=Debtor(name=debtor_name, unit="Bloco B 304"),
+        debtor=Debtor(id=uuid.uuid4(), name=debtor_name, unit="Bloco B 304"),
     )
     agreement.installments = [
         Installment(
@@ -38,6 +42,18 @@ def make_agreement(
         for number, (due_date, payment_date) in enumerate(installments, start=1)
     ]
     return agreement
+
+
+def make_installment(
+    due_date: date, paid: str = "0.00", payment_date: date | None = None
+) -> Installment:
+    """R$ 100,00 installment with `paid` already received."""
+    return Installment(
+        due_date=due_date,
+        amount=Decimal("100.00"),
+        paid_amount=Decimal(paid),
+        payment_date=payment_date,
+    )
 
 
 class FakeRepository(ClientPanelRepository):
@@ -131,6 +147,104 @@ class TestListAgreements:
             ("Aurora", "Ana"),
             ("Mirante", "Bia"),
         ]
+
+
+class TestSummarizeMonths:
+    """US38. Hoje é 10 de março de 2026."""
+
+    def test_fully_paid_month(self) -> None:
+        months = summarize_months(
+            [make_installment(date(2026, 2, 10), "100.00", PAID_ON)], [], TODAY
+        )
+
+        assert [(m.month, m.paid_amount, m.open_amount, m.status) for m in months] == [
+            ("2026-02", Decimal("100.00"), Decimal("0.00"), MonthStanding.PAID)
+        ]
+
+    def test_partly_paid_overdue_month(self) -> None:
+        """US28: o pagamento parcial entra no pago e o resto no em aberto."""
+        months = summarize_months(
+            [make_installment(date(2026, 3, 9), "40.00")], [], TODAY
+        )
+
+        assert months[0].paid_amount == Decimal("40.00")
+        assert months[0].open_amount == Decimal("60.00")
+        assert months[0].status == MonthStanding.OVERDUE
+
+    def test_future_month_is_open(self) -> None:
+        months = summarize_months([make_installment(date(2026, 4, 10))], [], TODAY)
+
+        assert months[0].status == MonthStanding.OPEN
+        assert months[0].open_amount == Decimal("100.00")
+
+    def test_installments_of_the_same_month_add_up(self) -> None:
+        """Dois acordos do morador com vencimento no mesmo mês."""
+        months = summarize_months(
+            [
+                make_installment(date(2026, 2, 5), "100.00", PAID_ON),
+                make_installment(date(2026, 2, 20)),
+            ],
+            [],
+            TODAY,
+        )
+
+        assert len(months) == 1
+        assert months[0].paid_amount == Decimal("100.00")
+        assert months[0].open_amount == Decimal("100.00")
+        assert months[0].status == MonthStanding.OVERDUE
+
+    def test_overdue_wins_over_open_in_the_same_month(self) -> None:
+        months = summarize_months(
+            [make_installment(date(2026, 3, 9)), make_installment(date(2026, 3, 31))],
+            [],
+            TODAY,
+        )
+
+        assert months[0].status == MonthStanding.OVERDUE
+
+    def test_months_come_oldest_first(self) -> None:
+        months = summarize_months(
+            [
+                make_installment(date(2026, 4, 10)),
+                make_installment(date(2025, 12, 10)),
+                make_installment(date(2026, 1, 10)),
+            ],
+            [],
+            TODAY,
+        )
+
+        assert [m.month for m in months] == ["2025-12", "2026-01", "2026-04"]
+
+    def test_cancelled_agreements_only_add_what_was_paid(self) -> None:
+        """O que não foi pago no acordo cancelado saiu da cobrança (US20)."""
+        months = summarize_months(
+            [],
+            [
+                make_installment(date(2026, 1, 10), "100.00", PAID_ON),
+                make_installment(date(2026, 2, 10), "30.00"),
+                make_installment(date(2026, 3, 9)),
+            ],
+            TODAY,
+        )
+
+        assert [(m.month, m.paid_amount, m.open_amount, m.status) for m in months] == [
+            ("2026-01", Decimal("100.00"), Decimal(0), MonthStanding.PAID),
+            ("2026-02", Decimal("30.00"), Decimal(0), MonthStanding.PAID),
+        ]
+
+    def test_cancelled_payment_joins_a_month_still_being_charged(self) -> None:
+        months = summarize_months(
+            [make_installment(date(2026, 2, 20))],
+            [make_installment(date(2026, 2, 10), "100.00", PAID_ON)],
+            TODAY,
+        )
+
+        assert months[0].paid_amount == Decimal("100.00")
+        assert months[0].open_amount == Decimal("100.00")
+        assert months[0].status == MonthStanding.OVERDUE
+
+    def test_no_installments_no_months(self) -> None:
+        assert summarize_months([], [], TODAY) == []
 
 
 def test_query_filters_active_agreements_only() -> None:

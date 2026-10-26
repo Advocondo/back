@@ -53,6 +53,13 @@ def search_agreements(
     condominium_id: uuid.UUID | None = None,
     debtor_id: uuid.UUID | None = None,
     responsible_lawyer_id: uuid.UUID | None = None,
+    search: Annotated[
+        str | None,
+        Query(
+            description="Parte do nome do devedor, do condomínio ou do advogado "
+            "responsável"
+        ),
+    ] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[AgreementResponse]:
@@ -61,6 +68,7 @@ def search_agreements(
         condominium_id=condominium_id,
         debtor_id=debtor_id,
         responsible_lawyer_id=responsible_lawyer_id,
+        text=search,
     )
     agreements = agreement_service.search(filters, limit, offset)
     return [AgreementResponse.model_validate(agreement) for agreement in agreements]
@@ -82,6 +90,13 @@ def cancel_agreement(
     return AgreementResponse.model_validate(
         agreement_service.cancel(agreement_id, request)
     )
+
+
+@router.post("/{agreement_id}/reactivate")
+def reactivate_agreement(
+    agreement_id: uuid.UUID, agreement_service: AgreementServiceDependency
+) -> AgreementResponse:
+    return AgreementResponse.model_validate(agreement_service.reactivate(agreement_id))
 
 
 @router.put("/{agreement_id}/responsible-lawyer")

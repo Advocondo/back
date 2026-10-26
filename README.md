@@ -75,7 +75,9 @@ Os devedores de cada condomínio ficam em `/debtors`, com alerta de cadastro dup
 
 Os acordos com cada devedor ficam em `/agreements`. Veja [Acordos](docs/acordos.md).
 
-O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`, onde também ficam as faturas do mês (`GET /installments`) e a baixa de cada parcela, total ou parcial, com o histórico de pagamentos (`/installments/{id}/payment` e `/payments`), e a nota fiscal de cada parcela paga (`/installments/{id}/invoice`). Veja [Parcelas](docs/parcelas.md).
+O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`, onde também ficam as faturas do mês (`GET /installments`) e a baixa de cada parcela, total ou parcial, com o histórico de pagamentos (`/installments/{id}/payment` e `/payments`), e a nota fiscal de cada parcela paga (`/installments/{id}/invoice`). O Administrador vê quem deu baixa, corrigiu, estornou ou editou cada parcela, e as alterações do acordo, em `/agreements/{id}/financial-history`. Veja [Parcelas](docs/parcelas.md).
+
+Quando uma parcela atrasa, o advogado responsável e os Administradores recebem uma notificação no sino, em `/notifications`, criada por um comando diário. Veja [Notificações](docs/notificacoes.md).
 
 O Cliente consulta o status dos acordos dos seus condomínios em `/client-panel`. Veja [Painel do Cliente](docs/painel-cliente.md).
 
@@ -159,6 +161,7 @@ Em produção, o back-end roda em uma instância da **Oracle Cloud**, gerenciada
 - As migrations rodam pelo *Pre-deployment command* do Coolify (`alembic upgrade head`). Veja [Migrations do banco de dados](docs/migracoes.md).
 - Depois do primeiro deploy, crie o primeiro Administrador pela rota `POST /setup`, com o `SETUP_TOKEN` configurado. Veja [Autenticação](docs/auth.md#primeiro-administrador).
 - Uma *Scheduled Task* diária do Coolify roda `python -m advocondo.auth.cleanup`, que apaga as sessões e os links de redefinição de senha expirados. Veja [Autenticação](docs/auth.md#limpeza-de-sessões-e-links-expirados).
+- Outra *Scheduled Task* diária roda `python -m advocondo.notificacoes.overdue`, logo depois da meia-noite de Brasília, que notifica as parcelas que ficaram atrasadas. Veja [Notificações](docs/notificacoes.md#comando-diário).
 - `GET /health` é o health check do container; `GET /health/ready` verifica o banco e deve ser usado pelo monitoramento externo.
 - HTTPS (certificado e redirecionamento de HTTP) fica no proxy do Coolify, e o CORS libera só o front na Vercel (produção e previews). Veja [HTTPS e CORS](docs/https-cors.md).
 - Logs saem em JSON no stdout, e os erros vão para o Sentry quando `SENTRY_DSN` está definida. Veja [Observabilidade](docs/observabilidade.md), que também explica os alertas.

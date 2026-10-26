@@ -110,6 +110,87 @@ class TestInstallmentPlan:
         assert response.status_code == 404
 
 
+class TestGetInstallment:
+    """#89-CA01. O relógio dos testes está em 2 de março de 2026."""
+
+    def test_installment_comes_with_its_condominium_and_debtor(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+        mirante: Condominium,
+    ) -> None:
+        agreement_id = register_agreement("300.00", 3, "2026-02-10")
+        first = get_plan(db_client, operator_headers, agreement_id)[0]
+
+        response = db_client.get(
+            f"/installments/{first['id']}", headers=operator_headers
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == first["id"]
+        assert body["agreement_id"] == agreement_id
+        assert body["number"] == 1
+        assert body["amount"] == "100.00"
+        assert body["condominium_amount"] == "90.00"
+        assert body["fee_amount"] == "10.00"
+        assert body["status"] == "overdue"
+        assert body["condominium"] == {"id": str(mirante.id), "name": mirante.name}
+        assert set(body["debtor"]) == {"id", "name", "unit"}
+
+    def test_admin_can_see_an_installment(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        agreement_id = register_agreement("300.00", 3, "2026-02-10")
+        first = get_plan(db_client, operator_headers, agreement_id)[0]
+        admin_headers = authenticate_as(
+            create_user(email="admin@example.com", role=Role.ADMIN)
+        )
+
+        response = db_client.get(f"/installments/{first['id']}", headers=admin_headers)
+
+        assert response.status_code == 200
+
+    def test_unknown_installment_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(
+            f"/installments/{UNKNOWN_ID}", headers=operator_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Parcela não encontrada."}
+
+    def test_client_user_cannot_see_an_installment(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        agreement_id = register_agreement("300.00", 3, "2026-02-10")
+        first = get_plan(db_client, operator_headers, agreement_id)[0]
+        client_headers = authenticate_as(
+            create_user(email="sindico@example.com", role=Role.CLIENT)
+        )
+
+        response = db_client.get(f"/installments/{first['id']}", headers=client_headers)
+
+        assert response.status_code == 403
+
+    def test_requires_a_session(self, db_client: TestClient) -> None:
+        response = db_client.get(f"/installments/{UNKNOWN_ID}")
+
+        assert response.status_code == 401
+
+
 def amounts(plan: list[dict[str, Any]]) -> list[str]:
     return [installment["amount"] for installment in plan]
 
@@ -933,6 +1014,48 @@ class TestCancelledAgreement:
         assert february == []
         assert repaid.status_code == 422
 
+    def test_reactivation_brings_the_unpaid_installments_back(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        """#88-CA02: as sem pagamento voltam à cobrança e a paga não muda."""
+        response = db_client.post(
+            f"/agreements/{cancelled_agreement_id}/reactivate",
+            headers=operator_headers,
+        )
+        assert response.status_code == 200
+
+        march = list_due_in_month(db_client, operator_headers, year="2026", month="3")
+        plan = get_plan(db_client, operator_headers, cancelled_agreement_id)
+
+        assert [(item["number"], item["status"]) for item in march] == [(2, "open")]
+        assert [item["status"] for item in plan] == ["paid", "open", "open"]
+        assert plan[0]["payment_date"] == "2026-02-12"
+
+    def test_reactivated_agreement_accepts_payments_again(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        """#88"""
+        db_client.post(
+            f"/agreements/{cancelled_agreement_id}/reactivate",
+            headers=operator_headers,
+        )
+        second = get_plan(db_client, operator_headers, cancelled_agreement_id)[1]
+
+        response = db_client.post(
+            payment_url(second["id"]),
+            json={"payment_date": "2026-03-01"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "paid"
+
 
 class TestPartialPayment:
     """US28. O relógio dos testes está em 2 de março de 2026."""
@@ -1390,3 +1513,262 @@ class TestInvoice:
         response = db_client.get("/installments/paid-without-invoice", headers=headers)
 
         assert response.status_code == 403
+
+
+def financial_history_url(agreement_id: str) -> str:
+    return f"/agreements/{agreement_id}/financial-history"
+
+
+def changes(history: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """As linhas do histórico pelo tipo de movimentação. Com o relógio parado, as
+    movimentações de um teste têm o mesmo horário e a ordem entre elas não importa."""
+    return {entry["change"]: entry for entry in history}
+
+
+class TestFinancialHistory:
+    """US31. O relógio dos testes está em 2 de março de 2026, às 9h (UTC)."""
+
+    @pytest.fixture
+    def agreement_id(self, register_agreement: RegisterAgreement) -> str:
+        """Três parcelas de R$ 100,00, com vencimento no dia 10, de fevereiro a abril."""
+        return register_agreement("300.00", 3, "2026-02-10")
+
+    @pytest.fixture
+    def first_installment_id(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> str:
+        installment_id: str = get_plan(db_client, operator_headers, agreement_id)[0][
+            "id"
+        ]
+        return installment_id
+
+    def get_history(
+        self, client: TestClient, headers: dict[str, str], agreement_id: str
+    ) -> list[dict[str, Any]]:
+        response = client.get(financial_history_url(agreement_id), headers=headers)
+        assert response.status_code == 200
+        history: list[dict[str, Any]] = response.json()
+        return history
+
+    def test_payment_is_logged_with_who_when_and_amount(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        admin_headers: dict[str, str],
+        agreement_id: str,
+        first_installment_id: str,
+    ) -> None:
+        """US31-CA01"""
+        sarah = create_user(email="sarah@advocondo.test", name="Sarah Lima")
+        pay(
+            db_client,
+            authenticate_as(sarah),
+            first_installment_id,
+            "2026-02-12",
+            amount="40.00",
+        )
+
+        history = self.get_history(db_client, admin_headers, agreement_id)
+
+        assert history == [
+            {
+                "changed_at": "2026-03-02T09:00:00Z",
+                "changed_by": {"id": str(sarah.id), "name": "Sarah Lima"},
+                "change": "payment_recorded",
+                "installment_number": 1,
+                "field": None,
+                "old_value": None,
+                "new_value": "40.00",
+            }
+        ]
+
+    def test_correction_logs_the_old_and_the_new_payment_date(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        agreement_id: str,
+        first_installment_id: str,
+    ) -> None:
+        """US31-CA01"""
+        pay(db_client, operator_headers, first_installment_id, "2026-02-12")
+
+        db_client.put(
+            payment_url(first_installment_id),
+            json={"payment_date": "2026-02-11"},
+            headers=admin_headers,
+        )
+
+        history = self.get_history(db_client, admin_headers, agreement_id)
+
+        correction = changes(history)["payment_corrected"]
+        assert (correction["old_value"], correction["new_value"]) == (
+            "2026-02-12",
+            "2026-02-11",
+        )
+
+    def test_correction_to_the_same_date_is_not_logged(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        agreement_id: str,
+        first_installment_id: str,
+    ) -> None:
+        pay(db_client, operator_headers, first_installment_id, "2026-02-12")
+
+        db_client.put(
+            payment_url(first_installment_id),
+            json={"payment_date": "2026-02-12"},
+            headers=admin_headers,
+        )
+
+        history = self.get_history(db_client, admin_headers, agreement_id)
+        assert [entry["change"] for entry in history] == ["payment_recorded"]
+
+    def test_reversal_logs_the_reversed_amount(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        agreement_id: str,
+        first_installment_id: str,
+    ) -> None:
+        """US31-CA01: o estorno desfaz também os pagamentos parciais (US28)."""
+        pay(db_client, operator_headers, first_installment_id, "2026-02-12", "40.00")
+        pay(db_client, operator_headers, first_installment_id, "2026-02-20", "20.00")
+
+        db_client.delete(payment_url(first_installment_id), headers=admin_headers)
+
+        history = self.get_history(db_client, admin_headers, agreement_id)
+
+        reversal = changes(history)["payment_reversed"]
+        assert (reversal["old_value"], reversal["new_value"]) == ("60.00", None)
+
+    def test_installment_edit_logs_amount_and_due_date(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        agreement_id: str,
+        first_installment_id: str,
+    ) -> None:
+        """US31-CA01"""
+        db_client.patch(
+            f"/installments/{first_installment_id}",
+            json={"amount": "130.00", "due_date": "2026-02-15"},
+            headers=operator_headers,
+        )
+
+        history = self.get_history(db_client, admin_headers, agreement_id)
+
+        amount = changes(history)["amount_edited"]
+        due_date = changes(history)["due_date_edited"]
+        assert (amount["old_value"], amount["new_value"]) == ("100.00", "130.00")
+        assert (due_date["old_value"], due_date["new_value"]) == (
+            "2026-02-10",
+            "2026-02-15",
+        )
+
+    def test_edit_with_the_same_due_date_is_not_logged(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        agreement_id: str,
+        first_installment_id: str,
+    ) -> None:
+        db_client.patch(
+            f"/installments/{first_installment_id}",
+            json={"due_date": "2026-02-10"},
+            headers=operator_headers,
+        )
+
+        assert self.get_history(db_client, admin_headers, agreement_id) == []
+
+    def test_agreement_edit_is_part_of_the_history(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """US31-CA01, com as alterações do acordo registradas pela US19."""
+        db_client.patch(
+            f"/agreements/{agreement_id}",
+            json={"total_amount": "600.00"},
+            headers=operator_headers,
+        )
+
+        history = self.get_history(db_client, admin_headers, agreement_id)
+
+        total = next(entry for entry in history if entry["field"] == "total_amount")
+        assert total["change"] == "agreement_edited"
+        assert total["installment_number"] is None
+        assert (total["old_value"], total["new_value"]) == ("300.00", "600.00")
+
+    def test_history_starts_with_the_most_recent_change(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        admin_headers: dict[str, str],
+        agreement_id: str,
+        first_installment_id: str,
+        clock: FrozenClock,
+    ) -> None:
+        pay(db_client, operator_headers, first_installment_id, "2026-02-12")
+        clock.advance(timedelta(minutes=5))
+        db_client.delete(payment_url(first_installment_id), headers=admin_headers)
+
+        history = self.get_history(db_client, admin_headers, agreement_id)
+
+        assert [entry["change"] for entry in history] == [
+            "payment_reversed",
+            "payment_recorded",
+        ]
+        assert [entry["changed_at"] for entry in history] == [
+            "2026-03-02T09:05:00Z",
+            "2026-03-02T09:00:00Z",
+        ]
+
+    def test_operator_cannot_see_the_history(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """US31-CA02"""
+        response = db_client.get(
+            financial_history_url(agreement_id), headers=operator_headers
+        )
+
+        assert response.status_code == 403
+
+    def test_client_user_cannot_see_the_history(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        agreement_id: str,
+    ) -> None:
+        """US31-CA02"""
+        headers = authenticate_as(
+            create_user(email="client_history@advocondo.test", role=Role.CLIENT)
+        )
+
+        response = db_client.get(financial_history_url(agreement_id), headers=headers)
+
+        assert response.status_code == 403
+
+    def test_history_of_unknown_agreement_is_not_found(
+        self, db_client: TestClient, admin_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(
+            financial_history_url(UNKNOWN_ID), headers=admin_headers
+        )
+
+        assert response.status_code == 404
