@@ -24,6 +24,8 @@ Definição das metas mensais dos membros da Equipe Operacional ([US36](https://
 
 O mês de uma parcela é o da data de pagamento. A base é o honorário recebido, e não a comissão, porque o percentual da comissão é da [US32](https://advocondo.github.io/docs/historias/ep05-comissoes-metas/#us32). Acordos cadastrados antes de o sistema guardar quem os fechou não entram na conta de ninguém.
 
+A meta do mês também aparece no painel da Equipe Operacional ([Painéis financeiros](paineis-financeiros.md), US32), ao lado da comissão acumulada. Até 26/10 o painel lia outro campo, `users.monthly_goal`; ele foi removido, e cada meta gravada nele virou a meta do mês em que a migration `71e2626a3918` rodou, sem sobrescrever uma meta da US36 que já existisse.
+
 ## Rotas
 
 ### `PUT /users/{user_id}/goals/{year}/{month}`

@@ -10,6 +10,7 @@ from advocondo.users.models import Role, User
 from tests.fixtures.auth import AuthenticateAs
 from tests.fixtures.condominios import CreateCondominium
 from tests.fixtures.devedores import CreateDebtor
+from tests.fixtures.metas import CreateGoal
 from tests.fixtures.painel_cliente import CreateAgreementWithInstallments
 from tests.fixtures.users import CreateUser
 
@@ -77,14 +78,13 @@ class TestOperatorFinancialSummary:
     def test_operator_sees_only_their_own_commission_of_the_month(
         self,
         db_client: TestClient,
-        db_session: Session,
         authenticate_as: AuthenticateAs,
+        create_goal: CreateGoal,
         ana: User,
         portfolio: None,
     ) -> None:
-        """US32-CA01"""
-        ana.monthly_goal = Decimal("100.00")
-        db_session.flush()
+        """US32-CA01: a meta é a do mês, definida pelo Administrador (US36)."""
+        create_goal(ana, 2026, 3, Decimal("100.00"))
 
         response = db_client.get(URL, headers=authenticate_as(ana))
 
@@ -99,14 +99,13 @@ class TestOperatorFinancialSummary:
     def test_goal_already_reached_leaves_nothing_remaining(
         self,
         db_client: TestClient,
-        db_session: Session,
         authenticate_as: AuthenticateAs,
+        create_goal: CreateGoal,
         ana: User,
         portfolio: None,
     ) -> None:
         """US32-CA01: a comissão acima da meta não deixa saldo negativo."""
-        ana.monthly_goal = Decimal("15.00")
-        db_session.flush()
+        create_goal(ana, 2026, 3, Decimal("15.00"))
 
         body = db_client.get(URL, headers=authenticate_as(ana)).json()
 
@@ -125,7 +124,44 @@ class TestOperatorFinancialSummary:
         body = db_client.get(URL, headers=authenticate_as(carla)).json()
 
         assert body["accumulated_commission"] == "0.00"
-        assert body["goal"] == "0.00"
+
+    def test_without_a_goal_for_the_month_the_goal_is_empty(
+        self,
+        db_client: TestClient,
+        authenticate_as: AuthenticateAs,
+        create_goal: CreateGoal,
+        ana: User,
+        portfolio: None,
+    ) -> None:
+        """US32-CA01: a meta de outro mês não vale para o mês atual."""
+        create_goal(ana, 2026, 2, Decimal("100.00"))
+
+        body = db_client.get(URL, headers=authenticate_as(ana)).json()
+
+        assert body["goal"] is None
+        assert body["remaining_to_goal"] is None
+        assert body["accumulated_commission"] == "20.00"
+
+    def test_goal_defined_by_the_admin_shows_up_in_the_panel(
+        self,
+        db_client: TestClient,
+        authenticate_as: AuthenticateAs,
+        create_user: CreateUser,
+        ana: User,
+    ) -> None:
+        """US32 e US36: a meta definida pela rota da US36 é a que o painel mostra."""
+        admin = create_user(email="admin@example.com", role=Role.ADMIN)
+        defined = db_client.put(
+            f"/users/{ana.id}/goals/2026/3",
+            json={"target_amount": "250.00"},
+            headers=authenticate_as(admin),
+        )
+
+        body = db_client.get(URL, headers=authenticate_as(ana)).json()
+
+        assert defined.status_code == 200
+        assert body["goal"] == "250.00"
+        assert body["remaining_to_goal"] == "250.00"
 
     def test_no_office_total_nor_other_members_data(
         self,

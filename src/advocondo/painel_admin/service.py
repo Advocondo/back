@@ -51,7 +51,10 @@ class AdminPanelService:
 
         period_start = date(year, month, 1)
         period_end = month_bounds(period_start)[1]
-        as_of_date = date.fromordinal(period_end.toordinal() - 1)
+        # Um mês fechado é medido no último dia; o mês atual, hoje, para não contar
+        # como atrasada a parcela que ainda vai vencer.
+        last_day = date.fromordinal(period_end.toordinal() - 1)
+        as_of_date = min(last_day, today_in_brazil(self._clock.now()))
         installments_due = self._repository.count_installments_due(
             period_start, period_end
         )

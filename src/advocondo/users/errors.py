@@ -69,10 +69,6 @@ class TargetNotClientError(BusinessRuleError):
     message = "Somente usuários com perfil Cliente têm condomínios vinculados."
 
 
-class TargetNotOperatorError(BusinessRuleError):
-    message = "A meta financeira só pode ser configurada para usuários Operacionais."
-
-
 class UnknownCondominiumsError(BusinessRuleError):
     def __init__(self, missing_ids: list[uuid.UUID]) -> None:
         listed = ", ".join(str(missing_id) for missing_id in missing_ids)

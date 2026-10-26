@@ -192,6 +192,53 @@ class TestAdminDashboard:
         assert january["monthly_default_rate"] == 0.0
         assert january["paid_commissions"] == "0.00"
 
+    def test_current_month_counts_only_what_is_already_overdue_today(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        admin_headers: dict[str, str],
+        create_agreement_with_installments: CreateAgreementWithInstallments,
+        create_debtor: CreateDebtor,
+        mirante: Condominium,
+    ) -> None:
+        """US34-CA01: hoje é 02/03; a parcela de 01/03 está atrasada, a de 10/03
+        ainda não venceu."""
+        create_agreement_with_installments(
+            mirante,
+            create_debtor(mirante),
+            [(date(2026, 3, 1), None), (date(2026, 3, 10), None)],
+        )
+        db_session.flush()
+
+        body = db_client.get(
+            DASHBOARD_URL, params={"year": 2026, "month": 3}, headers=admin_headers
+        ).json()
+
+        assert body["installments_due"] == 2
+        assert body["overdue_installments"] == 1
+        assert body["monthly_default_rate"] == 50.0
+
+    def test_future_month_has_nothing_overdue(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        admin_headers: dict[str, str],
+        create_agreement_with_installments: CreateAgreementWithInstallments,
+        create_debtor: CreateDebtor,
+        mirante: Condominium,
+    ) -> None:
+        create_agreement_with_installments(
+            mirante, create_debtor(mirante), [(date(2026, 4, 10), None)]
+        )
+        db_session.flush()
+
+        body = db_client.get(
+            DASHBOARD_URL, params={"year": 2026, "month": 4}, headers=admin_headers
+        ).json()
+
+        assert body["installments_due"] == 1
+        assert body["overdue_installments"] == 0
+
     def test_cancelled_agreements_are_not_active(
         self,
         db_client: TestClient,

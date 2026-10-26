@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime
-from decimal import Decimal
 from typing import Annotated, Self
 
 from pydantic import (
@@ -91,12 +90,6 @@ class UserStatusUpdateRequest(BaseModel):
         if value == UserStatus.PENDING:
             raise ValueError("Use o convite para criar um usuário pendente.")
         return value
-
-
-class UserMonthlyGoalUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    monthly_goal: Annotated[Decimal, Field(ge=0, max_digits=12, decimal_places=2)]
 
 
 class UserRoleUpdateRequest(BaseModel):

@@ -17,9 +17,10 @@ class FinancialPeriod(BaseModel):
 
 
 class OperationalFinancialSummary(BaseModel):
-    goal: MoneyResponse
+    # Meta do mês atual (US36); vazia quando o Administrador ainda não a definiu.
+    goal: MoneyResponse | None
     accumulated_commission: MoneyResponse
-    remaining_to_goal: MoneyResponse
+    remaining_to_goal: MoneyResponse | None
     period: FinancialPeriod
 
 

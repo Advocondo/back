@@ -1,7 +1,6 @@
 import enum
 import uuid
 from datetime import datetime
-from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
@@ -9,7 +8,6 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
-    Numeric,
     String,
     func,
 )
@@ -75,10 +73,6 @@ class User(UuidPrimaryKeyMixin, TimestampsMixin, Base):
     password_hash: Mapped[str | None] = mapped_column(String(255))
     is_lawyer: Mapped[bool] = mapped_column(Boolean, default=False)
     oab_number: Mapped[str | None] = mapped_column(String(MAX_OAB_LENGTH))
-    # Meta financeira mensal configurada pela administração (US32).
-    monthly_goal: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2), default=Decimal("0.00"), server_default="0.00"
-    )
 
     @property
     def can_log_in(self) -> bool:

@@ -69,12 +69,6 @@ Corpo `{"role": "admin" | "operator" | "client"}`. As permissões seguem o perfi
 
 Só para o Administrador (US11-CA02). Responde `{"logs": [...]}`, da ação mais recente para a mais antiga. Cada linha traz `created_at`, `action` (`invited`, `status_changed`, `role_changed` ou `condominiums_changed`), o autor em `actor` (`{id, name}`), `old_value` e `new_value` (US11-CA01), além de `added_condominiums` e `removed_condominiums`, preenchidas só nas mudanças de vínculo.
 
-### `PATCH /users/{user_id}/monthly-goal`
-
-Corpo `{"monthly_goal": "5000.00"}`, de zero para cima. Só o Administrador chama a rota, e o usuário alvo precisa ser da Equipe Operacional (`422` para os outros perfis). É o valor que o painel da Equipe Operacional mostra como meta ([Painéis financeiros](paineis-financeiros.md)).
-
-Esta meta duplica a meta mensal da [US36](metas.md), gravada em outra tabela e por mês (ver Pendências).
-
 ### Condomínios de um Cliente
 
 Um Cliente só deve ver dados dos condomínios vinculados a ele; sem nenhum vínculo, não vê nada (US10-CA02). Os vínculos ficam na tabela `user_condominiums`, e o filtro das consultas de acordos é aplicado pela US37. As duas rotas abaixo exigem um Administrador e respondem `200` com `[{"id": "…", "name": "…"}]`, ordenado por nome.
@@ -109,8 +103,7 @@ Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of
 | Situação de usuário com convite pendente | `422` | `Usuário com convite pendente precisa aceitar o convite antes.` |
 | Administrador inativando o próprio acesso | `422` | `Você não pode inativar o seu próprio acesso.` |
 | Administrador mudando o próprio perfil | `422` | `Você não pode alterar o seu próprio perfil.` |
-| Meta mensal de quem não é da Equipe Operacional | `422` | `A meta financeira só pode ser configurada para usuários Operacionais.` |
-| Usuário inexistente (situação, perfil, histórico, meta) | `404` | `Usuário não encontrado.` |
+| Usuário inexistente (situação, perfil, histórico) | `404` | `Usuário não encontrado.` |
 | Rotas de gestão sem ser Administrador | `403` | `Você não tem permissão para esta operação.` |
 | Vínculo de condomínios: lista com mais de 500 IDs, ID que não é UUID, `condominium_ids` ausente ou campo extra | `422` | erros de validação do FastAPI |
 | Vínculo de condomínios (`PUT` ou `GET`): usuário não é Cliente | `422` | `Somente usuários com perfil Cliente têm condomínios vinculados.` |
@@ -133,5 +126,4 @@ Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of
 
 ## Pendências
 
-- **Meta mensal em dois lugares**: `users.monthly_goal` (`PATCH /users/{user_id}/monthly-goal`) e a tabela `goals` da [US36](metas.md). O painel da Equipe Operacional lê a primeira; o plano é ficar só com a da US36 (risco R1 do repositório `docs`).
 - **Limite de tentativas da senha atual**: como no login (ver as pendências em [Autenticação](auth.md)), a rota não limita tentativas erradas.
