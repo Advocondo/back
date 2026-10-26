@@ -59,7 +59,6 @@ class NotificationService:
         self._session.commit()
 
 
-
 class ClientNotificationService:
     def __init__(
         self,
