@@ -92,6 +92,13 @@ def cancel_agreement(
     )
 
 
+@router.post("/{agreement_id}/reactivate")
+def reactivate_agreement(
+    agreement_id: uuid.UUID, agreement_service: AgreementServiceDependency
+) -> AgreementResponse:
+    return AgreementResponse.model_validate(agreement_service.reactivate(agreement_id))
+
+
 @router.put("/{agreement_id}/responsible-lawyer")
 def assign_responsible_lawyer(
     agreement_id: uuid.UUID,

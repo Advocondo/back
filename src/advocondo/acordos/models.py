@@ -108,6 +108,13 @@ class Agreement(UuidPrimaryKeyMixin, TimestampsMixin, Base):
         self.cancelled_at = now
         self.cancellation_reason = reason
 
+    def reactivate(self) -> None:
+        """Desfaz o cancelamento (#88): o acordo volta a ser ativo e as parcelas sem
+        pagamento voltam à cobrança. Quem chama confere antes se ele está cancelado."""
+        self.status = AgreementStatus.ACTIVE
+        self.cancelled_at = None
+        self.cancellation_reason = None
+
     def assign_lawyer(self, lawyer: User, assigned_by: User, now: datetime) -> bool:
         """Passa o acordo para `lawyer` e guarda a troca no histórico (US18).
 

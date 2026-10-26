@@ -50,6 +50,10 @@ class AgreementCancelledError(BusinessRuleError):
     message = "Acordo cancelado não aceita esta operação."
 
 
+class AgreementNotCancelledError(BusinessRuleError):
+    message = "O acordo não está cancelado."
+
+
 class OpenInstallmentsNotConfirmedError(ConflictError):
     """O acordo ainda tem parcelas sem pagamento e o usuário não confirmou (US20)."""
 
