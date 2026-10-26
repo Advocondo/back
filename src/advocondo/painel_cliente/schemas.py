@@ -21,6 +21,8 @@ class AgreementSummary(BaseModel):
 
     id: uuid.UUID
     condominium_name: str
+    # Para o front abrir o histórico do morador (US38).
+    debtor_id: uuid.UUID
     debtor_name: str
     debtor_unit: str
     status: AgreementStanding
@@ -38,3 +40,27 @@ class ClientInstallment(BaseModel):
     # Quanto falta pagar; menor que `amount` depois de um pagamento parcial (US28).
     remaining_amount: MoneyResponse
     status: InstallmentStatus
+
+
+class MonthStanding(enum.StrEnum):
+    """Situação de uma competência no histórico do morador (US38)."""
+
+    PAID = "pago"
+    OPEN = "em_aberto"
+    OVERDUE = "atrasado"
+
+
+class PaymentHistoryMonth(BaseModel):
+    """Uma competência (mês de vencimento) do histórico. Só o total pago e o total
+    em aberto: nada de honorários nem da divisão do valor (US38-CA01)."""
+
+    month: str
+    paid_amount: MoneyResponse
+    open_amount: MoneyResponse
+    status: MonthStanding
+
+
+class DebtorPaymentHistory(BaseModel):
+    debtor_name: str
+    debtor_unit: str
+    months: list[PaymentHistoryMonth]
