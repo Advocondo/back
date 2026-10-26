@@ -102,6 +102,7 @@ O marcador `integration` é aplicado automaticamente a quem usa `db_session` ou 
 ## Exemplos de referência
 
 - **Teste parametrizado:** `src/advocondo/test_app_unit.py`. Um mesmo teste roda com vários casos via `@pytest.mark.parametrize`, usando `pytest.param(..., id=...)` para dar nomes legíveis aos casos.
+- **Quando parametrizar:** a maioria dos testes de unidade é parametrizada. Se dois ou mais testes fazem a mesma checagem e só mudam a entrada e o resultado esperado (regra válida e inválida, limite de um lado e do outro, com e sem um campo opcional), eles viram um teste só, com um `pytest.param` por caso. Um teste que descreve um cenário próprio, com passos ou asserções diferentes, continua separado: não se parametriza um caso único só para cumprir a regra. Quando o teste cita um critério de aceitação, o identificador fica na docstring, para valer em todos os casos (ver [Rastreabilidade](https://advocondo.github.io/docs/rastreabilidade/implementacao/)).
 - **Teste de integração:** `src/advocondo/test_app_integration.py`. Faz uma requisição à API, que usa o banco de teste de verdade.
 - **Parametrizado + integração:** `src/advocondo/test_app_integration.py`.
 - **Conteúdo de PDF:** `src/advocondo/documentos/test_documentos_integration.py`. O texto do PDF é extraído com `pdf_text` (`tests/support/pdf.py`), e o bucket é simulado por um cliente S3 em memória (`tests/support/storage.py`).
