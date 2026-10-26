@@ -13,10 +13,15 @@ from advocondo.documentos.service import AgreementPdfService, DocumentService
 
 def get_document_service(
     session: Annotated[Session, Depends(get_session)],
+    storage: Annotated[FileStorage, Depends(get_file_storage)],
     clock: Annotated[Clock, Depends(get_clock)],
 ) -> DocumentService:
     return DocumentService(
-        session, AgreementRepository(session), DocumentRepository(session), clock
+        session=session,
+        agreements=AgreementRepository(session),
+        documents=DocumentRepository(session),
+        storage=storage,
+        clock=clock,
     )
 
 

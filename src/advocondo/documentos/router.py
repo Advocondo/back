@@ -62,10 +62,10 @@ def download_document(
     document_id: uuid.UUID,
     document_service: DocumentServiceDependency,
 ) -> Response:
-    document = document_service.get_file(agreement_id, document_id)
+    document, file, content = document_service.download(agreement_id, document_id)
     return Response(
-        content=document.content,
-        media_type=document.content_type,
+        content=content,
+        media_type=file.content_type,
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{quote(document.filename)}",
             "X-Content-Type-Options": "nosniff",
