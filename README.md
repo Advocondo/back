@@ -81,6 +81,8 @@ Quando uma parcela atrasa, o advogado responsável e os Administradores recebem 
 
 O Cliente consulta o status dos acordos dos seus condomínios em `/client-panel`. Veja [Painel do Cliente](docs/painel-cliente.md).
 
+Comissões, faturamento, indicadores e a exportação para Excel ficam em `/operator-panel` e `/admin-panel`. Veja [Painéis financeiros](docs/paineis-financeiros.md).
+
 O conteúdo da landing page fica em `/landing`: o site lê as seções sem login, e o Administrador edita textos e fotos da equipe. Veja [Página institucional](docs/landing.md).
 
 O PDF de cada acordo é gerado e baixado em `/agreements/{id}/pdfs`, com as mesmas permissões do acordo. Veja [Documentos](docs/documentos.md).
