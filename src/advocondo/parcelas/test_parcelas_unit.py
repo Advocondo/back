@@ -72,21 +72,39 @@ class TestFirstAndLastDayOfMonth:
 
 
 class TestMonthlyDueDates:
-    def test_one_due_date_per_month_on_the_same_day(self) -> None:
+    @pytest.mark.parametrize(
+        ("first", "count", "expected"),
+        [
+            pytest.param(
+                date(2026, 11, 10),
+                3,
+                [date(2026, 11, 10), date(2026, 12, 10), date(2027, 1, 10)],
+                id="same-day-crossing-the-year",
+            ),
+            pytest.param(
+                date(2026, 1, 31),
+                4,
+                [
+                    date(2026, 1, 31),
+                    date(2026, 2, 28),
+                    date(2026, 3, 31),
+                    date(2026, 4, 30),
+                ],
+                id="missing-day-moves-to-the-last-day",
+            ),
+            pytest.param(
+                date(2028, 1, 31),
+                2,
+                [date(2028, 1, 31), date(2028, 2, 29)],
+                id="leap-february",
+            ),
+        ],
+    )
+    def test_one_due_date_per_month(
+        self, first: date, count: int, expected: list[date]
+    ) -> None:
         """US17-CA01"""
-        assert monthly_due_dates(date(2026, 11, 10), 3) == [
-            date(2026, 11, 10),
-            date(2026, 12, 10),
-            date(2027, 1, 10),
-        ]
-
-    def test_day_missing_in_the_month_moves_to_the_last_day(self) -> None:
-        assert monthly_due_dates(date(2026, 1, 31), 4) == [
-            date(2026, 1, 31),
-            date(2026, 2, 28),
-            date(2026, 3, 31),
-            date(2026, 4, 30),
-        ]
+        assert monthly_due_dates(first, count) == expected
 
 
 class TestAbsorbDifference:

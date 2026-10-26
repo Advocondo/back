@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 
 import pytest
@@ -17,37 +18,49 @@ def make_user(role: Role) -> User:
     )
 
 
-class TestRequireOfficeStaff:
-    @pytest.mark.parametrize("role", [Role.ADMIN, Role.OPERATOR])
-    def test_office_staff_is_allowed(self, role: Role) -> None:
-        user = make_user(role)
+@pytest.mark.parametrize(
+    ("require", "role", "allowed"),
+    [
+        pytest.param(require_office_staff, Role.ADMIN, True, id="office-admin"),
+        pytest.param(require_office_staff, Role.OPERATOR, True, id="office-operator"),
+        pytest.param(require_office_staff, Role.CLIENT, False, id="office-client"),
+        pytest.param(require_client, Role.CLIENT, True, id="client-panel-client"),
+        pytest.param(require_client, Role.ADMIN, False, id="client-panel-admin"),
+        pytest.param(require_client, Role.OPERATOR, False, id="client-panel-operator"),
+    ],
+)
+def test_only_the_allowed_roles_pass(
+    require: Callable[[User], User], role: Role, allowed: bool
+) -> None:
+    """Rotas do escritório são da Equipe Operacional e do Administrador; o painel
+    do Cliente (EP06), só do Cliente."""
+    user = make_user(role)
 
-        assert require_office_staff(user) is user
-
-    def test_client_is_refused(self) -> None:
+    if allowed:
+        assert require(user) is user
+    else:
         with pytest.raises(PermissionDeniedError):
-            require_office_staff(make_user(Role.CLIENT))
+            require(user)
 
 
-class TestRequireClient:
-    def test_client_is_allowed(self) -> None:
-        user = make_user(Role.CLIENT)
-
-        assert require_client(user) is user
-
-    @pytest.mark.parametrize("role", [Role.ADMIN, Role.OPERATOR])
-    def test_office_staff_is_refused(self, role: Role) -> None:
-        with pytest.raises(PermissionDeniedError):
-            require_client(make_user(role))
-
-
-class TestExpiredResetLinkRetention:
-    def test_a_short_request_window_keeps_links_for_a_day(self) -> None:
-        retention = expired_reset_link_retention(timedelta(minutes=60))
-
-        assert retention == MIN_EXPIRED_RESET_LINK_RETENTION == timedelta(hours=24)
-
-    def test_a_request_window_longer_than_a_day_keeps_links_for_the_window(
-        self,
-    ) -> None:
-        assert expired_reset_link_retention(timedelta(hours=48)) == timedelta(hours=48)
+@pytest.mark.parametrize(
+    ("request_window", "retention"),
+    [
+        pytest.param(
+            timedelta(minutes=60),
+            MIN_EXPIRED_RESET_LINK_RETENTION,
+            id="short-window-keeps-a-day",
+        ),
+        pytest.param(timedelta(hours=24), timedelta(hours=24), id="exactly-a-day"),
+        pytest.param(
+            timedelta(hours=48),
+            timedelta(hours=48),
+            id="longer-window-keeps-the-window",
+        ),
+    ],
+)
+def test_expired_reset_links_are_kept_for_the_request_window(
+    request_window: timedelta, retention: timedelta
+) -> None:
+    assert MIN_EXPIRED_RESET_LINK_RETENTION == timedelta(hours=24)
+    assert expired_reset_link_retention(request_window) == retention

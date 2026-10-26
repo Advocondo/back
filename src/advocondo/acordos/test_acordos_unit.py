@@ -47,12 +47,22 @@ def make_user(name: str, **fields: Any) -> User:
 
 
 class TestAgreementCreateRequest:
-    def test_total_amount_keeps_the_cents_exactly(self) -> None:
+    @pytest.mark.parametrize(
+        ("typed", "expected"),
+        [
+            pytest.param("4500.10", Decimal("4500.10"), id="cents"),
+            pytest.param("0.01", Decimal("0.01"), id="one-cent"),
+            pytest.param("4500", Decimal("4500.00"), id="whole-number"),
+        ],
+    )
+    def test_total_amount_keeps_the_cents_exactly(
+        self, typed: str, expected: Decimal
+    ) -> None:
         request = AgreementCreateRequest.model_validate(
-            {**IDS, **PLAN, "total_amount": "4500.10"}
+            {**IDS, **PLAN, "total_amount": typed}
         )
 
-        assert request.total_amount == Decimal("4500.10")
+        assert request.total_amount == expected
 
     @pytest.mark.parametrize(
         "fields",
@@ -196,26 +206,26 @@ class TestAssignLawyer:
 
 
 class TestEnsureCanBeResponsible:
-    def test_active_lawyer_can_be_responsible(self) -> None:
-        """US18-CA01"""
-        ensure_can_be_responsible(make_user("Marina"))
-
     @pytest.mark.parametrize(
-        ("is_lawyer", "status"),
+        ("is_lawyer", "status", "eligible"),
         [
-            pytest.param(False, UserStatus.ACTIVE, id="not-a-lawyer"),
-            pytest.param(True, UserStatus.PENDING, id="pending-lawyer"),
-            pytest.param(True, UserStatus.INACTIVE, id="inactive-lawyer"),
+            pytest.param(True, UserStatus.ACTIVE, True, id="active-lawyer"),
+            pytest.param(False, UserStatus.ACTIVE, False, id="not-a-lawyer"),
+            pytest.param(True, UserStatus.PENDING, False, id="pending-lawyer"),
+            pytest.param(True, UserStatus.INACTIVE, False, id="inactive-lawyer"),
         ],
     )
-    def test_others_cannot_be_responsible(
-        self, is_lawyer: bool, status: UserStatus
+    def test_only_an_active_lawyer_can_be_responsible(
+        self, is_lawyer: bool, status: UserStatus, eligible: bool
     ) -> None:
         """US18-CA01"""
         candidate = make_user("Candidato", is_lawyer=is_lawyer, status=status)
 
-        with pytest.raises(LawyerNotEligibleError):
+        if eligible:
             ensure_can_be_responsible(candidate)
+        else:
+            with pytest.raises(LawyerNotEligibleError):
+                ensure_can_be_responsible(candidate)
 
 
 class TestFeeAfterEdit:
@@ -388,22 +398,23 @@ def make_installment(number: int, paid: bool = False) -> Installment:
 
 
 class TestCancelAgreement:
-    def test_cancelling_keeps_the_moment_and_the_reason(self) -> None:
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            pytest.param("Devedor desistiu do acordo", id="with-reason"),
+            pytest.param(None, id="reason-is-optional"),
+        ],
+    )
+    def test_cancelling_keeps_the_moment_and_the_reason(
+        self, reason: str | None
+    ) -> None:
         agreement = Agreement(status=AgreementStatus.ACTIVE)
 
-        agreement.cancel("Devedor desistiu do acordo", NOW)
+        agreement.cancel(reason, NOW)
 
         assert agreement.status == AgreementStatus.CANCELLED
         assert agreement.cancelled_at == NOW
-        assert agreement.cancellation_reason == "Devedor desistiu do acordo"
-
-    def test_the_reason_is_optional(self) -> None:
-        agreement = Agreement(status=AgreementStatus.ACTIVE)
-
-        agreement.cancel(None, NOW)
-
-        assert agreement.status == AgreementStatus.CANCELLED
-        assert agreement.cancellation_reason is None
+        assert agreement.cancellation_reason == reason
 
     def test_reactivating_forgets_the_cancellation(self) -> None:
         """#88"""

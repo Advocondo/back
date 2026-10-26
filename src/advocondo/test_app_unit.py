@@ -330,18 +330,23 @@ class TestSecurity:
         with pytest.raises(ValidationError):
             make_settings(read_from_environment=(variavel.lower(),))
 
-    def test_hsts_quando_configurado(self) -> None:
-        client = TestClient(create_app(make_settings(hsts_max_age=31536000)))
+    @pytest.mark.parametrize(
+        ("overrides", "header"),
+        [
+            pytest.param(
+                {"hsts_max_age": 31536000},
+                "max-age=31536000; includeSubDomains",
+                id="configurado",
+            ),
+            pytest.param({}, None, id="desligado-por-padrao"),
+        ],
+    )
+    def test_hsts(self, overrides: dict[str, Any], header: str | None) -> None:
+        client = TestClient(create_app(make_settings(**overrides)))
 
         response = client.get("/health")
 
-        assert (
-            response.headers["strict-transport-security"]
-            == "max-age=31536000; includeSubDomains"
-        )
-
-    def test_hsts_desligado_por_padrao(self, client: TestClient) -> None:
-        assert "strict-transport-security" not in client.get("/health").headers
+        assert response.headers.get("strict-transport-security") == header
 
 
 class TestConfig:
@@ -374,29 +379,42 @@ class TestConfig:
 
         assert getattr(settings, field_name) is None
 
-    def test_setup_token_with_the_minimum_length_is_accepted(self) -> None:
-        token = "a" * MIN_SETUP_TOKEN_LENGTH
-
-        assert make_settings(setup_token=token).setup_token == token
-
-    def test_setup_token_shorter_than_the_minimum_is_refused(self) -> None:
-        with pytest.raises(ValidationError, match="SETUP_TOKEN"):
-            make_settings(setup_token="a" * (MIN_SETUP_TOKEN_LENGTH - 1))
-
-    def test_files_stay_in_the_database_without_a_bucket(self) -> None:
-        assert make_settings().uses_object_storage is False
-
     @pytest.mark.parametrize(
-        "endpoint_url",
+        ("length", "accepted"),
         [
-            pytest.param("https://conta.r2.cloudflarestorage.com", id="r2-or-b2"),
-            pytest.param("", id="amazon-s3"),
+            pytest.param(MIN_SETUP_TOKEN_LENGTH, True, id="minimum-length"),
+            pytest.param(MIN_SETUP_TOKEN_LENGTH + 1, True, id="above-the-minimum"),
+            pytest.param(MIN_SETUP_TOKEN_LENGTH - 1, False, id="one-short"),
         ],
     )
-    def test_complete_bucket_configuration(self, endpoint_url: str) -> None:
-        settings = make_settings(**S3_SETTINGS, s3_endpoint_url=endpoint_url)
+    def test_setup_token_minimum_length(self, length: int, accepted: bool) -> None:
+        token = "a" * length
 
-        assert settings.uses_object_storage is True
+        if accepted:
+            assert make_settings(setup_token=token).setup_token == token
+        else:
+            with pytest.raises(ValidationError, match="SETUP_TOKEN"):
+                make_settings(setup_token=token)
+
+    @pytest.mark.parametrize(
+        ("overrides", "uses_bucket"),
+        [
+            pytest.param({}, False, id="database-without-a-bucket"),
+            pytest.param(
+                {
+                    **S3_SETTINGS,
+                    "s3_endpoint_url": "https://conta.r2.cloudflarestorage.com",
+                },
+                True,
+                id="r2-or-b2",
+            ),
+            pytest.param({**S3_SETTINGS, "s3_endpoint_url": ""}, True, id="amazon-s3"),
+        ],
+    )
+    def test_bucket_is_used_only_when_configured(
+        self, overrides: dict[str, Any], uses_bucket: bool
+    ) -> None:
+        assert make_settings(**overrides).uses_object_storage is uses_bucket
 
     @pytest.mark.parametrize(
         ("overrides", "missing"),
@@ -406,6 +424,17 @@ class TestConfig:
             ),
             pytest.param({"s3_region": ""}, "S3_REGION", id="no-region"),
             pytest.param({"s3_bucket": ""}, "S3_BUCKET", id="no-bucket"),
+            pytest.param(
+                {
+                    "s3_endpoint_url": "https://s3.us-west-004.backblazeb2.com",
+                    "s3_region": "",
+                    "s3_bucket": "",
+                    "s3_access_key_id": "",
+                    "s3_secret_access_key": "",
+                },
+                "S3_BUCKET",
+                id="endpoint-alone",
+            ),
         ],
     )
     def test_partial_bucket_configuration_stops_the_api(
@@ -413,10 +442,6 @@ class TestConfig:
     ) -> None:
         with pytest.raises(ValidationError, match=missing):
             make_settings(**{**S3_SETTINGS, **overrides})
-
-    def test_endpoint_alone_stops_the_api(self) -> None:
-        with pytest.raises(ValidationError, match="S3_BUCKET"):
-            make_settings(s3_endpoint_url="https://s3.us-west-004.backblazeb2.com")
 
 
 class TestSentry:

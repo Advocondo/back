@@ -105,29 +105,36 @@ class TestAgreementDocument:
         ]
         assert table.footer == ("Total", "", "R$ 200,00", "", "")
 
-    def test_condominium_with_cnpj_and_address(self) -> None:
-        rows = rows_of(
-            make_agreement(
-                cnpj="11222333000181",
-                street="Rua das Flores, 100",
-                neighborhood="Asa Sul",
-                city="Brasília",
-                state="DF",
-                zip_code="70000123",
+    @pytest.mark.parametrize(
+        ("fields", "expected"),
+        [
+            pytest.param(
+                {
+                    "cnpj": "11222333000181",
+                    "street": "Rua das Flores, 100",
+                    "neighborhood": "Asa Sul",
+                    "city": "Brasília",
+                    "state": "DF",
+                    "zip_code": "70000123",
+                },
+                {
+                    "Nome": "Residencial Mirante",
+                    "CNPJ": "11.222.333/0001-81",
+                    "Endereço": (
+                        "Rua das Flores, 100, Asa Sul, Brasília/DF, CEP 70000-123"
+                    ),
+                },
+                id="with-cnpj-and-address",
             ),
-            "Condomínio",
-        )
-
-        assert rows == {
-            "Nome": "Residencial Mirante",
-            "CNPJ": "11.222.333/0001-81",
-            "Endereço": "Rua das Flores, 100, Asa Sul, Brasília/DF, CEP 70000-123",
-        }
-
-    def test_condominium_without_optional_data(self) -> None:
-        assert rows_of(make_agreement(), "Condomínio") == {
-            "Nome": "Residencial Mirante"
-        }
+            pytest.param(
+                {}, {"Nome": "Residencial Mirante"}, id="without-optional-data"
+            ),
+        ],
+    )
+    def test_condominium_section(
+        self, fields: dict[str, str], expected: dict[str, str]
+    ) -> None:
+        assert rows_of(make_agreement(**fields), "Condomínio") == expected
 
     def test_no_fee_anywhere(self) -> None:
         """The Client downloads the same file (US24-CA03) and never sees fees (US16)."""
@@ -210,15 +217,24 @@ class TestCleanFilename:
 
 
 class TestValidateDocument:
-    def test_valid_document_returns_its_type(self) -> None:
+    @pytest.mark.parametrize(
+        ("content", "content_type"),
+        [
+            pytest.param(PDF, "application/pdf", id="pdf"),
+            pytest.param(PNG, "image/png", id="png"),
+            pytest.param(JPEG, "image/jpeg", id="jpeg"),
+            pytest.param(
+                b"%PDF-" + b"0" * (MAX_DOCUMENT_SIZE - 5),
+                "application/pdf",
+                id="maximum-size",
+            ),
+        ],
+    )
+    def test_valid_document_returns_its_type(
+        self, content: bytes, content_type: str
+    ) -> None:
         """US21-CA01"""
-        assert validate_document(PDF) == "application/pdf"
-
-    def test_document_with_the_maximum_size_is_accepted(self) -> None:
-        """US21-CA01"""
-        content = b"%PDF-" + b"0" * (MAX_DOCUMENT_SIZE - 5)
-
-        assert validate_document(content) == "application/pdf"
+        assert validate_document(content) == content_type
 
     @pytest.mark.parametrize(
         ("content", "error"),
