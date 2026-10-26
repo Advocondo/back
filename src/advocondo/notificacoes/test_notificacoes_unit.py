@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -20,18 +21,41 @@ def make_user(
     return User(id=uuid.uuid4(), role=role, status=status)
 
 
+Scenario = tuple[User | None, list[User], list[User]]
+
+
+def lawyer_and_two_admins() -> Scenario:
+    lawyer = make_user()
+    admins = [make_user(Role.ADMIN), make_user(Role.ADMIN)]
+    return lawyer, admins, [*admins, lawyer]
+
+
+def no_responsible_lawyer() -> Scenario:
+    admins = [make_user(Role.ADMIN)]
+    return None, admins, admins
+
+
+def admin_who_is_the_lawyer() -> Scenario:
+    admin_and_lawyer = make_user(Role.ADMIN)
+    return admin_and_lawyer, [admin_and_lawyer], [admin_and_lawyer]
+
+
 class TestRecipients:
-    def test_responsible_lawyer_and_administrators_are_notified(self) -> None:
+    @pytest.mark.parametrize(
+        "scenario",
+        [
+            pytest.param(lawyer_and_two_admins, id="lawyer-and-administrators"),
+            pytest.param(no_responsible_lawyer, id="only-administrators"),
+            pytest.param(admin_who_is_the_lawyer, id="admin-lawyer-notified-once"),
+        ],
+    )
+    def test_responsible_lawyer_and_administrators_are_notified(
+        self, scenario: Callable[[], Scenario]
+    ) -> None:
         """US30-CA01"""
-        lawyer = make_user()
-        admins = [make_user(Role.ADMIN), make_user(Role.ADMIN)]
+        lawyer, admins, expected = scenario()
 
-        assert recipients(lawyer, admins) == [*admins, lawyer]
-
-    def test_only_administrators_without_a_responsible_lawyer(self) -> None:
-        admins = [make_user(Role.ADMIN)]
-
-        assert recipients(None, admins) == admins
+        assert recipients(lawyer, admins) == expected
 
     @pytest.mark.parametrize(
         "status",
@@ -44,13 +68,6 @@ class TestRecipients:
         admins = [make_user(Role.ADMIN)]
 
         assert recipients(make_user(status=status), admins) == admins
-
-    def test_administrator_who_is_the_responsible_lawyer_is_notified_once(
-        self,
-    ) -> None:
-        admin_and_lawyer = make_user(Role.ADMIN)
-
-        assert recipients(admin_and_lawyer, [admin_and_lawyer]) == [admin_and_lawyer]
 
 
 class TestMarkAsRead:

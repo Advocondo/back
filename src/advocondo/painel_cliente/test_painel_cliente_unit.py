@@ -3,6 +3,8 @@ from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from advocondo.acordos.models import Agreement
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
@@ -67,59 +69,65 @@ class FakeRepository(ClientPanelRepository):
 
 
 class TestSummarizeAgreement:
-    def test_agreement_without_installments_is_on_time(self) -> None:
-        summary = summarize_agreement(make_agreement([]), TODAY)
-
-        assert summary.status == AgreementStanding.ON_TIME
-        assert summary.overdue_installments == 0
-        assert summary.next_due_date is None
-
-    def test_agreement_with_everything_paid_is_on_time(self) -> None:
-        agreement = make_agreement(
-            [(date(2026, 2, 10), PAID_ON), (date(2026, 3, 10), PAID_ON)]
-        )
-
-        summary = summarize_agreement(agreement, TODAY)
-
-        assert summary.status == AgreementStanding.ON_TIME
-        assert summary.next_due_date is None
-
-    def test_one_overdue_installment_makes_the_agreement_overdue(self) -> None:
-        agreement = make_agreement(
-            [(date(2026, 2, 10), PAID_ON), (date(2026, 3, 9), None)]
-        )
-
-        summary = summarize_agreement(agreement, TODAY)
-
-        assert summary.status == AgreementStanding.OVERDUE
-        assert summary.overdue_installments == 1
-
-    def test_installment_due_today_is_not_overdue(self) -> None:
-        summary = summarize_agreement(make_agreement([(TODAY, None)]), TODAY)
-
-        assert summary.status == AgreementStanding.ON_TIME
-        assert summary.next_due_date == TODAY
-
-    def test_overdue_installments_are_counted(self) -> None:
-        agreement = make_agreement(
-            [(date(2026, 1, 10), None), (date(2026, 2, 10), None), (TODAY, None)]
-        )
-
-        assert summarize_agreement(agreement, TODAY).overdue_installments == 2
-
-    def test_next_due_date_is_the_earliest_unpaid_installment_not_overdue(
+    @pytest.mark.parametrize(
+        ("installments", "status", "overdue", "next_due_date"),
+        [
+            pytest.param([], AgreementStanding.ON_TIME, 0, None, id="no-installments"),
+            pytest.param(
+                [(date(2026, 2, 10), PAID_ON), (date(2026, 3, 10), PAID_ON)],
+                AgreementStanding.ON_TIME,
+                0,
+                None,
+                id="everything-paid",
+            ),
+            pytest.param(
+                [(date(2026, 2, 10), PAID_ON), (date(2026, 3, 9), None)],
+                AgreementStanding.OVERDUE,
+                1,
+                None,
+                id="one-overdue",
+            ),
+            pytest.param(
+                [(TODAY, None)],
+                AgreementStanding.ON_TIME,
+                0,
+                TODAY,
+                id="due-today-is-not-overdue",
+            ),
+            pytest.param(
+                [(date(2026, 1, 10), None), (date(2026, 2, 10), None), (TODAY, None)],
+                AgreementStanding.OVERDUE,
+                2,
+                TODAY,
+                id="overdue-are-counted",
+            ),
+            pytest.param(
+                [
+                    (date(2026, 2, 10), None),
+                    (date(2026, 4, 10), None),
+                    (date(2026, 3, 20), None),
+                    (date(2026, 3, 15), PAID_ON),
+                ],
+                AgreementStanding.OVERDUE,
+                1,
+                date(2026, 3, 20),
+                id="next-due-is-the-earliest-unpaid-not-overdue",
+            ),
+        ],
+    )
+    def test_status_overdue_count_and_next_due_date(
         self,
+        installments: list[tuple[date, date | None]],
+        status: AgreementStanding,
+        overdue: int,
+        next_due_date: date | None,
     ) -> None:
-        agreement = make_agreement(
-            [
-                (date(2026, 2, 10), None),
-                (date(2026, 4, 10), None),
-                (date(2026, 3, 20), None),
-                (date(2026, 3, 15), PAID_ON),
-            ]
-        )
+        """US37-CA02: hoje é 10/03; a parcela vence no fim do dia."""
+        summary = summarize_agreement(make_agreement(installments), TODAY)
 
-        assert summarize_agreement(agreement, TODAY).next_due_date == date(2026, 3, 20)
+        assert summary.status == status
+        assert summary.overdue_installments == overdue
+        assert summary.next_due_date == next_due_date
 
     def test_summary_names_the_condominium_and_the_debtor(self) -> None:
         summary = summarize_agreement(make_agreement([]), TODAY)
@@ -151,102 +159,100 @@ class TestListAgreements:
         ]
 
 
+MonthRow = tuple[str, str, str, MonthStanding]
+
+
 class TestSummarizeMonths:
     """US38. Hoje é 10 de março de 2026."""
 
-    def test_fully_paid_month(self) -> None:
-        months = summarize_months(
-            [make_installment(date(2026, 2, 10), "100.00", PAID_ON)], [], TODAY
-        )
+    @pytest.mark.parametrize(
+        ("collected", "cancelled", "expected"),
+        [
+            pytest.param([], [], [], id="no-installments"),
+            pytest.param(
+                [make_installment(date(2026, 2, 10), "100.00", PAID_ON)],
+                [],
+                [("2026-02", "100.00", "0.00", MonthStanding.PAID)],
+                id="fully-paid",
+            ),
+            pytest.param(
+                [make_installment(date(2026, 3, 9), "40.00")],
+                [],
+                [("2026-03", "40.00", "60.00", MonthStanding.OVERDUE)],
+                id="us28-partly-paid-and-overdue",
+            ),
+            pytest.param(
+                [make_installment(date(2026, 4, 10))],
+                [],
+                [("2026-04", "0.00", "100.00", MonthStanding.OPEN)],
+                id="future-month-is-open",
+            ),
+            pytest.param(
+                [
+                    make_installment(date(2026, 2, 5), "100.00", PAID_ON),
+                    make_installment(date(2026, 2, 20)),
+                ],
+                [],
+                [("2026-02", "100.00", "100.00", MonthStanding.OVERDUE)],
+                id="two-agreements-in-the-same-month-add-up",
+            ),
+            pytest.param(
+                [
+                    make_installment(date(2026, 3, 9)),
+                    make_installment(date(2026, 3, 31)),
+                ],
+                [],
+                [("2026-03", "0.00", "200.00", MonthStanding.OVERDUE)],
+                id="overdue-wins-over-open",
+            ),
+            pytest.param(
+                [
+                    make_installment(date(2026, 4, 10)),
+                    make_installment(date(2025, 12, 10)),
+                    make_installment(date(2026, 1, 10)),
+                ],
+                [],
+                [
+                    ("2025-12", "0.00", "100.00", MonthStanding.OVERDUE),
+                    ("2026-01", "0.00", "100.00", MonthStanding.OVERDUE),
+                    ("2026-04", "0.00", "100.00", MonthStanding.OPEN),
+                ],
+                id="oldest-month-first",
+            ),
+            pytest.param(
+                [],
+                [
+                    make_installment(date(2026, 1, 10), "100.00", PAID_ON),
+                    make_installment(date(2026, 2, 10), "30.00"),
+                    make_installment(date(2026, 3, 9)),
+                ],
+                [
+                    ("2026-01", "100.00", "0.00", MonthStanding.PAID),
+                    ("2026-02", "30.00", "0.00", MonthStanding.PAID),
+                ],
+                id="us20-cancelled-adds-only-what-was-paid",
+            ),
+            pytest.param(
+                [make_installment(date(2026, 2, 20))],
+                [make_installment(date(2026, 2, 10), "100.00", PAID_ON)],
+                [("2026-02", "100.00", "100.00", MonthStanding.OVERDUE)],
+                id="cancelled-payment-joins-a-month-still-charged",
+            ),
+        ],
+    )
+    def test_months_add_what_was_paid_and_what_is_open(
+        self,
+        collected: list[Installment],
+        cancelled: list[Installment],
+        expected: list[MonthRow],
+    ) -> None:
+        """US38-CA01"""
+        months = summarize_months(collected, cancelled, TODAY)
 
-        assert [(m.month, m.paid_amount, m.open_amount, m.status) for m in months] == [
-            ("2026-02", Decimal("100.00"), Decimal("0.00"), MonthStanding.PAID)
-        ]
-
-    def test_partly_paid_overdue_month(self) -> None:
-        """US28: o pagamento parcial entra no pago e o resto no em aberto."""
-        months = summarize_months(
-            [make_installment(date(2026, 3, 9), "40.00")], [], TODAY
-        )
-
-        assert months[0].paid_amount == Decimal("40.00")
-        assert months[0].open_amount == Decimal("60.00")
-        assert months[0].status == MonthStanding.OVERDUE
-
-    def test_future_month_is_open(self) -> None:
-        months = summarize_months([make_installment(date(2026, 4, 10))], [], TODAY)
-
-        assert months[0].status == MonthStanding.OPEN
-        assert months[0].open_amount == Decimal("100.00")
-
-    def test_installments_of_the_same_month_add_up(self) -> None:
-        """Dois acordos do morador com vencimento no mesmo mês."""
-        months = summarize_months(
-            [
-                make_installment(date(2026, 2, 5), "100.00", PAID_ON),
-                make_installment(date(2026, 2, 20)),
-            ],
-            [],
-            TODAY,
-        )
-
-        assert len(months) == 1
-        assert months[0].paid_amount == Decimal("100.00")
-        assert months[0].open_amount == Decimal("100.00")
-        assert months[0].status == MonthStanding.OVERDUE
-
-    def test_overdue_wins_over_open_in_the_same_month(self) -> None:
-        months = summarize_months(
-            [make_installment(date(2026, 3, 9)), make_installment(date(2026, 3, 31))],
-            [],
-            TODAY,
-        )
-
-        assert months[0].status == MonthStanding.OVERDUE
-
-    def test_months_come_oldest_first(self) -> None:
-        months = summarize_months(
-            [
-                make_installment(date(2026, 4, 10)),
-                make_installment(date(2025, 12, 10)),
-                make_installment(date(2026, 1, 10)),
-            ],
-            [],
-            TODAY,
-        )
-
-        assert [m.month for m in months] == ["2025-12", "2026-01", "2026-04"]
-
-    def test_cancelled_agreements_only_add_what_was_paid(self) -> None:
-        """O que não foi pago no acordo cancelado saiu da cobrança (US20)."""
-        months = summarize_months(
-            [],
-            [
-                make_installment(date(2026, 1, 10), "100.00", PAID_ON),
-                make_installment(date(2026, 2, 10), "30.00"),
-                make_installment(date(2026, 3, 9)),
-            ],
-            TODAY,
-        )
-
-        assert [(m.month, m.paid_amount, m.open_amount, m.status) for m in months] == [
-            ("2026-01", Decimal("100.00"), Decimal(0), MonthStanding.PAID),
-            ("2026-02", Decimal("30.00"), Decimal(0), MonthStanding.PAID),
-        ]
-
-    def test_cancelled_payment_joins_a_month_still_being_charged(self) -> None:
-        months = summarize_months(
-            [make_installment(date(2026, 2, 20))],
-            [make_installment(date(2026, 2, 10), "100.00", PAID_ON)],
-            TODAY,
-        )
-
-        assert months[0].paid_amount == Decimal("100.00")
-        assert months[0].open_amount == Decimal("100.00")
-        assert months[0].status == MonthStanding.OVERDUE
-
-    def test_no_installments_no_months(self) -> None:
-        assert summarize_months([], [], TODAY) == []
+        assert [
+            (m.month, f"{m.paid_amount:.2f}", f"{m.open_amount:.2f}", m.status)
+            for m in months
+        ] == expected
 
 
 def test_query_filters_active_agreements_only() -> None:
@@ -265,21 +271,22 @@ def test_query_filters_active_agreements_only() -> None:
 class TestCondominiumReport:
     """US39-CA02: o relatório só mostra dados do condomínio do Cliente."""
 
-    def test_cnpj_appears_when_registered(self) -> None:
-        condominium = Condominium(name="Residencial Mirante", cnpj="11222333000181")
+    @pytest.mark.parametrize(
+        ("cnpj", "shown", "hidden"),
+        [
+            pytest.param("11222333000181", "11222333000181", None, id="with-cnpj"),
+            pytest.param(None, "Residencial Mirante", "CNPJ", id="without-cnpj"),
+        ],
+    )
+    def test_condominium_data_in_the_report(
+        self, cnpj: str | None, shown: str, hidden: str | None
+    ) -> None:
+        condominium = Condominium(name="Residencial Mirante", cnpj=cnpj)
 
         text = pdf_text(
             render_condominium_report("Síndico", condominium, [], date(2026, 3, 2))
         )
 
-        assert "11222333000181" in text
-
-    def test_report_without_cnpj_has_only_the_name(self) -> None:
-        condominium = Condominium(name="Residencial Mirante", cnpj=None)
-
-        text = pdf_text(
-            render_condominium_report("Síndico", condominium, [], date(2026, 3, 2))
-        )
-
-        assert "Residencial Mirante" in text
-        assert "CNPJ" not in text
+        assert shown in text
+        if hidden is not None:
+            assert hidden not in text

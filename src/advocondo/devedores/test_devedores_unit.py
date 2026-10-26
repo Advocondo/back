@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 from io import BytesIO
 
 import pytest
@@ -31,45 +32,63 @@ def make_debtor(name: str, unit: str) -> Debtor:
 
 class TestFindSimilarDebtors:
     @pytest.mark.parametrize(
-        ("name", "unit"),
+        ("name", "unit", "similar"),
         [
-            pytest.param("José Simão", "Torre A 101", id="same-name"),
+            pytest.param("José Simão", "Torre A 101", True, id="same-name"),
             pytest.param(
-                "JOSE  SIMAO", "Torre A 101", id="name-without-accents-or-case"
+                "JOSE  SIMAO", "Torre A 101", True, id="name-without-accents-or-case"
             ),
-            pytest.param("Maria Souza", "Bloco B 304", id="same-unit"),
-            pytest.param("Maria Souza", "bloco b-304", id="unit-written-differently"),
+            pytest.param("Maria Souza", "Bloco B 304", True, id="same-unit"),
+            pytest.param(
+                "Maria Souza", "bloco b-304", True, id="unit-written-differently"
+            ),
+            pytest.param("Maria Souza", "Bloco C 12", False, id="other-name-and-unit"),
         ],
     )
     def test_debtor_with_same_name_or_unit_is_similar(
-        self, name: str, unit: str
+        self, name: str, unit: str, similar: bool
     ) -> None:
         """US13-CA01"""
         registered = make_debtor("José Simão", "Bloco B 304")
 
-        assert find_similar_debtors(name, unit, [registered]) == [registered]
-
-    def test_debtor_with_other_name_and_unit_is_not_similar(self) -> None:
-        registered = make_debtor("José Simão", "Bloco B 304")
-
-        assert find_similar_debtors("Maria Souza", "Bloco C 12", [registered]) == []
+        expected = [registered] if similar else []
+        assert find_similar_debtors(name, unit, [registered]) == expected
 
 
-def test_comparable_unit_keeps_only_letters_and_numbers() -> None:
-    assert comparable_unit("Bloco B - 304") == comparable_unit("blocob304")
+@pytest.mark.parametrize(
+    ("typed", "same_as"),
+    [
+        pytest.param("Bloco B - 304", "blocob304", id="spaces-and-dash"),
+        pytest.param("Torre A/101", "torre a 101", id="slash-and-case"),
+        pytest.param("Apto. 12", "APTO12", id="dot"),
+    ],
+)
+def test_comparable_unit_keeps_only_letters_and_numbers(
+    typed: str, same_as: str
+) -> None:
+    assert comparable_unit(typed) == comparable_unit(same_as)
 
 
 class TestDebtorCreateRequest:
-    def test_masked_phone_is_stored_as_digits(self) -> None:
+    @pytest.mark.parametrize(
+        ("typed", "stored"),
+        [
+            pytest.param("(61) 91234-5678", "61912345678", id="mobile-with-mask"),
+            pytest.param("61 91234 5678", "61912345678", id="mobile-with-spaces"),
+            pytest.param("(61) 3234-5678", "6132345678", id="landline-with-mask"),
+            pytest.param("61912345678", "61912345678", id="digits-only"),
+        ],
+    )
+    def test_masked_phone_is_stored_as_digits(self, typed: str, stored: str) -> None:
         request = DebtorCreateRequest(
             condominium_id=CONDOMINIUM_ID,
             name=" José Simão ",
             unit="Bloco B 304",
-            phone="(61) 91234-5678",
+            phone=typed,
         )
 
         assert request.name == "José Simão"
-        assert request.phone == "61912345678"
+        assert request.phone == stored
         assert request.confirm_duplicate is False
 
     @pytest.mark.parametrize(
@@ -159,21 +178,33 @@ class TestReadSpreadsheet:
             "email": "maria@exemplo.com",
         }
 
-    def test_missing_required_column_is_refused(self) -> None:
-        content = build_xlsx(("José",), headers=("Nome", "Telefone"))
-
-        with pytest.raises(InvalidSpreadsheetError, match="Faltam colunas.*Unidade"):
-            read_rows(content)
-
-    def test_spreadsheet_without_debtors_is_refused(self) -> None:
-        with pytest.raises(InvalidSpreadsheetError, match="nenhum devedor"):
-            read_rows(build_xlsx())
-
-    def test_spreadsheet_with_too_many_rows_is_refused(self) -> None:
-        lines = [(f"Devedor {n}", str(n), "61912345678") for n in range(MAX_ROWS + 1)]
-
-        with pytest.raises(InvalidSpreadsheetError, match="linhas"):
-            read_rows(build_xlsx(*lines))
+    @pytest.mark.parametrize(
+        ("build", "message"),
+        [
+            pytest.param(
+                lambda: build_xlsx(("José",), headers=("Nome", "Telefone")),
+                "Faltam colunas.*Unidade",
+                id="missing-required-column",
+            ),
+            pytest.param(build_xlsx, "nenhum devedor", id="no-debtors"),
+            pytest.param(
+                lambda: build_xlsx(
+                    *[
+                        (f"Devedor {n}", str(n), "61912345678")
+                        for n in range(MAX_ROWS + 1)
+                    ]
+                ),
+                "linhas",
+                id="too-many-rows",
+            ),
+        ],
+    )
+    def test_spreadsheet_that_cannot_be_imported_is_refused(
+        self, build: Callable[[], bytes], message: str
+    ) -> None:
+        """US14-CA01: o erro aparece antes de qualquer linha ser importada."""
+        with pytest.raises(InvalidSpreadsheetError, match=message):
+            read_rows(build())
 
     @pytest.mark.parametrize(
         "content",

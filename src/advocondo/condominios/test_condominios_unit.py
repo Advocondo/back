@@ -43,11 +43,22 @@ class TestIsValidCnpj:
     def test_invalid_cnpj_is_refused(self, cnpj: str) -> None:
         assert not is_valid_cnpj(cnpj)
 
-    def test_mask_is_removed_and_letters_are_uppercased(self) -> None:
-        assert normalize_cnpj(" 12.abc.345/01de-35 ") == VALID_ALPHANUMERIC_CNPJ
-
-    def test_value_that_is_not_text_is_left_for_pydantic_to_refuse(self) -> None:
-        assert normalize_cnpj(14447918000198) == 14447918000198
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param(
+                " 12.abc.345/01de-35 ",
+                VALID_ALPHANUMERIC_CNPJ,
+                id="mask-removed-and-uppercased",
+            ),
+            pytest.param("14.447.918/0001-98", "14447918000198", id="numeric-mask"),
+            pytest.param(
+                14447918000198, 14447918000198, id="not-text-left-for-pydantic"
+            ),
+        ],
+    )
+    def test_cnpj_is_normalized(self, value: object, expected: object) -> None:
+        assert normalize_cnpj(value) == expected
 
 
 class TestCondominiumCreateRequest:

@@ -73,23 +73,24 @@ class TestUser:
 
 
 class TestUserInvite:
-    def test_invite_is_not_expired_before_its_expiration(self) -> None:
+    @pytest.mark.parametrize(
+        ("now", "expired"),
+        [
+            pytest.param(datetime(2026, 3, 2, 8, 59, tzinfo=UTC), False, id="before"),
+            pytest.param(datetime(2026, 3, 2, 9, 0, tzinfo=UTC), True, id="exact-time"),
+            pytest.param(datetime(2026, 3, 2, 9, 1, tzinfo=UTC), True, id="after"),
+        ],
+    )
+    def test_invite_expires_at_the_exact_expiration_time(
+        self, now: datetime, expired: bool
+    ) -> None:
         invite = UserInvite(
             user_id=uuid.uuid4(),
             token_hash="a" * 64,
             expires_at=datetime(2026, 3, 2, 9, 0, tzinfo=UTC),
         )
 
-        assert invite.is_expired(datetime(2026, 3, 2, 8, 59, tzinfo=UTC)) is False
-
-    def test_invite_is_expired_at_the_exact_expiration_time(self) -> None:
-        invite = UserInvite(
-            user_id=uuid.uuid4(),
-            token_hash="a" * 64,
-            expires_at=datetime(2026, 3, 2, 9, 0, tzinfo=UTC),
-        )
-
-        assert invite.is_expired(datetime(2026, 3, 2, 9, 0, tzinfo=UTC)) is True
+        assert invite.is_expired(now) is expired
 
 
 class TestCondominiumsChangeLog:
@@ -229,40 +230,43 @@ def build_details(**overrides: Any) -> InviteDetails:
 
 
 class TestInviteServiceRules:
-    def test_cannot_invite_another_administrator(self) -> None:
-        service, users, _, _, _ = build_invite_service()
+    @pytest.mark.parametrize(
+        ("existing_email", "details", "error"),
+        [
+            pytest.param(
+                None, {"role": Role.ADMIN}, AdminRoleNotAllowedError, id="another-admin"
+            ),
+            pytest.param(
+                None,
+                {"is_lawyer": True},
+                OabNumberRequiredError,
+                id="us07-ca04-lawyer-without-oab",
+            ),
+            pytest.param(
+                None,
+                {"is_lawyer": False, "oab_number": "123456/SP"},
+                OabNumberNotAllowedError,
+                id="us07-ca04-oab-without-being-a-lawyer",
+            ),
+            pytest.param(
+                "novo@example.com",
+                {},
+                EmailAlreadyInUseError,
+                id="us07-ca03-email-already-registered",
+            ),
+        ],
+    )
+    def test_invalid_invite_is_refused_and_saves_nothing(
+        self,
+        existing_email: str | None,
+        details: dict[str, Any],
+        error: type[Exception],
+    ) -> None:
+        existing = {existing_email: build_admin()} if existing_email else None
+        service, users, _, _, _ = build_invite_service(existing=existing)
 
-        with pytest.raises(AdminRoleNotAllowedError):
-            service.invite(build_admin(), build_details(role=Role.ADMIN))
-
-        assert users.added == []
-
-    def test_lawyer_must_inform_the_oab_number(self) -> None:
-        service, users, _, _, _ = build_invite_service()
-
-        with pytest.raises(OabNumberRequiredError):
-            service.invite(build_admin(), build_details(is_lawyer=True))
-
-        assert users.added == []
-
-    def test_non_lawyer_cannot_inform_the_oab_number(self) -> None:
-        service, users, _, _, _ = build_invite_service()
-
-        with pytest.raises(OabNumberNotAllowedError):
-            service.invite(
-                build_admin(),
-                build_details(is_lawyer=False, oab_number="123456/SP"),
-            )
-
-        assert users.added == []
-
-    def test_email_already_registered_is_refused(self) -> None:
-        service, users, _, _, _ = build_invite_service(
-            existing={"novo@example.com": build_admin()}
-        )
-
-        with pytest.raises(EmailAlreadyInUseError):
-            service.invite(build_admin(), build_details())
+        with pytest.raises(error):
+            service.invite(build_admin(), build_details(**details))
 
         assert users.added == []
 

@@ -164,29 +164,32 @@ class TestEmail:
         monkeypatch.setattr(smtplib, "SMTP", FakeSmtp)
         return FakeSmtp
 
-    def test_smtp_sender_delivers_the_message_over_tls(
-        self, fake_smtp: type[FakeSmtp]
+    @pytest.mark.parametrize(
+        ("overrides", "calls"),
+        [
+            pytest.param({}, ["starttls", "login:usuario", "quit"], id="tls-and-login"),
+            pytest.param(
+                {"use_tls": False, "username": None, "password": None},
+                ["quit"],
+                id="no-tls-no-login",
+            ),
+        ],
+    )
+    def test_smtp_sender_delivers_the_message(
+        self, fake_smtp: type[FakeSmtp], overrides: dict[str, Any], calls: list[str]
     ) -> None:
-        build_smtp_sender().send(MESSAGE)
+        build_smtp_sender(**overrides).send(MESSAGE)
 
         smtp = fake_smtp.instances[0]
         sent = smtp.sent[0]
         assert smtp.address == ("smtp.example.com", 587)
-        assert smtp.calls == ["starttls", "login:usuario", "quit"]
+        assert smtp.calls == calls
         assert (sent["From"], sent["To"], sent["Subject"]) == (
             "Advocondo <nao-responda@example.com>",
             "ana@example.com",
             "Assunto",
         )
         assert sent.get_content().strip() == "Corpo"
-
-    def test_smtp_sender_skips_tls_and_login_when_not_configured(
-        self,
-        fake_smtp: type[FakeSmtp],
-    ) -> None:
-        build_smtp_sender(use_tls=False, username=None, password=None).send(MESSAGE)
-
-        assert fake_smtp.instances[0].calls == ["quit"]
 
     def test_log_sender_writes_the_message_to_the_log(
         self,
@@ -288,8 +291,19 @@ class TestNormalization:
     ) -> None:
         assert keep_only_digits(value) == expected
 
-    def test_comparable_text_ignores_accents_case_and_spaces(self) -> None:
-        assert comparable_text("  José   SIMÃO ") == "jose simao"
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param("  José   SIMÃO ", "jose simao", id="accents-case-spaces"),
+            pytest.param("Conceição", "conceicao", id="cedilla"),
+            pytest.param("ana", "ana", id="already-comparable"),
+            pytest.param("   ", "", id="only-spaces"),
+        ],
+    )
+    def test_comparable_text_ignores_accents_case_and_spaces(
+        self, value: str, expected: str
+    ) -> None:
+        assert comparable_text(value) == expected
 
 
 class TestFormatBrl:
@@ -321,13 +335,32 @@ class TestPdf:
     def test_format_money(self, value: Decimal, expected: str) -> None:
         assert format_money(value) == expected
 
-    def test_format_date(self) -> None:
-        assert format_date(date(2026, 1, 5)) == "05/01/2026"
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param(
+                date(2026, 1, 5), "05/01/2026", id="single-digit-day-and-month"
+            ),
+            pytest.param(date(2026, 12, 31), "31/12/2026", id="end-of-year"),
+            pytest.param(date(2028, 2, 29), "29/02/2028", id="leap-day"),
+        ],
+    )
+    def test_format_date(self, value: date, expected: str) -> None:
+        assert format_date(value) == expected
 
-    def test_subtitle_is_optional(self) -> None:
-        content = render_pdf(PdfDocument(title="Relatório", subtitle="", blocks=()))
+    @pytest.mark.parametrize(
+        ("subtitle", "expected"),
+        [
+            pytest.param("", "Relatório", id="without-subtitle"),
+            pytest.param("Gerado hoje", "Relatório\nGerado hoje", id="with-subtitle"),
+        ],
+    )
+    def test_title_and_optional_subtitle(self, subtitle: str, expected: str) -> None:
+        content = render_pdf(
+            PdfDocument(title="Relatório", subtitle=subtitle, blocks=())
+        )
 
-        assert pdf_text(content).strip() == "Relatório"
+        assert pdf_text(content).strip() == expected
 
     def test_render_writes_every_block(self) -> None:
         document = PdfDocument(
@@ -400,16 +433,24 @@ class TestFileStorage:
 
         assert storage.load(file) == b"%PDF-antigo"
 
-    def test_database_is_the_default(self) -> None:
-        assert isinstance(build_file_storage(make_settings()), DatabaseStorage)
-
-    def test_bucket_when_configured(self) -> None:
-        settings = make_settings(
-            s3_endpoint_url="https://conta.r2.cloudflarestorage.com",
-            s3_region="auto",
-            s3_bucket=BUCKET,
-            s3_access_key_id="chave",
-            s3_secret_access_key="segredo",  # gitleaks:allow (fake test value)
-        )
-
-        assert isinstance(build_file_storage(settings), ObjectStorage)
+    @pytest.mark.parametrize(
+        ("overrides", "expected"),
+        [
+            pytest.param({}, DatabaseStorage, id="database-by-default"),
+            pytest.param(
+                {
+                    "s3_endpoint_url": "https://conta.r2.cloudflarestorage.com",
+                    "s3_region": "auto",
+                    "s3_bucket": BUCKET,
+                    "s3_access_key_id": "chave",
+                    "s3_secret_access_key": "segredo",  # gitleaks:allow (fake value)
+                },
+                ObjectStorage,
+                id="bucket-when-configured",
+            ),
+        ],
+    )
+    def test_storage_is_chosen_from_the_settings(
+        self, overrides: dict[str, Any], expected: type
+    ) -> None:
+        assert isinstance(build_file_storage(make_settings(**overrides)), expected)
