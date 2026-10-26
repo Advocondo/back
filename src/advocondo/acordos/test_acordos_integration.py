@@ -1320,3 +1320,144 @@ class TestCancelAgreement:
         assert response.json() == {
             "detail": "Acordo cancelado não aceita esta operação."
         }
+
+
+def reactivate(
+    client: TestClient, headers: dict[str, str], agreement_id: object
+) -> httpx.Response:
+    response: httpx.Response = client.post(
+        f"/agreements/{agreement_id}/reactivate", headers=headers
+    )
+    return response
+
+
+class TestReactivateAgreement:
+    """#88. O relógio dos testes está em 2 de março de 2026, às 9h UTC."""
+
+    @pytest.fixture
+    def agreement_id(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> str:
+        """Acordo de R$ 5.500,00 em 10 parcelas, cancelado com um motivo."""
+        agreement_id: str = register(
+            db_client, operator_headers, new_agreement(mirante.id, jose.id)
+        ).json()["id"]
+        response = cancel(
+            db_client,
+            operator_headers,
+            agreement_id,
+            reason="Devedor quebrou o acordo",
+            confirm_open_installments=True,
+        )
+        assert response.status_code == 200
+        return agreement_id
+
+    def test_reactivated_agreement_is_active_again(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """#88-CA01"""
+        response = reactivate(db_client, operator_headers, agreement_id)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "active"
+        assert body["cancelled_at"] is None
+        assert body["cancellation_reason"] is None
+
+    def test_reactivated_agreement_comes_back_to_the_active_list(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """#88-CA01"""
+        reactivate(db_client, operator_headers, agreement_id)
+
+        active = db_client.get(
+            "/agreements", params={"status": "active"}, headers=operator_headers
+        )
+        cancelled = db_client.get(
+            "/agreements", params={"status": "cancelled"}, headers=operator_headers
+        )
+
+        assert [item["id"] for item in active.json()] == [agreement_id]
+        assert cancelled.json() == []
+
+    def test_reactivated_agreement_can_be_edited_again(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        reactivate(db_client, operator_headers, agreement_id)
+
+        response = update_agreement(
+            db_client, operator_headers, agreement_id, {"total_amount": "4000.00"}
+        )
+
+        assert response.status_code == 200
+
+    def test_admin_can_reactivate(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        agreement_id: str,
+    ) -> None:
+        headers = authenticate_as(
+            create_user(email="admin@example.com", role=Role.ADMIN)
+        )
+
+        response = reactivate(db_client, headers, agreement_id)
+
+        assert response.status_code == 200
+
+    def test_active_agreement_cannot_be_reactivated(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement_id: str,
+    ) -> None:
+        """#88-CA03"""
+        reactivate(db_client, operator_headers, agreement_id)
+
+        response = reactivate(db_client, operator_headers, agreement_id)
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "O acordo não está cancelado."}
+
+    def test_unknown_agreement_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = reactivate(db_client, operator_headers, UNKNOWN_ID)
+
+        assert response.status_code == 404
+
+    def test_client_user_cannot_reactivate(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        agreement_id: str,
+    ) -> None:
+        headers = authenticate_as(
+            create_user(email="sindico@example.com", role=Role.CLIENT)
+        )
+
+        response = reactivate(db_client, headers, agreement_id)
+
+        assert response.status_code == 403
+
+    def test_reactivating_requires_a_session(
+        self, db_client: TestClient, agreement_id: str
+    ) -> None:
+        response = db_client.post(f"/agreements/{agreement_id}/reactivate")
+
+        assert response.status_code == 401
