@@ -1,4 +1,7 @@
+import runpy
+import sys
 from collections.abc import Sequence
+from contextlib import nullcontext
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
@@ -7,6 +10,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+import advocondo.common.clock
+import advocondo.common.email
+import advocondo.db
 from advocondo.acordos.models import Agreement
 from advocondo.common.storage import DatabaseStorage
 from advocondo.condominios.models import Condominium
@@ -18,6 +24,7 @@ from advocondo.notificacoes.models import (
 )
 from advocondo.notificacoes.repository import ClientNotificationRepository
 from advocondo.notificacoes.service import ClientNotificationService
+from advocondo.painel_cliente import monthly_report_task
 from advocondo.painel_cliente.models import CondominiumMonthlyReport
 from advocondo.painel_cliente.monthly_report_repository import (
     CondominiumMonthlyReportRepository,
@@ -976,3 +983,35 @@ def test_monthly_report_is_not_downloadable_by_unlinked_client(
     )
 
     assert response.status_code == 404
+
+
+def test_monthly_report_command_closes_the_previous_month(
+    db_session: Session,
+    clock: FrozenClock,
+    client_user: User,
+    link_client: LinkClient,
+    mirante: Condominium,
+    jose: Debtor,
+    create_agreement_with_installments: CreateAgreementWithInstallments,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Roda o módulo como a Scheduled Task do Coolify faz (US40)."""
+    create_agreement_with_installments(
+        mirante, jose, [(date(2026, 2, 10), date(2026, 2, 12))]
+    )
+    link_client(client_user, mirante)
+    sent = Outbox()
+    monkeypatch.setattr(
+        advocondo.db, "get_sessionmaker", lambda: lambda: nullcontext(db_session)
+    )
+    monkeypatch.setattr(advocondo.common.clock, "get_clock", lambda: clock)
+    monkeypatch.setattr(advocondo.common.email, "build_email_sender", lambda _: sent)
+    # Importa de novo, como o interpretador faz ao rodar o módulo como script.
+    monkeypatch.delitem(sys.modules, monthly_report_task.__name__)
+
+    runpy.run_module(monthly_report_task.__name__, run_name="__main__")
+
+    assert db_session.scalars(select(CondominiumMonthlyReport)).one()
+    assert [message.to for message in sent.messages] == [client_user.email]
+    assert "1 relatórios gerados para 02/2026." in capsys.readouterr().out
