@@ -159,10 +159,10 @@ class InstallmentService:
             None,
             money_text(paid_now),
         )
-        agreement_id = installment.agreement_id
+        condominium_id = installment.agreement.condominium_id
         self._session.commit()
         self._notify_client(
-            agreement_id,
+            condominium_id,
             ClientNotificationEvent.PAYMENT_UPDATED,
             "Um pagamento de acordo deste condomínio foi registrado.",
         )
@@ -224,10 +224,10 @@ class InstallmentService:
             money_text(reversed_amount),
             None,
         )
-        agreement_id = installment.agreement_id
+        condominium_id = installment.agreement.condominium_id
         self._session.commit()
         self._notify_client(
-            agreement_id,
+            condominium_id,
             ClientNotificationEvent.PAYMENT_UPDATED,
             "Um pagamento de acordo deste condomínio foi estornado.",
         )
@@ -294,11 +294,11 @@ class InstallmentService:
         changed = any(
             old_values[item.id] != (item.amount, item.due_date) for item in plan
         )
-        agreement_id = installment.agreement_id
+        condominium_id = installment.agreement.condominium_id
         self._session.commit()
         if changed:
             self._notify_client(
-                agreement_id,
+                condominium_id,
                 ClientNotificationEvent.AGREEMENT_UPDATED,
                 "As informações das parcelas de um acordo deste condomínio foram atualizadas.",
             )
@@ -378,16 +378,12 @@ class InstallmentService:
 
     def _notify_client(
         self,
-        agreement_id: uuid.UUID,
+        condominium_id: uuid.UUID,
         event_type: ClientNotificationEvent,
         message: str,
     ) -> None:
-        agreement = self._agreements.get(agreement_id)
-        if agreement is None:
-            return
-        self._notifications.send_condominium_update(
-            agreement.condominium_id, event_type, message
-        )
+        """Avisa os Clientes do condomínio (US40), depois do commit da alteração."""
+        self._notifications.send_condominium_update(condominium_id, event_type, message)
 
 
 def ensure_agreement_is_not_cancelled(installment: Installment) -> None:
