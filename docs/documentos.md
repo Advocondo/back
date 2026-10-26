@@ -9,7 +9,7 @@ Anexos de um acordo, como o termo assinado e os comprovantes ([US21](https://adv
 - **Nome:** guarda só o nome do arquivo, sem pastas e sem caracteres de controle, com até 255 caracteres.
 - **Link:** em vez de um arquivo, o documento pode ser um **link** para outro lugar (por exemplo, um arquivo no Drive). Só `http` e `https` são aceitos, com até 2048 caracteres. O servidor **só guarda o endereço e nunca o abre**. O front deve abrir o link em outra aba, com `rel="noopener noreferrer"`.
 - **Um ou outro:** cada documento é um arquivo ou um link, nunca os dois, e o banco recusa os dois casos.
-- **Armazenamento:** o arquivo fica no PostgreSQL, na tabela `agreement_documents`, e entra no backup do banco. A listagem não carrega o arquivo.
+- **Armazenamento:** o link guarda só o endereço, na tabela `agreement_documents`. O arquivo tem os bytes numa tabela própria, `agreement_document_files`, e segue a mesma regra dos PDFs: vai para o bucket quando as variáveis `S3_` estão definidas e, senão, fica no PostgreSQL ([Onde os arquivos ficam](#onde-os-arquivos-ficam)). A listagem não carrega os bytes.
 - **Vínculo permanente (US21-CA02):** não há rota para apagar um documento, e o banco recusa apagar um acordo que tenha documentos. Cancelar o acordo (US20) muda o status, e os documentos continuam.
 
 ## Rotas
@@ -112,17 +112,17 @@ Baixa o arquivo (`application/pdf`, `Content-Disposition: attachment`, `Cache-Co
 
 ## Onde os arquivos ficam
 
-Cada PDF tem uma linha na tabela `agreement_pdfs`, com o acordo, quem gerou, quando, o tipo e o tamanho. Os bytes ficam em um de dois lugares:
+Cada PDF tem uma linha na tabela `agreement_pdfs`, com o acordo, quem gerou, quando, o tipo e o tamanho. Cada documento anexado do tipo arquivo tem a mesma informação em `agreement_document_files`; o link não tem bytes e não entra aqui. Os bytes ficam em um de dois lugares:
 
 | Configuração | Onde ficam os bytes | Coluna preenchida |
 | --- | --- | --- |
 | Variáveis `S3_` vazias (padrão) | Na própria linha, em `content` (`bytea`) | `content` |
-| `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID` e `S3_SECRET_ACCESS_KEY` definidas | Em um bucket S3-compatível (Amazon S3, Cloudflare R2, Backblaze B2), na chave `agreements/{acordo}/pdfs/{pdf}.pdf` | `storage_key` |
+| `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID` e `S3_SECRET_ACCESS_KEY` definidas | Em um bucket S3-compatível (Amazon S3, Cloudflare R2, Backblaze B2), na chave `agreements/{acordo}/pdfs/{pdf}.pdf` (PDF gerado) ou `agreements/{acordo}/documents/{arquivo}` (documento anexado) | `storage_key` |
 
 - Uma `CHECK` garante que só uma das duas colunas está preenchida.
 - **Configuração pela metade derruba a API na subida**, com a lista do que falta. Assim a API nunca volta a guardar no banco sem ninguém perceber. `S3_ENDPOINT_URL` fica vazia só no Amazon S3; no R2 e no B2 ela é obrigatória. Os valores de cada serviço estão no `.env.example`.
 - **O bucket não precisa ser público.** A API lê o objeto e o entrega ela mesma, em vez de usar link público ou pré-assinado, para que a permissão do acordo valha sempre. A chave de acesso precisa ler e gravar só nesse bucket.
-- **Ligar o bucket depois não quebra nada:** a leitura olha a linha, não a configuração. PDFs antigos, com `content`, continuam sendo servidos do banco. O contrário não funciona: se o bucket for desligado, os PDFs que estão nele dão erro até ele ser configurado de novo.
+- **Ligar o bucket depois não quebra nada:** a leitura olha a linha, não a configuração. PDFs e documentos antigos, com `content`, continuam sendo servidos do banco. O contrário não funciona: se o bucket for desligado, os arquivos que estão nele dão erro até ele ser configurado de novo.
 - O objeto é gravado no bucket antes do commit da linha. Se o commit falhar, sobra um objeto órfão no bucket, o que não causa problema.
 
 Para usar em outra história: o modelo herda `StoredFileMixin`, o service recebe um `FileStorage` (`get_file_storage`) e chama `storage.save(linha, chave, bytes, tipo)` e `storage.load(linha)`. O conteúdo do PDF é descrito com `PdfDocument` (seções de rótulo e valor e tabelas) e gerado com `render_pdf`.
