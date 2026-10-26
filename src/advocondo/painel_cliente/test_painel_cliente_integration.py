@@ -161,6 +161,7 @@ class TestAgreementStatusFollowsInstallments:
             {
                 "id": str(late.id),
                 "condominium_name": "Residencial Mirante",
+                "debtor_id": str(jose.id),
                 "debtor_name": "José Simão",
                 "debtor_unit": "Bloco B 304",
                 "status": "atrasado",
@@ -170,6 +171,7 @@ class TestAgreementStatusFollowsInstallments:
             {
                 "id": response.json()[1]["id"],
                 "condominium_name": "Edifício Aurora",
+                "debtor_id": str(maria.id),
                 "debtor_name": "Maria Souza",
                 "debtor_unit": "Apto 12",
                 "status": "em_dia",
@@ -251,6 +253,7 @@ def test_response_has_no_financial_fields(
     assert set(item) == {
         "id",
         "condominium_name",
+        "debtor_id",
         "debtor_name",
         "debtor_unit",
         "status",
@@ -325,6 +328,7 @@ class TestThroughTheRealRoutes:
             {
                 "id": registered.json()["id"],
                 "condominium_name": "Residencial Mirante",
+                "debtor_id": str(jose.id),
                 "debtor_name": "José Simão",
                 "debtor_unit": "Bloco B 304",
                 "status": "em_dia",
@@ -601,5 +605,192 @@ class TestClientInstallments:
         self, db_client: TestClient, agreement: Agreement
     ) -> None:
         response = db_client.get(installments_url(agreement.id))
+
+        assert response.status_code == 401
+
+
+def history_url(debtor_id: object) -> str:
+    return f"/client-panel/debtors/{debtor_id}/history"
+
+
+class TestDebtorHistory:
+    """US38. Hoje é 2 de março de 2026."""
+
+    @pytest.fixture
+    def linked(
+        self, link_client: LinkClient, client_user: User, mirante: Condominium
+    ) -> None:
+        link_client(client_user, mirante)
+
+    def test_paid_and_open_totals_by_month(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        linked: None,
+        create_agreement_with_installments: CreateAgreementWithInstallments,
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        """US38-CA01"""
+        create_agreement_with_installments(
+            mirante,
+            jose,
+            [
+                (date(2026, 1, 10), date(2026, 1, 9)),
+                (date(2026, 2, 10), None),
+                (date(2026, 3, 10), None),
+            ],
+        )
+
+        response = db_client.get(history_url(jose.id), headers=client_headers)
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "debtor_name": "José Simão",
+            "debtor_unit": "Bloco B 304",
+            "months": [
+                {
+                    "month": "2026-01",
+                    "paid_amount": "100.00",
+                    "open_amount": "0.00",
+                    "status": "pago",
+                },
+                {
+                    "month": "2026-02",
+                    "paid_amount": "0.00",
+                    "open_amount": "100.00",
+                    "status": "atrasado",
+                },
+                {
+                    "month": "2026-03",
+                    "paid_amount": "0.00",
+                    "open_amount": "100.00",
+                    "status": "em_aberto",
+                },
+            ],
+        }
+
+    def test_no_fees_are_shown(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        linked: None,
+        create_agreement_with_installments: CreateAgreementWithInstallments,
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        """US38-CA01: sem honorários do escritório (US16)."""
+        create_agreement_with_installments(mirante, jose, [(date(2026, 3, 10), None)])
+
+        body = db_client.get(history_url(jose.id), headers=client_headers).json()
+
+        assert set(body) == {"debtor_name", "debtor_unit", "months"}
+        assert set(body["months"][0]) == {
+            "month",
+            "paid_amount",
+            "open_amount",
+            "status",
+        }
+
+    def test_cancelled_agreement_keeps_only_what_was_paid(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        client_headers: dict[str, str],
+        linked: None,
+        create_agreement_with_installments: CreateAgreementWithInstallments,
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        """US38 e US20: o pago fica no histórico; o não pago saiu da cobrança."""
+        agreement = create_agreement_with_installments(
+            mirante,
+            jose,
+            [(date(2026, 1, 10), date(2026, 1, 9)), (date(2026, 2, 10), None)],
+        )
+        agreement.cancel(None, datetime(2026, 2, 15, tzinfo=UTC))
+        db_session.commit()
+
+        response = db_client.get(history_url(jose.id), headers=client_headers)
+
+        assert response.json()["months"] == [
+            {
+                "month": "2026-01",
+                "paid_amount": "100.00",
+                "open_amount": "0.00",
+                "status": "pago",
+            }
+        ]
+
+    def test_debtor_without_agreements_has_an_empty_history(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        linked: None,
+        jose: Debtor,
+    ) -> None:
+        response = db_client.get(history_url(jose.id), headers=client_headers)
+
+        assert response.status_code == 200
+        assert response.json()["months"] == []
+
+    def test_debtor_of_another_condominium_is_not_found(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        linked: None,
+        create_agreement_with_installments: CreateAgreementWithInstallments,
+        aurora: Condominium,
+        maria: Debtor,
+    ) -> None:
+        create_agreement_with_installments(aurora, maria, [(date(2026, 3, 10), None)])
+
+        response = db_client.get(history_url(maria.id), headers=client_headers)
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Devedor não encontrado."}
+
+    def test_unknown_debtor_is_not_found(
+        self, db_client: TestClient, client_headers: dict[str, str], linked: None
+    ) -> None:
+        response = db_client.get(
+            history_url("00000000-0000-0000-0000-000000000000"),
+            headers=client_headers,
+        )
+
+        assert response.status_code == 404
+
+    def test_panel_gives_the_debtor_id_to_open_the_history(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        linked: None,
+        create_agreement_with_installments: CreateAgreementWithInstallments,
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        create_agreement_with_installments(mirante, jose, [(date(2026, 3, 10), None)])
+
+        panel = db_client.get(URL, headers=client_headers).json()
+
+        assert panel[0]["debtor_id"] == str(jose.id)
+
+    def test_office_staff_cannot_use_the_client_panel(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        jose: Debtor,
+    ) -> None:
+        headers = authenticate_as(
+            create_user(role=Role.OPERATOR, email="o@example.com")
+        )
+
+        response = db_client.get(history_url(jose.id), headers=headers)
+
+        assert response.status_code == 403
+
+    def test_requires_a_session(self, db_client: TestClient, jose: Debtor) -> None:
+        response = db_client.get(history_url(jose.id))
 
         assert response.status_code == 401
