@@ -42,6 +42,9 @@ markers = [
     "integration: usa o banco de dados de teste (marcado automaticamente)",
 ]
 
+[tool.ruff.lint]
+ignore = ["EXE002"]
+
 [tool.coverage.run]
 branch = true
 source = ["advocondo"]
