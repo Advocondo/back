@@ -62,6 +62,7 @@ class ClientPanelRepository:
         self, user_id: uuid.UUID, condominium_id: uuid.UUID
     ) -> Sequence[Agreement]:
         """Active agreements constrained to both the Client link and condominium."""
+
         query = (
             select(Agreement)
             .join(
@@ -74,6 +75,46 @@ class ClientPanelRepository:
                 Agreement.status == AgreementStatus.ACTIVE,
             )
             .order_by(Agreement.id)
+            .options(selectinload(Agreement.installments))
+        )
+        return self._session.scalars(query).all()
+
+    def get_agreement_of_client(
+        self, user_id: uuid.UUID, agreement_id: uuid.UUID
+    ) -> Agreement | None:
+        """The agreement, only if the Client could see it in the panel."""
+        query = client_agreements_query(user_id).where(Agreement.id == agreement_id)
+        return self._session.scalars(query).one_or_none()
+
+    def get_debtor_of_client(
+        self, user_id: uuid.UUID, debtor_id: uuid.UUID
+    ) -> Debtor | None:
+        """The debtor, only if they belong to a condominium linked to the Client."""
+        query = (
+            select(Debtor)
+            .join(
+                UserCondominium,
+                UserCondominium.condominium_id == Debtor.condominium_id,
+            )
+            .where(UserCondominium.user_id == user_id, Debtor.id == debtor_id)
+        )
+        return self._session.scalars(query).one_or_none()
+
+    def list_agreements_of_debtor(
+        self, user_id: uuid.UUID, debtor_id: uuid.UUID
+    ) -> Sequence[Agreement]:
+        """Every agreement of the debtor, cancelled ones included (US38): the
+        history keeps what was paid on them. Still limited to linked condominiums."""
+        query = (
+            select(Agreement)
+            .join(
+                UserCondominium,
+                UserCondominium.condominium_id == Agreement.condominium_id,
+            )
+            .where(
+                UserCondominium.user_id == user_id,
+                Agreement.debtor_id == debtor_id,
+            )
             .options(selectinload(Agreement.installments))
         )
         return self._session.scalars(query).all()

@@ -405,6 +405,17 @@ class TestCancelAgreement:
         assert agreement.status == AgreementStatus.CANCELLED
         assert agreement.cancellation_reason is None
 
+    def test_reactivating_forgets_the_cancellation(self) -> None:
+        """#88"""
+        agreement = Agreement(status=AgreementStatus.ACTIVE)
+        agreement.cancel("Devedor desistiu do acordo", NOW)
+
+        agreement.reactivate()
+
+        assert agreement.status == AgreementStatus.ACTIVE
+        assert agreement.cancelled_at is None
+        assert agreement.cancellation_reason is None
+
     def test_unpaid_installments_leave_out_the_paid_ones(self) -> None:
         agreement = Agreement(
             installments=[

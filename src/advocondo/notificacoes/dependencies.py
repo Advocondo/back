@@ -7,8 +7,21 @@ from advocondo.common.clock import Clock, get_clock
 from advocondo.common.email import EmailSender, get_email_sender
 from advocondo.config import Settings, get_settings
 from advocondo.db import get_session
-from advocondo.notificacoes.repository import ClientNotificationRepository
-from advocondo.notificacoes.service import ClientNotificationService
+from advocondo.notificacoes.repository import (
+    ClientNotificationRepository,
+    NotificationRepository,
+)
+from advocondo.notificacoes.service import (
+    ClientNotificationService,
+    NotificationService,
+)
+
+
+def get_notification_service(
+    session: Annotated[Session, Depends(get_session)],
+    clock: Annotated[Clock, Depends(get_clock)],
+) -> NotificationService:
+    return NotificationService(session, NotificationRepository(session), clock)
 
 
 def get_client_notification_service(

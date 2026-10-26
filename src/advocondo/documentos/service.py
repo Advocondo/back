@@ -10,10 +10,104 @@ from advocondo.common.clock import Clock, today_in_brazil
 from advocondo.common.pdf import PDF_CONTENT_TYPE
 from advocondo.common.storage import FileStorage
 from advocondo.documentos.agreement_pdf import render_agreement_pdf
-from advocondo.documentos.errors import AgreementPdfNotFoundError
-from advocondo.documentos.models import AgreementPdf
-from advocondo.documentos.repository import AgreementPdfRepository
+from advocondo.documentos.errors import (
+    AgreementPdfNotFoundError,
+    DocumentIsALinkError,
+    DocumentNotFoundError,
+    FileOrLinkRequiredError,
+)
+from advocondo.documentos.models import (
+    AgreementDocument,
+    AgreementDocumentFile,
+    AgreementPdf,
+    DocumentKind,
+)
+from advocondo.documentos.repository import AgreementPdfRepository, DocumentRepository
+from advocondo.documentos.rules import (
+    clean_filename,
+    filename_for_link,
+    validate_document,
+    validate_url,
+)
 from advocondo.users.models import Role, User
+
+
+class DocumentService:
+    def __init__(
+        self,
+        session: Session,
+        agreements: AgreementRepository,
+        documents: DocumentRepository,
+        storage: FileStorage,
+        clock: Clock,
+    ) -> None:
+        self._session = session
+        self._agreements = agreements
+        self._documents = documents
+        self._storage = storage
+        self._clock = clock
+
+    def attach(
+        self,
+        agreement_id: uuid.UUID,
+        attached_by: User,
+        content: bytes | None,
+        filename: str | None,
+        url: str | None,
+        name: str | None,
+    ) -> AgreementDocument:
+        """Anexa ao acordo um arquivo ou um link (US21). Os bytes do arquivo vão
+        para o bucket, se houver, ou para o banco (common/storage.py)."""
+        self._ensure_agreement_exists(agreement_id)
+        if content is not None and url is None:
+            document = self._file_document(agreement_id, filename, content)
+        elif url is not None and content is None:
+            document = link_document(url, name)
+        else:
+            raise FileOrLinkRequiredError()
+
+        document.agreement_id = agreement_id
+        document.uploaded_by = attached_by
+        document.uploaded_at = self._clock.now()
+        self._documents.save(document)
+        self._session.commit()
+        return document
+
+    def download(
+        self, agreement_id: uuid.UUID, document_id: uuid.UUID
+    ) -> tuple[AgreementDocument, AgreementDocumentFile, bytes]:
+        """Documento do tipo arquivo e os bytes dele, de onde estiverem. Link não
+        se baixa."""
+        self._ensure_agreement_exists(agreement_id)
+        document = self._documents.get(agreement_id, document_id)
+        if document is None:
+            raise DocumentNotFoundError()
+        if document.kind is DocumentKind.LINK or document.file is None:
+            raise DocumentIsALinkError()
+        return document, document.file, self._storage.load(document.file)
+
+    def list_by_agreement(self, agreement_id: uuid.UUID) -> Sequence[AgreementDocument]:
+        self._ensure_agreement_exists(agreement_id)
+        return self._documents.list_by_agreement(agreement_id)
+
+    def _file_document(
+        self, agreement_id: uuid.UUID, filename: str | None, content: bytes
+    ) -> AgreementDocument:
+        content_type = validate_document(content)
+        # O id é escolhido aqui porque entra na chave do arquivo no bucket.
+        file = AgreementDocumentFile(id=uuid.uuid4())
+        key = f"agreements/{agreement_id}/documents/{file.id}"
+        self._storage.save(file, key, content, content_type)
+        return AgreementDocument(filename=clean_filename(filename), file=file)
+
+    def _ensure_agreement_exists(self, agreement_id: uuid.UUID) -> None:
+        if self._agreements.get(agreement_id) is None:
+            raise AgreementNotFoundError()
+
+
+def link_document(url: str, name: str | None) -> AgreementDocument:
+    clean_url = validate_url(url)
+    return AgreementDocument(filename=filename_for_link(clean_url, name), url=clean_url)
 
 
 class AgreementPdfService:

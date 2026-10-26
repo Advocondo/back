@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from advocondo.acordos.errors import (
     AgreementAlreadyCancelledError,
     AgreementCancelledError,
+    AgreementNotCancelledError,
     AgreementNotFoundError,
     DebtorFromAnotherCondominiumError,
     FeeAboveTotalError,
@@ -112,6 +113,21 @@ class AgreementService:
             ClientNotificationEvent.AGREEMENT_CANCELLED,
             "Um acordo deste condomínio foi cancelado.",
         )
+        return agreement
+
+    def reactivate(self, agreement_id: uuid.UUID) -> Agreement:
+        """Reativa um acordo cancelado (#88). As parcelas sem pagamento voltam à
+        cobrança como estão: as que venceram no período cancelado ficam atrasadas."""
+        # Travado como no cancelamento, para não cruzar com um cancelamento.
+        agreement = self._agreements.get_for_update(agreement_id)
+        if agreement is None:
+            raise AgreementNotFoundError()
+        if not agreement.is_cancelled:
+            raise AgreementNotCancelledError()
+
+        agreement.reactivate()
+        self._agreements.save(agreement)
+        self._session.commit()
         return agreement
 
     def get(self, agreement_id: uuid.UUID) -> Agreement:

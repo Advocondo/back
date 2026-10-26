@@ -4,11 +4,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from advocondo.auth.dependencies import require_office_staff
+from advocondo.auth.dependencies import CurrentOfficeStaff, require_office_staff
 from advocondo.common.dependencies import Today
 from advocondo.parcelas.dependencies import get_installment_service
 from advocondo.parcelas.repository import InstallmentFilters
 from advocondo.parcelas.schemas import (
+    FinancialHistoryEntryResponse,
     InstallmentResponse,
     InstallmentUpdateRequest,
     InstallmentWithDebtorResponse,
@@ -19,7 +20,7 @@ from advocondo.parcelas.schemas import (
 )
 from advocondo.parcelas.service import InstallmentService
 from advocondo.parcelas.status import InstallmentStatus
-from advocondo.users.dependencies import require_admin
+from advocondo.users.dependencies import CurrentAdmin, require_admin
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
@@ -39,6 +40,18 @@ def list_installment_plan(
 ) -> list[InstallmentResponse]:
     installments = installment_service.list_plan(agreement_id)
     return [InstallmentResponse.from_installment(item, today) for item in installments]
+
+
+# O registro das movimentações financeiras é visível só ao Administrador (US31-CA02).
+@router.get(
+    "/agreements/{agreement_id}/financial-history",
+    dependencies=[Depends(require_admin)],
+)
+def get_financial_history(
+    agreement_id: uuid.UUID, installment_service: InstallmentServiceDependency
+) -> list[FinancialHistoryEntryResponse]:
+    entries = installment_service.financial_history(agreement_id)
+    return [FinancialHistoryEntryResponse.model_validate(entry) for entry in entries]
 
 
 @router.get("/installments")
@@ -105,10 +118,11 @@ def register_invoice(
 def update_installment(
     installment_id: uuid.UUID,
     request: InstallmentUpdateRequest,
+    current_user: CurrentOfficeStaff,
     installment_service: InstallmentServiceDependency,
     today: Today,
 ) -> list[InstallmentResponse]:
-    plan = installment_service.update(installment_id, request)
+    plan = installment_service.update(installment_id, request, current_user)
     return [InstallmentResponse.from_installment(item, today) for item in plan]
 
 
@@ -116,13 +130,24 @@ def update_installment(
 def record_payment(
     installment_id: uuid.UUID,
     request: PaymentRequest,
+    current_user: CurrentOfficeStaff,
     installment_service: InstallmentServiceDependency,
     today: Today,
 ) -> InstallmentResponse:
     installment = installment_service.record_payment(
-        installment_id, request.payment_date, request.amount, today
+        installment_id, request.payment_date, request.amount, today, current_user
     )
     return InstallmentResponse.from_installment(installment, today)
+
+
+@router.get("/installments/{installment_id}")
+def get_installment(
+    installment_id: uuid.UUID,
+    installment_service: InstallmentServiceDependency,
+    today: Today,
+) -> InstallmentWithDebtorResponse:
+    installment = installment_service.get(installment_id)
+    return InstallmentWithDebtorResponse.from_installment(installment, today)
 
 
 @router.get("/installments/{installment_id}/payments")
@@ -134,28 +159,26 @@ def list_payments(
 
 
 # Corrigir ou estornar uma baixa é restrito ao Administrador (US26-CA02).
-@router.put(
-    "/installments/{installment_id}/payment", dependencies=[Depends(require_admin)]
-)
+@router.put("/installments/{installment_id}/payment")
 def correct_payment(
     installment_id: uuid.UUID,
     request: PaymentCorrectionRequest,
+    current_admin: CurrentAdmin,
     installment_service: InstallmentServiceDependency,
     today: Today,
 ) -> InstallmentResponse:
     installment = installment_service.correct_payment(
-        installment_id, request.payment_date, today
+        installment_id, request.payment_date, today, current_admin
     )
     return InstallmentResponse.from_installment(installment, today)
 
 
-@router.delete(
-    "/installments/{installment_id}/payment", dependencies=[Depends(require_admin)]
-)
+@router.delete("/installments/{installment_id}/payment")
 def reverse_payment(
     installment_id: uuid.UUID,
+    current_admin: CurrentAdmin,
     installment_service: InstallmentServiceDependency,
     today: Today,
 ) -> InstallmentResponse:
-    installment = installment_service.reverse_payment(installment_id)
+    installment = installment_service.reverse_payment(installment_id, current_admin)
     return InstallmentResponse.from_installment(installment, today)

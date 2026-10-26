@@ -1,12 +1,16 @@
 import uuid
 from collections.abc import Sequence
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Final, Literal
 
 from sqlalchemy.orm import Session
 
 from advocondo.acordos.errors import AgreementCancelledError, AgreementNotFoundError
+from advocondo.acordos.models import AgreementEditField
 from advocondo.acordos.repository import AgreementRepository
+from advocondo.common.clock import Clock
 from advocondo.notificacoes.models import ClientNotificationEvent
 from advocondo.notificacoes.service import ClientNotificationService
 from advocondo.parcelas.errors import (
@@ -20,7 +24,12 @@ from advocondo.parcelas.errors import (
     PaymentAboveRemainingAmountError,
     PaymentDateInTheFutureError,
 )
-from advocondo.parcelas.models import Installment, InstallmentPayment
+from advocondo.parcelas.models import (
+    Installment,
+    InstallmentChange,
+    InstallmentChangeLog,
+    InstallmentPayment,
+)
 from advocondo.parcelas.plan import (
     absorb_difference,
     first_and_last_day_of_month,
@@ -28,6 +37,25 @@ from advocondo.parcelas.plan import (
 )
 from advocondo.parcelas.repository import InstallmentFilters, InstallmentRepository
 from advocondo.parcelas.schemas import InstallmentUpdateRequest, InvoiceRequest
+from advocondo.users.models import User
+
+# Alteração do acordo (US19) que entra no histórico financeiro junto com as das
+# parcelas (US31).
+AgreementEdited = Literal["agreement_edited"]
+AGREEMENT_EDITED: Final[AgreementEdited] = "agreement_edited"
+
+
+@dataclass(frozen=True)
+class FinancialHistoryEntry:
+    """Uma linha do histórico financeiro do acordo (US31-CA01)."""
+
+    changed_at: datetime
+    changed_by: User
+    change: InstallmentChange | AgreementEdited
+    installment_number: int | None
+    field: AgreementEditField | None
+    old_value: str | None
+    new_value: str | None
 
 
 class InstallmentService:
@@ -36,11 +64,13 @@ class InstallmentService:
         session: Session,
         installments: InstallmentRepository,
         agreements: AgreementRepository,
+        clock: Clock,
         notifications: ClientNotificationService,
     ) -> None:
         self._session = session
         self._installments = installments
         self._agreements = agreements
+        self._clock = clock
         self._notifications = notifications
 
     def list_plan(self, agreement_id: uuid.UUID) -> Sequence[Installment]:
@@ -48,6 +78,43 @@ class InstallmentService:
         if self._agreements.get(agreement_id) is None:
             raise AgreementNotFoundError()
         return self._installments.list_by_agreement(agreement_id)
+
+    def financial_history(self, agreement_id: uuid.UUID) -> list[FinancialHistoryEntry]:
+        """Baixas, correções, estornos e edições das parcelas do acordo, junto com as
+        alterações do próprio acordo (US19), da mais recente para a mais antiga."""
+        if self._agreements.get(agreement_id) is None:
+            raise AgreementNotFoundError()
+        installment_entries = [
+            FinancialHistoryEntry(
+                changed_at=log.changed_at,
+                changed_by=log.changed_by,
+                change=log.change,
+                installment_number=number,
+                field=None,
+                old_value=log.old_value,
+                new_value=log.new_value,
+            )
+            for log, number in self._installments.list_change_logs_of_agreement(
+                agreement_id
+            )
+        ]
+        agreement_entries = [
+            FinancialHistoryEntry(
+                changed_at=log.edited_at,
+                changed_by=log.edited_by,
+                change=AGREEMENT_EDITED,
+                installment_number=None,
+                field=log.field,
+                old_value=log.old_value,
+                new_value=log.new_value,
+            )
+            for log in self._agreements.list_edit_logs(agreement_id)
+        ]
+        return sorted(
+            [*installment_entries, *agreement_entries],
+            key=lambda entry: entry.changed_at,
+            reverse=True,
+        )
 
     def list_due_in_month(
         self,
@@ -71,6 +138,7 @@ class InstallmentService:
         payment_date: date,
         amount: Decimal | None,
         today: date,
+        recorded_by: User,
     ) -> Installment:
         """Registra um pagamento da parcela em aberto. Sem valor, ele quita o saldo e
         a parcela passa a constar como paga (US26-CA01); com um valor menor, o saldo
@@ -84,6 +152,13 @@ class InstallmentService:
         if paid_now > installment.remaining_amount:
             raise PaymentAboveRemainingAmountError()
         installment.receive(paid_now, payment_date)
+        self._log(
+            installment,
+            recorded_by,
+            InstallmentChange.PAYMENT_RECORDED,
+            None,
+            money_text(paid_now),
+        )
         agreement_id = installment.agreement_id
         self._session.commit()
         self._notify_client(
@@ -91,6 +166,13 @@ class InstallmentService:
             ClientNotificationEvent.PAYMENT_UPDATED,
             "Um pagamento de acordo deste condomínio foi registrado.",
         )
+        return installment
+
+    def get(self, installment_id: uuid.UUID) -> Installment:
+        """Uma parcela, com o acordo, o condomínio e o devedor (#89-CA01)."""
+        installment = self._installments.get(installment_id)
+        if installment is None:
+            raise InstallmentNotFoundError()
         return installment
 
     def list_payments(self, installment_id: uuid.UUID) -> Sequence[InstallmentPayment]:
@@ -101,24 +183,47 @@ class InstallmentService:
         return installment.payments
 
     def correct_payment(
-        self, installment_id: uuid.UUID, payment_date: date, today: date
+        self,
+        installment_id: uuid.UUID,
+        payment_date: date,
+        today: date,
+        corrected_by: User,
     ) -> Installment:
         """Troca a data do pagamento de uma parcela já baixada (US26-CA02)."""
         installment = self._get_installment_for_update(installment_id)
         if not installment.is_paid:
             raise InstallmentNotPaidError()
         ensure_payment_date_is_not_in_the_future(payment_date, today)
-        installment.correct_payment_date(payment_date)
+        previous_date = installment.payment_date
+        if payment_date != previous_date:
+            installment.correct_payment_date(payment_date)
+            self._log(
+                installment,
+                corrected_by,
+                InstallmentChange.PAYMENT_CORRECTED,
+                date_text(previous_date),
+                date_text(payment_date),
+            )
         self._session.commit()
         return installment
 
-    def reverse_payment(self, installment_id: uuid.UUID) -> Installment:
+    def reverse_payment(
+        self, installment_id: uuid.UUID, reversed_by: User
+    ) -> Installment:
         """Estorna os pagamentos, inclusive os parciais: a parcela volta a ficar em
         aberto, ou atrasada se já venceu (US26-CA02)."""
         installment = self._get_installment_for_update(installment_id)
         if not installment.has_payments:
             raise InstallmentNotPaidError()
+        reversed_amount = installment.paid_amount
         installment.reverse_payments()
+        self._log(
+            installment,
+            reversed_by,
+            InstallmentChange.PAYMENT_REVERSED,
+            money_text(reversed_amount),
+            None,
+        )
         agreement_id = installment.agreement_id
         self._session.commit()
         self._notify_client(
@@ -150,7 +255,10 @@ class InstallmentService:
         return self._installments.search_paid_without_invoice(limit, offset)
 
     def update(
-        self, installment_id: uuid.UUID, request: InstallmentUpdateRequest
+        self,
+        installment_id: uuid.UUID,
+        request: InstallmentUpdateRequest,
+        edited_by: User,
     ) -> Sequence[Installment]:
         """Edits one installment before its payment (US17-CA03) and returns the
         whole plan, since a new amount also changes the following installments."""
@@ -165,8 +273,23 @@ class InstallmentService:
         plan = self._installments.list_by_agreement(installment.agreement_id)
         old_values = {item.id: (item.amount, item.due_date) for item in plan}
         if request.amount is not None and request.amount != installment.amount:
+            previous_amount = installment.amount
             self._change_amount(installment, request.amount, plan)
-        if request.due_date is not None:
+            self._log(
+                installment,
+                edited_by,
+                InstallmentChange.AMOUNT_EDITED,
+                money_text(previous_amount),
+                money_text(request.amount),
+            )
+        if request.due_date is not None and request.due_date != installment.due_date:
+            self._log(
+                installment,
+                edited_by,
+                InstallmentChange.DUE_DATE_EDITED,
+                date_text(installment.due_date),
+                date_text(request.due_date),
+            )
             installment.due_date = request.due_date
         changed = any(
             old_values[item.id] != (item.amount, item.due_date) for item in plan
@@ -225,6 +348,26 @@ class InstallmentService:
             item.fee_amount = fee
             item.condominium_amount = amount - fee
 
+    def _log(
+        self,
+        installment: Installment,
+        changed_by: User,
+        change: InstallmentChange,
+        old_value: str | None,
+        new_value: str | None,
+    ) -> None:
+        """Registra a movimentação na mesma transação da mudança (US31-CA01)."""
+        self._session.add(
+            InstallmentChangeLog(
+                installment_id=installment.id,
+                changed_by_id=changed_by.id,
+                changed_at=self._clock.now(),
+                change=change,
+                old_value=old_value,
+                new_value=new_value,
+            )
+        )
+
     def _get_installment_for_update(self, installment_id: uuid.UUID) -> Installment:
         """Parcela a ser alterada. A linha fica travada até o commit, para uma baixa
         e uma edição simultâneas não deixarem uma parcela paga editada (US17-CA03)."""
@@ -259,3 +402,11 @@ def ensure_payment_date_is_not_in_the_future(payment_date: date, today: date) ->
     """A baixa registra um pagamento que já aconteceu; antes do vencimento pode."""
     if payment_date > today:
         raise PaymentDateInTheFutureError()
+
+
+def money_text(amount: Decimal) -> str:
+    return f"{amount:.2f}"
+
+
+def date_text(value: date | None) -> str | None:
+    return None if value is None else value.isoformat()

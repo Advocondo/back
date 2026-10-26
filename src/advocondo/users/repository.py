@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from advocondo.condominios.models import Condominium
 from advocondo.users.models import (
+    Role,
     User,
     UserAuditLog,
     UserCondominium,
@@ -43,6 +44,15 @@ class UserRepository:
             )
         )
 
+    def list_active_admins(self) -> list[User]:
+        return list(
+            self._session.scalars(
+                select(User).where(
+                    User.role == Role.ADMIN, User.status == UserStatus.ACTIVE
+                )
+            )
+        )
+
     def add(self, user: User) -> None:
         self._session.add(user)
         self._session.flush()
@@ -63,9 +73,6 @@ class UserInviteRepository:
 
     def delete(self, invite: UserInvite) -> None:
         self._session.delete(invite)
-
-    def delete_all_of_user(self, user_id: uuid.UUID) -> None:
-        self._session.execute(delete(UserInvite).where(UserInvite.user_id == user_id))
 
 
 class UserCondominiumRepository:

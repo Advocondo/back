@@ -1,7 +1,7 @@
 """create client notification logs
 
 Revision ID: 91bd02f4a610
-Revises: 183ab32038c5
+Revises: 71e2626a3918
 Create Date: 2026-10-25 09:00:00.000000
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "91bd02f4a610"
-down_revision: str | Sequence[str] | None = "183ab32038c5"
+down_revision: str | Sequence[str] | None = "71e2626a3918"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

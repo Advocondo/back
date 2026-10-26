@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Iterator
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, cast
@@ -6,13 +7,19 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from advocondo.acordos.models import Agreement
 from advocondo.common.storage import ObjectStorage, get_file_storage
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
-from advocondo.documentos.models import AgreementPdf
+from advocondo.documentos.models import (
+    AgreementDocument,
+    AgreementDocumentFile,
+    AgreementPdf,
+)
+from advocondo.documentos.rules import MAX_DOCUMENT_SIZE
 from advocondo.main import app
 from advocondo.users.models import Role, User
 from tests.fixtures.auth import AuthenticateAs
@@ -33,6 +40,8 @@ BUCKET = "advocondo-arquivos"
 # Each installment of the fixture is R$ 100,00, of which R$ 10,00 is the office's
 # fee and R$ 90,00 goes to the condominium; the agreement's fee is R$ 30,00.
 FEE_VALUES = ("R$ 10,00", "R$ 90,00", "R$ 30,00")
+DOCUMENT_PDF = b"%PDF-1.7\n%termo de acordo\n"
+DOCUMENT_PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 16
 
 
 def pdfs_url(agreement: Agreement) -> str:
@@ -43,6 +52,38 @@ def generate(
     client: TestClient, headers: dict[str, str], agreement: Agreement
 ) -> httpx.Response:
     response: httpx.Response = client.post(pdfs_url(agreement), headers=headers)
+    return response
+
+
+def upload(
+    client: TestClient,
+    headers: dict[str, str],
+    agreement_id: str,
+    content: bytes = DOCUMENT_PDF,
+    filename: str = "termo.pdf",
+    declared_type: str = "application/pdf",
+) -> httpx.Response:
+    response: httpx.Response = client.post(
+        f"/agreements/{agreement_id}/documents",
+        files={"file": (filename, content, declared_type)},
+        headers=headers,
+    )
+    return response
+
+
+def attach_link(
+    client: TestClient,
+    headers: dict[str, str],
+    agreement_id: str,
+    url: str,
+    name: str | None = None,
+) -> httpx.Response:
+    fields: dict[str, tuple[None, str]] = {"url": (None, url)}
+    if name is not None:
+        fields["name"] = (None, name)
+    response: httpx.Response = client.post(
+        f"/agreements/{agreement_id}/documents", files=fields, headers=headers
+    )
     return response
 
 
@@ -445,3 +486,547 @@ class TestAgreementPdfInBucket:
         key = f"agreements/{agreement.id}/pdfs/{body['id']}.pdf"
         assert response.status_code == 200
         assert response.content == s3_client.objects[BUCKET, key]
+
+
+class TestAgreementDocuments:
+    def upload(
+        self,
+        client: TestClient,
+        headers: dict[str, str],
+        agreement_id: str,
+        content: bytes = DOCUMENT_PDF,
+        filename: str = "termo.pdf",
+        declared_type: str = "application/pdf",
+    ) -> httpx.Response:
+        return upload(client, headers, agreement_id, content, filename, declared_type)
+
+    def test_upload_list_and_download(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator: User,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        content = b"%PDF-1.7\nexample agreement"
+        response = db_client.post(
+            f"/agreements/{agreement.id}/documents",
+            headers=operator_headers,
+            files={"file": ("../termo.pdf", content, "text/plain")},
+        )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["filename"] == "termo.pdf"
+        assert body["content_type"] == "application/pdf"
+        assert body["size"] == len(content)
+        assert body["uploaded_by"] == {"id": str(operator.id), "name": operator.name}
+        saved = db_session.scalars(select(AgreementDocument)).one()
+        # Sem bucket configurado, os bytes ficam no banco.
+        assert saved.file is not None
+        assert saved.file.content == content
+        assert saved.file.storage_key is None
+
+        listed = db_client.get(
+            f"/agreements/{agreement.id}/documents", headers=operator_headers
+        )
+        assert listed.status_code == 200
+        assert [item["id"] for item in listed.json()] == [body["id"]]
+
+        downloaded = db_client.get(
+            f"/agreements/{agreement.id}/documents/{body['id']}",
+            headers=operator_headers,
+        )
+        assert downloaded.status_code == 200
+        assert downloaded.content == content
+        assert downloaded.headers["content-type"] == "application/pdf"
+        assert downloaded.headers["content-disposition"] == (
+            "attachment; filename*=UTF-8''termo.pdf"
+        )
+        assert downloaded.headers["x-content-type-options"] == "nosniff"
+
+    def test_detects_type_from_content_not_header(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = self.upload(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            DOCUMENT_PNG,
+            "foto.png",
+            "application/pdf",
+        )
+
+        assert response.status_code == 201
+        assert response.json()["content_type"] == "image/png"
+
+    def test_filename_loses_path_components(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = self.upload(
+            db_client, operator_headers, str(agreement.id), filename="../../termo.pdf"
+        )
+
+        assert response.status_code == 201
+        assert response.json()["filename"] == "termo.pdf"
+
+    @pytest.mark.parametrize(
+        ("content", "message"),
+        [
+            pytest.param(
+                b"termo",
+                "Tipo de arquivo não aceito. Envie PDF, PNG ou JPEG.",
+                id="unsupported-type",
+            ),
+            pytest.param(b"", "O arquivo está vazio.", id="empty"),
+            pytest.param(
+                b"%PDF-" + b"0" * MAX_DOCUMENT_SIZE,
+                "O arquivo passa de 10 MB.",
+                id="too-large",
+            ),
+        ],
+    )
+    def test_invalid_upload_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+        content: bytes,
+        message: str,
+    ) -> None:
+        response = self.upload(db_client, operator_headers, str(agreement.id), content)
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == message
+
+    def test_unknown_agreement_is_not_found_on_upload(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = self.upload(db_client, operator_headers, str(uuid.uuid4()))
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Acordo não encontrado."
+
+    def test_client_cannot_attach_documents(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = self.upload(db_client, client_headers, str(agreement.id))
+
+        assert response.status_code == 403
+
+    def test_upload_requires_login(
+        self, db_client: TestClient, agreement: Agreement
+    ) -> None:
+        response = self.upload(db_client, {}, str(agreement.id))
+
+        assert response.status_code == 401
+
+    def test_rejects_unsupported_content(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = db_client.post(
+            f"/agreements/{agreement.id}/documents",
+            headers=operator_headers,
+            files={"file": ("termo.pdf", b"not a pdf", "application/pdf")},
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Tipo de arquivo não aceito. Envie PDF, PNG ou JPEG."
+        }
+
+    def test_documents_require_office_staff(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents", headers=client_headers
+        )
+
+        assert response.status_code == 403
+
+    def test_unknown_document_is_not_found(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents/{UNKNOWN_ID}",
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Documento não encontrado."}
+
+    def test_unknown_agreement_is_not_found_on_list(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(
+            f"/agreements/{uuid.uuid4()}/documents", headers=operator_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Acordo não encontrado."
+
+    def test_documents_are_listed_in_upload_order_without_content(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+        clock: FrozenClock,
+    ) -> None:
+        first = self.upload(
+            db_client, operator_headers, str(agreement.id), filename="termo.pdf"
+        )
+        clock.advance(timedelta(minutes=1))
+        second = self.upload(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            DOCUMENT_PNG,
+            "comprovante.png",
+            "image/png",
+        )
+
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents", headers=operator_headers
+        )
+
+        items = response.json()
+        assert response.status_code == 200
+        assert [item["id"] for item in items] == [
+            first.json()["id"],
+            second.json()["id"],
+        ]
+        assert [item["filename"] for item in items] == ["termo.pdf", "comprovante.png"]
+        assert all("content" not in item for item in items)
+
+    def test_agreement_with_documents_cannot_be_deleted(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = self.upload(db_client, operator_headers, str(agreement.id))
+        assert response.status_code == 201
+        saved_agreement = db_session.get(Agreement, agreement.id)
+        assert saved_agreement is not None
+
+        with pytest.raises(IntegrityError):
+            db_session.delete(saved_agreement)
+            db_session.flush()
+
+
+class TestAttachLink:
+    def test_link_is_attached_to_the_agreement(
+        self,
+        db_client: TestClient,
+        operator: User,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """US21-CA01"""
+        response = attach_link(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            "https://drive.example.com/d/termo-assinado",
+            "Termo assinado",
+        )
+
+        body = response.json()
+        assert response.status_code == 201
+        assert body["kind"] == "link"
+        assert body["url"] == "https://drive.example.com/d/termo-assinado"
+        assert body["filename"] == "Termo assinado"
+        assert body["content_type"] is None
+        assert body["size"] is None
+        assert body["uploaded_by"] == {"id": str(operator.id), "name": operator.name}
+
+    def test_link_without_a_name_gets_one_from_the_address(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """US21-CA01"""
+        response = attach_link(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            "https://example.com/docs/termo.pdf",
+        )
+
+        assert response.json()["filename"] == "termo.pdf"
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            pytest.param("javascript:alert(1)", id="script"),
+            pytest.param("ftp://example.com/termo.pdf", id="other-scheme"),
+            pytest.param("example.com/termo.pdf", id="no-scheme"),
+        ],
+    )
+    def test_invalid_link_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+        url: str,
+    ) -> None:
+        """US21-CA01"""
+        response = attach_link(db_client, operator_headers, str(agreement.id), url)
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Endereço inválido. Informe um link http ou https."
+        )
+
+    def test_file_and_link_together_are_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """US21-CA01"""
+        response = db_client.post(
+            f"/agreements/{agreement.id}/documents",
+            files={
+                "file": ("termo.pdf", DOCUMENT_PDF, "application/pdf"),
+                "url": (None, "https://example.com/termo.pdf"),
+            },
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Envie um arquivo ou um link, mas não os dois."
+        )
+
+    def test_request_with_neither_file_nor_link_is_refused(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """US21-CA01"""
+        response = db_client.post(
+            f"/agreements/{agreement.id}/documents",
+            files={"name": (None, "Termo assinado")},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Envie um arquivo ou um link, mas não os dois."
+        )
+
+    def test_link_in_an_unknown_agreement_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        """US21-CA01"""
+        response = attach_link(
+            db_client,
+            operator_headers,
+            str(uuid.uuid4()),
+            "https://example.com/termo.pdf",
+        )
+
+        assert response.status_code == 404
+
+
+class TestLinkInTheList:
+    def test_files_and_links_are_listed_together(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+        clock: FrozenClock,
+    ) -> None:
+        """US21-CA01"""
+        upload(db_client, operator_headers, str(agreement.id))
+        clock.advance(timedelta(minutes=1))
+        attach_link(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            "https://example.com/d/1",
+            "Comprovante",
+        )
+
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents", headers=operator_headers
+        )
+
+        items = response.json()
+        assert [(item["kind"], item["filename"]) for item in items] == [
+            ("file", "termo.pdf"),
+            ("link", "Comprovante"),
+        ]
+
+    def test_link_cannot_be_downloaded(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        """US21-CA01"""
+        document_id = attach_link(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            "https://example.com/d/1",
+        ).json()["id"]
+
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents/{document_id}",
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Este documento é um link: abra o endereço informado."
+        )
+
+
+class TestFileOrLinkConstraint:
+    @pytest.mark.parametrize(
+        ("with_file", "url"),
+        [
+            pytest.param(True, "https://example.com/termo.pdf", id="both"),
+            pytest.param(False, None, id="neither"),
+        ],
+    )
+    def test_database_refuses_a_document_that_is_not_a_file_or_a_link(
+        self,
+        db_session: Session,
+        operator: User,
+        agreement: Agreement,
+        clock: FrozenClock,
+        with_file: bool,
+        url: str | None,
+    ) -> None:
+        """US21-CA01"""
+        file = (
+            AgreementDocumentFile(
+                content_type="application/pdf",
+                size_bytes=len(DOCUMENT_PDF),
+                content=DOCUMENT_PDF,
+            )
+            if with_file
+            else None
+        )
+        db_session.add(
+            AgreementDocument(
+                agreement_id=agreement.id,
+                filename="termo.pdf",
+                file=file,
+                url=url,
+                uploaded_by=operator,
+                uploaded_at=clock.now(),
+            )
+        )
+
+        with pytest.raises(IntegrityError):
+            db_session.flush()
+
+
+class TestDocumentInBucket:
+    """US21: com o bucket configurado, o arquivo vai para ele, como os PDFs."""
+
+    @pytest.fixture
+    def s3_client(self) -> Iterator[FakeS3Client]:
+        fake = FakeS3Client()
+        storage = ObjectStorage(cast("S3Client", fake), BUCKET)
+        app.dependency_overrides[get_file_storage] = lambda: storage
+        try:
+            yield fake
+        finally:
+            app.dependency_overrides.pop(get_file_storage, None)
+
+    def test_bytes_go_to_the_bucket_and_the_row_keeps_the_key(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        s3_client: FakeS3Client,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = upload(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            DOCUMENT_PDF,
+            "termo.pdf",
+            "application/pdf",
+        )
+
+        assert response.status_code == 201
+        assert response.json()["size"] == len(DOCUMENT_PDF)
+        file = db_session.scalars(select(AgreementDocumentFile)).one()
+        key = f"agreements/{agreement.id}/documents/{file.id}"
+        assert file.storage_key == key
+        assert file.content is None
+        assert s3_client.objects[BUCKET, key] == DOCUMENT_PDF
+        assert s3_client.content_types[BUCKET, key] == "application/pdf"
+
+    def test_download_is_served_by_the_api(
+        self,
+        db_client: TestClient,
+        s3_client: FakeS3Client,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        body = upload(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            DOCUMENT_PDF,
+            "termo.pdf",
+            "application/pdf",
+        ).json()
+
+        response = db_client.get(
+            f"/agreements/{agreement.id}/documents/{body['id']}",
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.content == DOCUMENT_PDF
+        assert response.headers["content-type"] == "application/pdf"
+
+    def test_link_puts_nothing_in_the_bucket(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        s3_client: FakeS3Client,
+        operator_headers: dict[str, str],
+        agreement: Agreement,
+    ) -> None:
+        response = attach_link(
+            db_client,
+            operator_headers,
+            str(agreement.id),
+            "https://drive.example.com/d/termo-assinado",
+            "Termo assinado",
+        )
+
+        assert response.status_code == 201
+        assert s3_client.objects == {}
+        assert db_session.scalars(select(AgreementDocumentFile)).all() == []

@@ -918,6 +918,27 @@ class TestAcceptInvite:
         assert response.json()["status"] == UserStatus.ACTIVE.value
         assert log_in(db_client, "novo@example.com", INVITE_PASSWORD) == 200
 
+    def test_invite_of_a_user_who_is_no_longer_pending_is_refused(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        outbox: Outbox,
+    ) -> None:
+        """O link não serve depois que o Administrador mudou a situação do convidado."""
+        token = self._invite(db_client, create_user, authenticate_as, outbox)
+        invited = db_session.scalars(
+            select(User).where(User.email == "novo@example.com")
+        ).one()
+        invited.status = UserStatus.INACTIVE
+        db_session.flush()
+
+        response = accept_invite(db_client, token)
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "O convite é inválido ou já expirou."}
+
     def test_accepting_the_invite_deletes_the_invite_row(
         self,
         db_client: TestClient,
@@ -1158,6 +1179,190 @@ class TestChangeUserRole:
         response = change_role(db_client, headers, target.id, invalid_role)
 
         assert response.status_code == 422
+
+
+def change_status(
+    client: TestClient,
+    headers: dict[str, str],
+    user_id: uuid.UUID | str,
+    status: str,
+) -> httpx.Response:
+    response: httpx.Response = client.patch(
+        f"/users/{user_id}/status", json={"status": status}, headers=headers
+    )
+    return response
+
+
+class TestChangeUserStatus:
+    """US08: o Administrador inativa e reativa o acesso pela rota."""
+
+    def test_admin_inactivates_a_user_right_away(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US08-CA01"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="target@example.com")
+
+        response = change_status(db_client, headers, target.id, "inactive")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == UserStatus.INACTIVE.value
+        db_session.refresh(target)
+        assert target.status == UserStatus.INACTIVE
+
+    def test_inactivated_user_loses_the_open_session_and_cannot_log_in(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US08-CA02"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="target@example.com")
+        target_headers = authenticate_as(target)
+        assert db_client.get("/auth/me", headers=target_headers).status_code == 200
+
+        change_status(db_client, headers, target.id, "inactive")
+
+        assert db_client.get("/auth/me", headers=target_headers).status_code == 401
+        assert log_in(db_client, "target@example.com", DEFAULT_PASSWORD) == 401
+
+    def test_inactivation_can_be_reversed(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US08-CA03"""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="target@example.com", status=UserStatus.INACTIVE)
+
+        response = change_status(db_client, headers, target.id, "active")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == UserStatus.ACTIVE.value
+        assert log_in(db_client, "target@example.com", DEFAULT_PASSWORD) == 200
+
+    def test_sending_the_current_status_records_nothing(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US11-CA01: o histórico só guarda o que mudou."""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="target@example.com")
+
+        response = change_status(db_client, headers, target.id, "active")
+        history = db_client.get(f"/users/{target.id}/history", headers=headers)
+
+        assert response.status_code == 200
+        assert history.json()["logs"] == []
+
+    def test_unknown_user_is_not_found(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = change_status(db_client, headers, uuid.uuid4(), "inactive")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Usuário não encontrado."}
+
+    def test_pending_user_cannot_change_status(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """Quem tem convite pendente ainda não tem acesso para inativar."""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(
+            email="target@example.com", status=UserStatus.PENDING, password=None
+        )
+
+        response = change_status(db_client, headers, target.id, "inactive")
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Usuário com convite pendente precisa aceitar o convite antes."
+        }
+
+    def test_admin_cannot_inactivate_themselves(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """Evita que o escritório fique sem Administrador por engano."""
+        headers, admin = invite_as_admin(db_client, create_user, authenticate_as)
+
+        response = change_status(db_client, headers, admin.id, "inactive")
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Você não pode inativar o seu próprio acesso."
+        }
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            pytest.param("pending", id="pending"),
+            pytest.param("blocked", id="unknown"),
+        ],
+    )
+    def test_only_active_or_inactive_is_accepted(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        status: str,
+    ) -> None:
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="target@example.com")
+
+        response = change_status(db_client, headers, target.id, status)
+
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize(
+        "role",
+        [
+            pytest.param(Role.OPERATOR, id="operator"),
+            pytest.param(Role.CLIENT, id="client"),
+        ],
+    )
+    def test_only_the_admin_changes_status(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        role: Role,
+    ) -> None:
+        headers = authenticate_as(create_user(email="someone@example.com", role=role))
+        target = create_user(email="target@example.com")
+
+        response = change_status(db_client, headers, target.id, "inactive")
+
+        assert response.status_code == 403
+
+    def test_requires_a_session(
+        self, db_client: TestClient, create_user: CreateUser
+    ) -> None:
+        target = create_user(email="target@example.com")
+
+        response = db_client.patch(
+            f"/users/{target.id}/status", json={"status": "inactive"}
+        )
+
+        assert response.status_code == 401
 
 
 class TestUserHistory:
