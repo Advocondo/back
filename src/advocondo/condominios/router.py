@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from advocondo.auth.dependencies import require_office_staff
 from advocondo.common.dependencies import Today
@@ -60,8 +60,6 @@ def get_condominium(
     today: Today,
 ) -> CondominiumResponse:
     condominium = condominium_service.get(condominium_id)
-    if not condominium:
-        raise HTTPException(status_code=404, detail="Condomínio não encontrado.")
     return CondominiumResponse.from_condominium(condominium, today)
 
 
@@ -73,6 +71,4 @@ def update_condominium(
     today: Today,
 ) -> CondominiumResponse:
     condominium = condominium_service.update(condominium_id, request)
-    if not condominium:
-        raise HTTPException(status_code=404, detail="Condomínio não encontrado.")
     return CondominiumResponse.from_condominium(condominium, today)
