@@ -15,12 +15,35 @@ from advocondo.condominios.schemas import (
     CondominiumCreateRequest,
     CondominiumUpdateRequest,
 )
+from advocondo.notificacoes.models import ClientNotificationEvent
+from advocondo.notificacoes.service import ClientNotificationService
+
+CLIENT_VISIBLE_CONDOMINIUM_FIELDS = frozenset(
+    {
+        "name",
+        "cnpj",
+        "zip_code",
+        "street",
+        "neighborhood",
+        "city",
+        "state",
+        "manager_name",
+        "manager_email",
+        "manager_phone",
+    }
+)
 
 
 class CondominiumService:
-    def __init__(self, session: Session, condominiums: CondominiumRepository) -> None:
+    def __init__(
+        self,
+        session: Session,
+        condominiums: CondominiumRepository,
+        notifications: ClientNotificationService,
+    ) -> None:
         self._session = session
         self._condominiums = condominiums
+        self._notifications = notifications
 
     def register(self, request: CondominiumCreateRequest) -> Condominium:
         """Registers a condominium so agreements and Client users can be linked to it."""
@@ -46,10 +69,22 @@ class CondominiumService:
             changes.get("contract_start_date", condominium.contract_start_date),
             changes.get("contract_renewal_date", condominium.contract_renewal_date),
         )
+        client_visible_change = any(
+            field in CLIENT_VISIBLE_CONDOMINIUM_FIELDS
+            and getattr(condominium, field) != value
+            for field, value in changes.items()
+        )
         for field_name, new_value in changes.items():
             setattr(condominium, field_name, new_value)
         self._condominiums.save(condominium)
         self._session.commit()
+        if client_visible_change:
+            # Internal contract dates are deliberately not part of the Client update.
+            self._notifications.send_condominium_update(
+                condominium.id,
+                ClientNotificationEvent.CONDOMINIUM_UPDATED,
+                "Os dados deste condomínio foram atualizados.",
+            )
         return condominium
 
     def get(self, condominium_id: uuid.UUID) -> Condominium:

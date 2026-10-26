@@ -84,6 +84,16 @@ Histórico de pagamentos de um morador do condomínio ([US38](https://advocondo.
 - **Acordo cancelado entra só com o que foi pago.** O histórico serve para prestar contas na assembleia, então o que o morador pagou antes do cancelamento continua aparecendo. O que não foi pago saiu da cobrança ([US20](parcelas.md#acordo-cancelado-us20)) e não entra em `open_amount` nem no `status`. É a única rota do painel que considera acordo cancelado.
 - O morador precisa ser de um condomínio vinculado ao Cliente: de outro condomínio ou inexistente recebe `404 Devedor não encontrado.`. Morador sem acordos recebe `months: []`.
 
+## Notificações automáticas (US40)
+
+O sistema envia um e-mail informativo aos usuários Cliente ativos vinculados ao condomínio quando um acordo é registrado, atualizado em dado visível ao Cliente, cancelado, quando um pagamento é registrado/estornado, quando uma parcela muda de valor ou vencimento, e quando dados de contato ou identificação do condomínio são alterados. A notificação só é disparada depois que a alteração de negócio foi confirmada no banco.
+
+O corpo do e-mail contém uma mensagem genérica, o nome do condomínio e o endereço configurado em `FRONTEND_URL`. Não inclui honorários, divisão financeira, devedor, unidade ou dados internos. Cada entrega bem-sucedida cria uma linha em `client_notification_logs` com Cliente, condomínio, tipo do evento, mensagem, link e data/hora (`sent_at`). Uma falha de e-mail é registrada no log da aplicação e não desfaz a alteração de negócio; ela não gera linha de envio bem-sucedido.
+
+O comando `python -m advocondo.painel_cliente.monthly_report_task` fecha o mês anterior, gera e armazena um PDF por condomínio com Clientes ativos vinculados e envia uma notificação de relatório pronto. A execução é idempotente: um relatório existente é reutilizado e um e-mail já registrado para aquele condomínio/período não é reenviado. O PDF fica acessível somente a Clientes vinculados, pelo endpoint `GET /client-panel/condominiums/{condominium_id}/reports/{year}/{month}`.
+
+Configure o comando como *Scheduled Task* diário no Coolify, às 03:00 (`0 3 * * *`), no container da API. A rotina sempre processa o mês civil anterior no horário de Brasília e pode ser repetida com segurança. O link para a rota de relatório no frontend fica pendente da implementação da tela; até lá, o e-mail informa que o PDF está disponível no painel, sem incluir um link inválido.
+
 ## Regras
 
 - **Só os condomínios vinculados (US37-CA01/US39).** O filtro é um `JOIN` na tabela `user_condominiums` dentro da própria consulta, então acordos de outros condomínios nunca saem do banco. Cliente sem vínculo recebe `[]` na lista e `404` ao solicitar um relatório.

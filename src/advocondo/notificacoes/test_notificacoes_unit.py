@@ -1,11 +1,15 @@
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from advocondo.notificacoes.models import Notification
+from advocondo.notificacoes.models import ClientNotificationEvent, Notification
 from advocondo.notificacoes.overdue import recipients
+from advocondo.notificacoes.service import ClientNotificationService
 from advocondo.users.models import Role, User, UserStatus
+from tests.support.clock import FrozenClock
+from tests.support.email import Outbox
 
 NOW = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
 
@@ -58,3 +62,56 @@ class TestMarkAsRead:
 
         assert notification.read_at == NOW
         assert notification.is_read
+
+
+class FailingLogRepository:
+    """Um Cliente vinculado; gravar o registro do envio falha."""
+
+    def __init__(self, client: User) -> None:
+        self.client = client
+
+    def list_active_clients(self, condominium_id: uuid.UUID) -> list[tuple[User, str]]:
+        return [(self.client, "Residencial Mirante")]
+
+    def save(self, notification: object) -> None:
+        raise RuntimeError("banco fora do ar")
+
+
+class RecordingSession:
+    def __init__(self) -> None:
+        self.rolled_back = False
+
+    def commit(self) -> None:
+        raise AssertionError("nada deve ser gravado")
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+
+class TestClientNotificationLogFailure:
+    def test_failure_to_log_the_send_is_reported_without_raising(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """US40-CA03: o e-mail já saiu; a falha do registro não desfaz a operação
+        que gerou o aviso, mas fica no log da aplicação."""
+        client = User(id=uuid.uuid4(), name="Síndico", email="sindico@example.com")
+        session = RecordingSession()
+        outbox = Outbox()
+        service = ClientNotificationService(
+            session,  # type: ignore[arg-type]
+            FailingLogRepository(client),  # type: ignore[arg-type]
+            outbox,
+            FrozenClock(),
+            "https://app.example.com",
+        )
+
+        with caplog.at_level(logging.ERROR):
+            service.send_condominium_update(
+                uuid.uuid4(),
+                ClientNotificationEvent.AGREEMENT_CREATED,
+                "Um novo acordo foi registrado para este condomínio.",
+            )
+
+        assert [message.to for message in outbox.messages] == ["sindico@example.com"]
+        assert session.rolled_back
+        assert "Falha ao registrar notificação enviada" in caplog.text

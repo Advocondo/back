@@ -11,7 +11,8 @@ from advocondo.documentos.models import (
 )
 from advocondo.landing.models import LandingBlock, LandingImage
 from advocondo.metas.models import Goal
-from advocondo.notificacoes.models import Notification
+from advocondo.notificacoes.models import ClientNotificationLog, Notification
+from advocondo.painel_cliente.models import CondominiumMonthlyReport
 from advocondo.parcelas.models import (
     Installment,
     InstallmentChangeLog,
@@ -25,7 +26,9 @@ __all__ = [
     "AgreementDocumentFile",
     "AgreementEditLog",
     "AgreementPdf",
+    "ClientNotificationLog",
     "Condominium",
+    "CondominiumMonthlyReport",
     "Debtor",
     "Goal",
     "Installment",
