@@ -933,6 +933,48 @@ class TestCancelledAgreement:
         assert february == []
         assert repaid.status_code == 422
 
+    def test_reactivation_brings_the_unpaid_installments_back(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        """#88-CA02: as sem pagamento voltam à cobrança e a paga não muda."""
+        response = db_client.post(
+            f"/agreements/{cancelled_agreement_id}/reactivate",
+            headers=operator_headers,
+        )
+        assert response.status_code == 200
+
+        march = list_due_in_month(db_client, operator_headers, year="2026", month="3")
+        plan = get_plan(db_client, operator_headers, cancelled_agreement_id)
+
+        assert [(item["number"], item["status"]) for item in march] == [(2, "open")]
+        assert [item["status"] for item in plan] == ["paid", "open", "open"]
+        assert plan[0]["payment_date"] == "2026-02-12"
+
+    def test_reactivated_agreement_accepts_payments_again(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        cancelled_agreement_id: str,
+    ) -> None:
+        """#88"""
+        db_client.post(
+            f"/agreements/{cancelled_agreement_id}/reactivate",
+            headers=operator_headers,
+        )
+        second = get_plan(db_client, operator_headers, cancelled_agreement_id)[1]
+
+        response = db_client.post(
+            payment_url(second["id"]),
+            json={"payment_date": "2026-03-01"},
+            headers=operator_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "paid"
+
 
 class TestPartialPayment:
     """US28. O relógio dos testes está em 2 de março de 2026."""

@@ -16,8 +16,8 @@ O PDF do acordo (US24) fica em `/agreements/{id}/pdfs`, onde o Cliente também b
 | `fee_percentage` ou `fee_amount` | Honorários do escritório ([US16](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us16)), em **um** dos dois formatos: percentual do total (0 a 100, até 2 casas) ou valor em reais (de 0 até o valor total). Com o percentual, o valor é calculado e arredondado ao centavo (US16-CA01); o percentual só é guardado quando foi informado. |
 | `installment_count` | Número de parcelas, obrigatório, de 1 a 120. |
 | `first_due_date` | Vencimento da primeira parcela (`AAAA-MM-DD`), obrigatório. As parcelas são geradas com o acordo; ver [Parcelas](parcelas.md). |
-| `status` | Definido pelo sistema: todo acordo nasce `active` e passa a `cancelled` no cancelamento ([US20](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us20)). |
-| `cancelled_at` e `cancellation_reason` | Preenchidos no cancelamento: o momento e o motivo, que é opcional (até 500 caracteres). Vêm `null` num acordo ativo. |
+| `status` | Definido pelo sistema: todo acordo nasce `active`, passa a `cancelled` no cancelamento ([US20](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us20)) e volta a `active` na reativação. |
+| `cancelled_at` e `cancellation_reason` | Preenchidos no cancelamento: o momento e o motivo, que é opcional (até 500 caracteres). Vêm `null` num acordo ativo, inclusive depois de reativado. |
 
 Valores em dinheiro são gravados como `NUMERIC(12, 2)`, nunca como ponto flutuante, e voltam na resposta como texto com duas casas (`"5500.00"`), para não perder centavos. O front formata como `R$ 5.500,00`.
 
@@ -87,7 +87,17 @@ Cancela o acordo ([US20](https://advocondo.github.io/docs/historias/ep03-cadastr
 - `confirm_open_installments` (padrão `false`) precisa ser `true` quando o acordo ainda tem parcelas **sem pagamento**, em aberto ou em atraso. Sem isso a API não cancela e responde `409` com quantas são e quanto somam, por exemplo: `Há 3 parcelas sem pagamento, somando R$ 1.234,56. Confirme para cancelar o acordo.` Um acordo sem parcelas pendentes cancela sem confirmação.
 - A resposta é o acordo, já com `status: "cancelled"`, `cancelled_at` e `cancellation_reason`.
 
-O que muda para as parcelas está em [Parcelas](parcelas.md#acordo-cancelado-us20). Um acordo cancelado também não troca de advogado responsável nem é editado em `PATCH /agreements/{id}`. Reativar um acordo cancelado ainda não existe, e quem cancelou ainda não é registrado.
+O que muda para as parcelas está em [Parcelas](parcelas.md#acordo-cancelado-us20). Um acordo cancelado também não troca de advogado responsável nem é editado em `PATCH /agreements/{id}`. Quem cancelou ainda não é registrado.
+
+### `POST /agreements/{id}/reactivate`
+
+Desfaz o cancelamento ([#88](https://github.com/Advocondo/back/issues/88)), sem corpo na requisição. Equipe Operacional e Administrador reativam, como no cancelamento.
+
+- O acordo volta a `active`, à lista de ativos e ao painel do Cliente; `cancelled_at` e `cancellation_reason` voltam a `null`.
+- As parcelas sem pagamento voltam à cobrança como estão: as que venceram enquanto o acordo estava cancelado aparecem como `overdue`. Para dar novas datas, use `PATCH /installments/{id}` ([US17](https://advocondo.github.io/docs/historias/ep03-cadastro-acordos/#us17)). As pagas não mudam ([Parcelas](parcelas.md#acordo-cancelado-us20)).
+- Edição, troca de advogado e baixa voltam a ser aceitas.
+- A resposta é o acordo, já com `status: "active"`.
+- Quem reativou ainda não é registrado, assim como quem cancelou.
 
 ## Respostas de erro
 
@@ -97,6 +107,7 @@ O que muda para as parcelas está em [Parcelas](parcelas.md#acordo-cancelado-us2
 | Usuário Cliente | `403` | `Você não tem permissão para esta operação.` |
 | Acordo com parcelas sem pagamento, sem `confirm_open_installments` | `409` | `Há N parcelas sem pagamento, somando R$ …. Confirme para cancelar o acordo.` |
 | Acordo já cancelado (cancelar de novo) | `422` | `O acordo já está cancelado.` |
+| Reativar acordo que não está cancelado | `422` | `O acordo não está cancelado.` |
 | Edição ou troca de advogado de acordo cancelado | `422` | `Acordo cancelado não aceita esta operação.` |
 | Condomínio, devedor ou acordo inexistente | `404` | `Condomínio não encontrado.` / `Devedor não encontrado.` / `Acordo não encontrado.` |
 | Devedor de outro condomínio | `422` | `O devedor informado não pertence a este condomínio.` |

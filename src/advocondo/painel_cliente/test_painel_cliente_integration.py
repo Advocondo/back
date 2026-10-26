@@ -371,6 +371,48 @@ class TestThroughTheRealRoutes:
         assert cancelled.status_code == 200
         assert after.json() == []
 
+    def test_reactivated_agreement_shows_up_again(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        link_client: LinkClient,
+        client_user: User,
+        client_headers: dict[str, str],
+        mirante: Condominium,
+        jose: Debtor,
+    ) -> None:
+        """#88: o acordo reativado volta ao painel do Cliente."""
+        link_client(client_user, mirante)
+        operator_headers = authenticate_as(
+            create_user(role=Role.OPERATOR, email="o@example.com")
+        )
+        agreement_id = db_client.post(
+            "/agreements",
+            json={
+                "condominium_id": str(mirante.id),
+                "debtor_id": str(jose.id),
+                "total_amount": "1000.00",
+                "installment_count": 2,
+                "first_due_date": "2026-03-31",
+                "fee_percentage": "10",
+            },
+            headers=operator_headers,
+        ).json()["id"]
+        db_client.post(
+            f"/agreements/{agreement_id}/cancel",
+            json={"confirm_open_installments": True},
+            headers=operator_headers,
+        )
+
+        reactivated = db_client.post(
+            f"/agreements/{agreement_id}/reactivate", headers=operator_headers
+        )
+        after = db_client.get(URL, headers=client_headers)
+
+        assert reactivated.status_code == 200
+        assert [item["id"] for item in after.json()] == [agreement_id]
+
 
 def test_agreements_are_ordered_by_condominium_then_debtor_name(
     db_client: TestClient,
