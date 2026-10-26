@@ -4,8 +4,11 @@ from typing import Any
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from advocondo.common.clock import today_in_brazil
+from advocondo.condominios.models import Condominium
 from advocondo.condominios.renewal import DEFAULT_RENEWAL_WARNING_DAYS
 from advocondo.condominios.repository import CondominiumRepository
 from advocondo.users.models import Role
@@ -485,3 +488,18 @@ class TestRegisterRenewal:
         assert renewed.json()["contract_start_date"] == today.isoformat()
         assert renewed.json()["contract_renewal_date"] == new_renewal_date
         assert renewed.json()["near_renewal"] is False
+
+
+class TestRepositoryIntegrityErrors:
+    def test_other_constraint_violations_are_not_reported_as_duplicate_cnpj(
+        self, db_session: Session
+    ) -> None:
+        """Só a unicidade do CNPJ vira erro de negócio; o resto sobe como está."""
+        condominium = Condominium(
+            name="Residencial Mirante",
+            contract_start_date=date(2026, 3, 1),
+            contract_renewal_date=date(2026, 2, 1),
+        )
+
+        with pytest.raises(IntegrityError, match="renewal_not_before_start"):
+            CondominiumRepository(db_session).save(condominium)

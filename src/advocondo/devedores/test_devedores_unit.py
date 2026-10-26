@@ -108,6 +108,13 @@ class TestDebtorUpdateRequest:
         with pytest.raises(ValidationError):
             DebtorUpdateRequest.model_validate(fields)
 
+    def test_new_name_and_unit_are_accepted(self) -> None:
+        request = DebtorUpdateRequest.model_validate(
+            {"name": "José Simão Filho", "unit": "Bloco C 101"}
+        )
+
+        assert (request.name, request.unit) == ("José Simão Filho", "Bloco C 101")
+
 
 class TestReadSpreadsheet:
     """US14"""

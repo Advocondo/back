@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -21,6 +22,7 @@ from advocondo.users.models import (
     UserInvite,
     UserStatus,
 )
+from advocondo.users.schemas import InviteUserRequest
 from advocondo.users.service import (
     InviteDetails,
     InviteService,
@@ -297,3 +299,38 @@ class TestInviteServiceRules:
         assert log.action == AuditAction.INVITED
         assert log.old_value is None
         assert log.new_value == Role.OPERATOR.value
+
+
+class FailingEmailSender:
+    def send(self, message: EmailMessage) -> None:
+        raise ConnectionRefusedError("SMTP fora do ar")
+
+
+class TestInviteEmailFailure:
+    def test_invite_is_kept_and_the_failure_is_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """O convite já está gravado; um SMTP fora do ar não desfaz a criação."""
+        service, users, invites, _, _ = build_invite_service()
+        service._email_sender = FailingEmailSender()
+
+        with caplog.at_level(logging.ERROR):
+            invited = service.invite(build_admin(), build_details())
+
+        assert users.added == [invited]
+        assert len(invites.added) == 1
+        assert "Falha ao enviar o e-mail de convite" in caplog.text
+
+
+class TestInviteUserRequest:
+    def test_oab_number_sent_as_null_is_no_oab(self) -> None:
+        request = InviteUserRequest.model_validate(
+            {
+                "email": "novo@example.com",
+                "name": "Novo",
+                "role": "operator",
+                "oab_number": None,
+            }
+        )
+
+        assert request.oab_number is None

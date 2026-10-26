@@ -324,6 +324,11 @@ class TestPdf:
     def test_format_date(self) -> None:
         assert format_date(date(2026, 1, 5)) == "05/01/2026"
 
+    def test_subtitle_is_optional(self) -> None:
+        content = render_pdf(PdfDocument(title="Relatório", subtitle="", blocks=()))
+
+        assert pdf_text(content).strip() == "Relatório"
+
     def test_render_writes_every_block(self) -> None:
         document = PdfDocument(
             title="Relatório",

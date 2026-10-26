@@ -918,6 +918,27 @@ class TestAcceptInvite:
         assert response.json()["status"] == UserStatus.ACTIVE.value
         assert log_in(db_client, "novo@example.com", INVITE_PASSWORD) == 200
 
+    def test_invite_of_a_user_who_is_no_longer_pending_is_refused(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        outbox: Outbox,
+    ) -> None:
+        """O link não serve depois que o Administrador mudou a situação do convidado."""
+        token = self._invite(db_client, create_user, authenticate_as, outbox)
+        invited = db_session.scalars(
+            select(User).where(User.email == "novo@example.com")
+        ).one()
+        invited.status = UserStatus.INACTIVE
+        db_session.flush()
+
+        response = accept_invite(db_client, token)
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "O convite é inválido ou já expirou."}
+
     def test_accepting_the_invite_deletes_the_invite_row(
         self,
         db_client: TestClient,
@@ -1225,6 +1246,22 @@ class TestChangeUserStatus:
         assert response.status_code == 200
         assert response.json()["status"] == UserStatus.ACTIVE.value
         assert log_in(db_client, "target@example.com", DEFAULT_PASSWORD) == 200
+
+    def test_sending_the_current_status_records_nothing(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US11-CA01: o histórico só guarda o que mudou."""
+        headers, _ = invite_as_admin(db_client, create_user, authenticate_as)
+        target = create_user(email="target@example.com")
+
+        response = change_status(db_client, headers, target.id, "active")
+        history = db_client.get(f"/users/{target.id}/history", headers=headers)
+
+        assert response.status_code == 200
+        assert history.json()["logs"] == []
 
     def test_unknown_user_is_not_found(
         self,

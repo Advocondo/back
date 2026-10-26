@@ -6,6 +6,7 @@ from decimal import Decimal
 from advocondo.acordos.models import Agreement
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
+from advocondo.painel_cliente.report_pdf import render_condominium_report
 from advocondo.painel_cliente.repository import (
     ClientPanelRepository,
     client_agreements_query,
@@ -17,6 +18,7 @@ from advocondo.painel_cliente.service import (
     summarize_months,
 )
 from advocondo.parcelas.models import Installment
+from tests.support.pdf import pdf_text
 
 TODAY = date(2026, 3, 10)
 PAID_ON = date(2026, 2, 1)
@@ -258,3 +260,26 @@ def test_query_filters_active_agreements_only() -> None:
     )
 
     assert "agreements.status = 'active'" in sql
+
+
+class TestCondominiumReport:
+    """US39-CA02: o relatório só mostra dados do condomínio do Cliente."""
+
+    def test_cnpj_appears_when_registered(self) -> None:
+        condominium = Condominium(name="Residencial Mirante", cnpj="11222333000181")
+
+        text = pdf_text(
+            render_condominium_report("Síndico", condominium, [], date(2026, 3, 2))
+        )
+
+        assert "11222333000181" in text
+
+    def test_report_without_cnpj_has_only_the_name(self) -> None:
+        condominium = Condominium(name="Residencial Mirante", cnpj=None)
+
+        text = pdf_text(
+            render_condominium_report("Síndico", condominium, [], date(2026, 3, 2))
+        )
+
+        assert "Residencial Mirante" in text
+        assert "CNPJ" not in text

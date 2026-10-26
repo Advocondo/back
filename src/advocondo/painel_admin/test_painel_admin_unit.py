@@ -5,16 +5,21 @@ from io import BytesIO
 import pytest
 from openpyxl import load_workbook
 
+from advocondo.common.errors import PermissionDeniedError
 from advocondo.painel_admin.export import (
     HEADERS,
     ExportableInstallmentRow,
     build_installment_workbook,
 )
+from advocondo.painel_admin.repository import AdminPanelRepository
 from advocondo.painel_admin.schemas import month_bounds
+from advocondo.painel_admin.service import AdminPanelService
 from advocondo.painel_operacional.schemas import (
     month_bounds as operational_month_bounds,
 )
 from advocondo.parcelas.status import InstallmentStatus
+from advocondo.users.models import Role, User
+from tests.support.clock import FrozenClock
 
 
 @pytest.mark.parametrize("bounds", [month_bounds, operational_month_bounds])
@@ -79,3 +84,23 @@ class TestInstallmentWorkbook:
         ]
 
         assert sheet["K2"].value is None
+
+
+class TestAdminPanelServicePermissions:
+    """O router já exige Administrador; o service confere de novo, para quem o
+    chamar de outro lugar."""
+
+    @pytest.mark.parametrize("role", [Role.OPERATOR, Role.CLIENT])
+    def test_only_the_admin_gets_the_panel_data(self, role: Role) -> None:
+        service = AdminPanelService(
+            AdminPanelRepository(session=None),  # type: ignore[arg-type]
+            FrozenClock(),
+        )
+        user = User(role=role)
+
+        with pytest.raises(PermissionDeniedError):
+            service.get_financial_summary(user)
+        with pytest.raises(PermissionDeniedError):
+            service.get_dashboard(user, 2026, 3)
+        with pytest.raises(PermissionDeniedError):
+            service.export_monthly_followup(user, 2026, 3)
