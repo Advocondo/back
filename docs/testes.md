@@ -1,6 +1,6 @@
 # Testes automatizados
 
-Os testes usam [pytest](https://docs.pytest.org/), com cobertura via `pytest-cov`, e rodam no CI em todo push e PR.
+Os testes usam [pytest](https://docs.pytest.org/), com cobertura via `pytest-cov`, e rodam no CI em todo push e PR. **A cobertura de linhas e ramos é de 100%, e o CI falha abaixo disso** (`--cov-fail-under=100` no passo de testes). Código novo chega com teste, de unidade ou de integração; código que nada chama é removido em vez de testado.
 
 ## Como rodar
 
@@ -22,6 +22,19 @@ Para rodar só os testes que não usam banco:
 ```bash
 uv run pytest -m "not integration"
 ```
+
+## Cobertura
+
+A cobertura aparece no fim de todo `uv run pytest` (o `pyproject.toml` liga `--cov` sempre). Para o relatório completo, rode a suíte inteira com o Postgres de teste no ar (`docker compose up -d db`):
+
+| Para | Comando |
+| --- | --- |
+| Tabela com as linhas que faltam | `uv run pytest` |
+| Só os arquivos abaixo de 100% | `uv run pytest --cov-report=term-missing:skip-covered` |
+| Relatório HTML, linha a linha | `uv run pytest --cov-report=html` e abra `htmlcov/index.html` |
+| O mesmo critério do CI | `uv run pytest --cov-fail-under=100` |
+
+Rodar só uma parte da suíte (um arquivo ou `-m "not integration"`) mostra uma cobertura menor, porque o resto do código não é exercitado; o número que vale é o da suíte inteira. No GitHub, cada run do CI mostra a tabela no resumo do job e anexa o `coverage.xml`.
 
 ## Banco de dados de teste
 

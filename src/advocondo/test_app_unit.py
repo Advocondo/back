@@ -1,5 +1,7 @@
 import json
 import logging
+import runpy
+import sys
 from collections.abc import Callable, Iterator
 from functools import partial
 from pathlib import Path
@@ -13,9 +15,11 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sentry_sdk.envelope import Envelope
 from sentry_sdk.transport import Transport
+from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
 
-from advocondo import sentry
+from advocondo import db, sentry
+from advocondo.__main__ import main as run_server
 from advocondo.config import MIN_SETUP_TOKEN_LENGTH, Settings
 from advocondo.health import HealthCheck, get_health_checks
 from advocondo.logging_config import JsonFormatter, RequestIdFilter, request_id_var
@@ -484,6 +488,80 @@ class TestDatabaseGuard:
     def test_recusa_banco_que_nao_e_de_testes(self, database: str) -> None:
         with pytest.raises(ValueError, match="_test"):
             assert_is_test_database(make_url(f"{BASE}/{database}"))
+
+
+class TestEntrypoint:
+    """`python -m advocondo`, o comando que sobe a API em produção."""
+
+    @pytest.fixture
+    def uvicorn_calls(self, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+        calls: list[dict[str, Any]] = []
+        monkeypatch.setattr(
+            "uvicorn.run", lambda app, **options: calls.append({"app": app, **options})
+        )
+        return calls
+
+    def test_server_uses_the_application_logs(
+        self, uvicorn_calls: list[dict[str, Any]]
+    ) -> None:
+        run_server()
+
+        assert uvicorn_calls == [
+            {
+                "app": app,
+                "host": "0.0.0.0",
+                "port": 8000,
+                "log_config": None,
+                "access_log": False,
+            }
+        ]
+
+    def test_running_the_package_starts_the_server(
+        self, uvicorn_calls: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Roda o módulo do zero, como `python -m advocondo`.
+        monkeypatch.delitem(sys.modules, "advocondo.__main__", raising=False)
+
+        runpy.run_module("advocondo", run_name="__main__")
+
+        assert len(uvicorn_calls) == 1
+
+
+class TestDatabaseSetup:
+    """Engine e sessão criados sob demanda a partir de DATABASE_URL, sem conectar."""
+
+    @pytest.fixture(autouse=True)
+    def fresh_engine(self) -> Iterator[None]:
+        db.get_engine.cache_clear()
+        db.get_sessionmaker.cache_clear()
+        yield
+        db.get_engine.cache_clear()
+        db.get_sessionmaker.cache_clear()
+
+    def test_missing_database_url_is_a_clear_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(db, "get_settings", partial(make_settings, database_url=""))
+
+        with pytest.raises(RuntimeError, match="DATABASE_URL"):
+            db.get_engine()
+
+    def test_each_request_gets_a_session_of_the_configured_database(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        url = "postgresql+psycopg://advocondo:senha@db.example:5432/advocondo"
+        monkeypatch.setattr(
+            db, "get_settings", partial(make_settings, database_url=url)
+        )
+
+        sessions = db.get_session()
+        session = next(sessions)
+        engine = session.get_bind()
+
+        assert isinstance(engine, Engine)
+        assert engine.url.render_as_string(hide_password=False) == url
+        # Fim da requisição: o FastAPI retoma o gerador, que fecha a sessão.
+        assert next(sessions, None) is None
 
 
 class TestMigrationHeads:
