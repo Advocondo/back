@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 
 from advocondo.auth.dependencies import CurrentClient
 from advocondo.common.dependencies import Today
@@ -27,6 +27,30 @@ def list_agreements(
     today: Today,
 ) -> list[AgreementSummary]:
     return panel_service.list_agreements(current_client.id, today)
+
+
+@router.get(
+    "/condominiums/{condominium_id}/report",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def download_condominium_report(
+    condominium_id: uuid.UUID,
+    current_client: CurrentClient,
+    panel_service: ClientPanelServiceDependency,
+    today: Today,
+) -> Response:
+    content = panel_service.condominium_report(
+        current_client.id, condominium_id, current_client.name, today
+    )
+    return Response(
+        content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="relatorio-condominio.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get("/agreements/{agreement_id}/installments")

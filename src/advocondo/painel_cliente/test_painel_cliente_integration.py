@@ -19,8 +19,10 @@ from tests.fixtures.painel_cliente import (
 )
 from tests.fixtures.users import CreateUser
 from tests.support.clock import FrozenClock
+from tests.support.pdf import pdf_text
 
 URL = "/client-panel/agreements"
+REPORT_URL = "/client-panel/condominiums/{condominium_id}/report"
 # The default FrozenClock is 2026-03-02 09:00 UTC, which is 06:00 in Brasília.
 TODAY = date(2026, 3, 2)
 FORBIDDEN_FIELDS = {
@@ -128,6 +130,58 @@ class TestClientSeesOnlyLinkedCondominiums:
         response = db_client.get(URL, headers=client_headers)
 
         assert response.json() == []
+
+
+class TestCondominiumReport:
+    def test_report_contains_only_linked_condominium_client_data_and_safe_totals(
+        self,
+        db_client: TestClient,
+        client_user: User,
+        client_headers: dict[str, str],
+        link_client: LinkClient,
+        mirante: Condominium,
+        aurora: Condominium,
+        jose: Debtor,
+        maria: Debtor,
+        create_agreement_with_installments: CreateAgreementWithInstallments,
+    ) -> None:
+        create_agreement_with_installments(
+            mirante,
+            jose,
+            [(date(2026, 2, 1), date(2026, 2, 5)), (date(2026, 4, 10), None)],
+        )
+        create_agreement_with_installments(aurora, maria, [(date(2026, 2, 1), None)])
+        link_client(client_user, mirante)
+
+        response = db_client.get(
+            REPORT_URL.format(condominium_id=mirante.id), headers=client_headers
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        content = pdf_text(response.content)
+        assert "Residencial Mirante" in content
+        assert "José Simão" in content
+        assert "Cliente: " + client_user.name in content
+        assert "Edifício Aurora" not in content
+        assert "Maria Souza" not in content
+        assert "Honorários" not in content
+        assert "Comissão" not in content
+        assert "fee_amount" not in content
+        assert "fee_percentage" not in content
+        assert "condominium_amount" not in content
+
+    def test_report_hides_unlinked_condominium_as_not_found(
+        self,
+        db_client: TestClient,
+        client_headers: dict[str, str],
+        mirante: Condominium,
+    ) -> None:
+        response = db_client.get(
+            REPORT_URL.format(condominium_id=mirante.id), headers=client_headers
+        )
+
+        assert response.status_code == 404
 
 
 class TestAgreementStatusFollowsInstallments:

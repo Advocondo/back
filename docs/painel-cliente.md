@@ -32,6 +32,12 @@ Devolve a lista dos acordos **ativos** dos condomínios vinculados ao Cliente ([
 
 A ordem é: atrasados primeiro, depois por nome do condomínio e por nome do devedor (ordenação do PostgreSQL, a mesma das outras listagens).
 
+## `GET /client-panel/condominiums/{condominium_id}/report`
+
+Baixa o relatório simplificado do condomínio em PDF. A rota exige autenticação de Cliente e só localiza o condomínio pelo vínculo desse usuário. O relatório reúne os acordos ativos daquele condomínio e apresenta nome do Cliente e do condomínio, devedor/unidade, situação, parcelas vencidas/em dia/pagas, total pago, saldo em aberto e vencimento mais próximo. CNPJ pode aparecer quando cadastrado.
+
+O PDF usa o renderer comum de documentos (`common/pdf.py`) e uma lista explícita de campos permitidos. Ele não inclui honorários, comissão, divisão da parcela entre condomínio e escritório, dados de responsáveis jurídicos, administração ou equipe, nem informações de outros condomínios. Condomínio sem vínculo responde `404`; Cliente sem acordos ativos vinculados recebe um relatório com resumo zerado e sem linhas de acordo. A resposta é `application/pdf` e usa `Cache-Control: no-store`.
+
 ## `GET /client-panel/agreements/{id}/installments`
 
 Devolve as parcelas **sem pagamento** (em aberto ou atrasadas) de um acordo da lista acima, por número:
@@ -80,7 +86,7 @@ Histórico de pagamentos de um morador do condomínio ([US38](https://advocondo.
 
 ## Regras
 
-- **Só os condomínios vinculados (US37-CA01).** O filtro é um `JOIN` na tabela `user_condominiums` dentro da própria consulta, então acordos de outros condomínios nunca saem do banco. Cliente sem vínculo recebe `[]` (US10-CA02).
+- **Só os condomínios vinculados (US37-CA01/US39).** O filtro é um `JOIN` na tabela `user_condominiums` dentro da própria consulta, então acordos de outros condomínios nunca saem do banco. Cliente sem vínculo recebe `[]` na lista e `404` ao solicitar um relatório.
 - **Sem honorários nem valores (US37-CA02).** O schema de resposta é uma lista fechada de campos. `total_amount`, `fee_amount`, `fee_percentage`, `amount` e `condominium_amount` não aparecem, e um teste confere cada um.
 - **Histórico só com totais (US38-CA01).** Por competência, só o total pago e o total em aberto: nada de honorários, da divisão do valor nem do detalhe de cada parcela. Lista fechada de campos, conferida em teste.
 - **Parcelas só com o valor total (#89-CA02 e US38-CA01).** A lista de parcelas mostra o valor da parcela e o saldo, mas nunca `fee_amount` nem `condominium_amount`; o schema também é uma lista fechada e um teste confere os campos. Mostrar o valor total ao Cliente segue a leitura da US38 e ainda precisa da confirmação do time.
@@ -98,5 +104,5 @@ Histórico de pagamentos de um morador do condomínio ([US38](https://advocondo.
 
 ## Pendências
 
-- Relatório para download (US39) e e-mail de atraso (US40).
+- E-mail de atraso (US40).
 - Filtros, busca e paginação: o volume por condomínio é pequeno.
