@@ -101,7 +101,7 @@ class ClientNotificationRepository:
             )
             .order_by(User.id)
         )
-        return self._session.execute(query).tuples().all()
+        return self._session.execute(query).all()
 
     def save(self, notification: ClientNotificationLog) -> None:
         self._session.add(notification)
