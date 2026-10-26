@@ -140,6 +140,16 @@ def record_payment(
     return InstallmentResponse.from_installment(installment, today)
 
 
+@router.get("/installments/{installment_id}")
+def get_installment(
+    installment_id: uuid.UUID,
+    installment_service: InstallmentServiceDependency,
+    today: Today,
+) -> InstallmentWithDebtorResponse:
+    installment = installment_service.get(installment_id)
+    return InstallmentWithDebtorResponse.from_installment(installment, today)
+
+
 @router.get("/installments/{installment_id}/payments")
 def list_payments(
     installment_id: uuid.UUID, installment_service: InstallmentServiceDependency

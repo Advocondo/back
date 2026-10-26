@@ -110,6 +110,87 @@ class TestInstallmentPlan:
         assert response.status_code == 404
 
 
+class TestGetInstallment:
+    """#89-CA01. O relógio dos testes está em 2 de março de 2026."""
+
+    def test_installment_comes_with_its_condominium_and_debtor(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+        mirante: Condominium,
+    ) -> None:
+        agreement_id = register_agreement("300.00", 3, "2026-02-10")
+        first = get_plan(db_client, operator_headers, agreement_id)[0]
+
+        response = db_client.get(
+            f"/installments/{first['id']}", headers=operator_headers
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == first["id"]
+        assert body["agreement_id"] == agreement_id
+        assert body["number"] == 1
+        assert body["amount"] == "100.00"
+        assert body["condominium_amount"] == "90.00"
+        assert body["fee_amount"] == "10.00"
+        assert body["status"] == "overdue"
+        assert body["condominium"] == {"id": str(mirante.id), "name": mirante.name}
+        assert set(body["debtor"]) == {"id", "name", "unit"}
+
+    def test_admin_can_see_an_installment(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        agreement_id = register_agreement("300.00", 3, "2026-02-10")
+        first = get_plan(db_client, operator_headers, agreement_id)[0]
+        admin_headers = authenticate_as(
+            create_user(email="admin@example.com", role=Role.ADMIN)
+        )
+
+        response = db_client.get(f"/installments/{first['id']}", headers=admin_headers)
+
+        assert response.status_code == 200
+
+    def test_unknown_installment_is_not_found(
+        self, db_client: TestClient, operator_headers: dict[str, str]
+    ) -> None:
+        response = db_client.get(
+            f"/installments/{UNKNOWN_ID}", headers=operator_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Parcela não encontrada."}
+
+    def test_client_user_cannot_see_an_installment(
+        self,
+        db_client: TestClient,
+        operator_headers: dict[str, str],
+        register_agreement: RegisterAgreement,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        agreement_id = register_agreement("300.00", 3, "2026-02-10")
+        first = get_plan(db_client, operator_headers, agreement_id)[0]
+        client_headers = authenticate_as(
+            create_user(email="sindico@example.com", role=Role.CLIENT)
+        )
+
+        response = db_client.get(f"/installments/{first['id']}", headers=client_headers)
+
+        assert response.status_code == 403
+
+    def test_requires_a_session(self, db_client: TestClient) -> None:
+        response = db_client.get(f"/installments/{UNKNOWN_ID}")
+
+        assert response.status_code == 401
+
+
 def amounts(plan: list[dict[str, Any]]) -> list[str]:
     return [installment["amount"] for installment in plan]
 
