@@ -7,7 +7,7 @@ from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.orm import Session, contains_eager
 
 from advocondo.acordos.models import Agreement, AgreementStatus
-from advocondo.parcelas.models import Installment
+from advocondo.parcelas.models import Installment, InstallmentChangeLog
 from advocondo.parcelas.status import InstallmentStatus
 
 
@@ -95,6 +95,18 @@ class InstallmentRepository:
             .order_by(Installment.payment_date, Installment.id)
         )
         return self._session.scalars(query.limit(limit).offset(offset)).all()
+
+    def list_change_logs_of_agreement(
+        self, agreement_id: uuid.UUID
+    ) -> Sequence[tuple[InstallmentChangeLog, int]]:
+        """Movimentações das parcelas do acordo (US31), cada uma com o número da
+        parcela, e com quem as fez."""
+        rows = self._session.execute(
+            select(InstallmentChangeLog, Installment.number)
+            .join(Installment, Installment.id == InstallmentChangeLog.installment_id)
+            .where(Installment.agreement_id == agreement_id)
+        ).all()
+        return [(log, number) for log, number in rows]
 
 
 def has_status(status: InstallmentStatus, today: date) -> ColumnElement[bool]:

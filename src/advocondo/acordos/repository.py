@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.orm import Session
 
-from advocondo.acordos.models import Agreement, AgreementStatus
+from advocondo.acordos.models import Agreement, AgreementEditLog, AgreementStatus
 from advocondo.common.search import LIKE_ESCAPE_CHARACTER, contains_pattern
 from advocondo.condominios.models import Condominium
 from advocondo.devedores.models import Debtor
@@ -78,3 +78,11 @@ class AgreementRepository:
         """Inserts a new agreement or writes the changes of an existing one."""
         self._session.add(agreement)
         self._session.flush()
+
+    def list_edit_logs(self, agreement_id: uuid.UUID) -> Sequence[AgreementEditLog]:
+        """Alterações do acordo (US19), com quem alterou."""
+        return self._session.scalars(
+            select(AgreementEditLog).where(
+                AgreementEditLog.agreement_id == agreement_id
+            )
+        ).all()

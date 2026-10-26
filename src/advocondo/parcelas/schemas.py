@@ -1,17 +1,23 @@
 import uuid
 from datetime import date, datetime
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from advocondo.acordos.models import AgreementEditField
 from advocondo.acordos.schemas import (
     CondominiumSummary,
     DebtorSummary,
     MoneyAmount,
     MoneyResponse,
 )
-from advocondo.parcelas.models import INVOICE_NUMBER_LENGTH, Installment
+from advocondo.parcelas.models import (
+    INVOICE_NUMBER_LENGTH,
+    Installment,
+    InstallmentChange,
+)
 from advocondo.parcelas.status import InstallmentStatus
+from advocondo.users.schemas import ActorResponse
 
 
 class InstallmentResponse(BaseModel):
@@ -126,3 +132,19 @@ class InstallmentUpdateRequest(BaseModel):
         if not self.model_fields_set:
             raise ValueError("Informe o novo vencimento ou o novo valor.")
         return self
+
+
+class FinancialHistoryEntryResponse(BaseModel):
+    """Uma movimentação financeira do acordo: quem fez, quando e o valor alterado
+    (US31-CA01). `installment_number` vem nas movimentações de parcela, e `field`,
+    nas alterações do acordo (US19)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    changed_at: datetime
+    changed_by: ActorResponse
+    change: InstallmentChange | Literal["agreement_edited"]
+    installment_number: int | None
+    field: AgreementEditField | None
+    old_value: str | None
+    new_value: str | None
