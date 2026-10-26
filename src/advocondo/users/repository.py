@@ -74,9 +74,6 @@ class UserInviteRepository:
     def delete(self, invite: UserInvite) -> None:
         self._session.delete(invite)
 
-    def delete_all_of_user(self, user_id: uuid.UUID) -> None:
-        self._session.execute(delete(UserInvite).where(UserInvite.user_id == user_id))
-
 
 class UserCondominiumRepository:
     def __init__(self, session: Session) -> None:
