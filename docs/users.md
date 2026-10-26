@@ -1,6 +1,6 @@
 # Usuários
 
-Edição dos próprios dados pelo usuário logado ([US05](https://advocondo.github.io/docs/historias/ep01-portal-autenticacao/#us05)) e vínculo dos Clientes aos condomínios, feito pelo Administrador ([US10](https://advocondo.github.io/docs/historias/ep02-usuarios-perfis/#us10)). O código fica em `src/advocondo/users/`. A criação do primeiro Administrador (`POST /setup`) está em [Autenticação](auth.md#primeiro-administrador).
+Gestão de usuários: edição dos próprios dados pelo usuário logado ([US05](https://advocondo.github.io/docs/historias/ep01-portal-autenticacao/#us05)), convites ([US07](https://advocondo.github.io/docs/historias/ep02-usuarios-perfis/#us07)), inativação ([US08](https://advocondo.github.io/docs/historias/ep02-usuarios-perfis/#us08)), perfil ([US09](https://advocondo.github.io/docs/historias/ep02-usuarios-perfis/#us09)), vínculo dos Clientes aos condomínios ([US10](https://advocondo.github.io/docs/historias/ep02-usuarios-perfis/#us10)) e histórico das ações ([US11](https://advocondo.github.io/docs/historias/ep02-usuarios-perfis/#us11)). O código fica em `src/advocondo/users/`. A criação do primeiro Administrador (`POST /setup`) está em [Autenticação](auth.md#primeiro-administrador).
 
 ## Rotas
 
@@ -28,6 +28,53 @@ Resposta `200`, com `id`, `name`, `email` e `role` do usuário já atualizados.
 
 Ao trocar a senha, as sessões em outros dispositivos são encerradas e precisam de login com a senha nova; o dispositivo que fez a troca continua logado. Trocar o nome ou o e-mail não encerra sessões.
 
+### Convites (US07)
+
+Os usuários, fora o primeiro Administrador, entram por convite. As rotas de gestão (`POST /users/invites`, `/users/{user_id}/…`) exigem um **Administrador** (US07-CA02); a Equipe Operacional e o Cliente recebem `403`. Só `POST /users/invites/accept` é pública.
+
+#### `POST /users/invites`
+
+```json
+{"email": "bruno@example.com", "name": "Bruno Lima", "role": "operator", "is_lawyer": true, "oab_number": "DF123456"}
+```
+
+- Cria o usuário com situação `pending`, sem senha (US07-CA01), e envia por e-mail um link para `<FRONTEND_URL>/convite?token=…`, válido por `INVITE_LINK_MINUTES` (padrão 24 horas). O token é guardado só como hash.
+- `role`: `operator` ou `client`. Não se convida outro Administrador; para isso, convide e depois mude o perfil (US09).
+- `email` repetido, inclusive de convite pendente, recebe `409` (US07-CA03). É gravado em minúsculas.
+- `is_lawyer` e `oab_number` (US07-CA04): o advogado precisa da OAB (8 a 12 caracteres), e só o advogado pode tê-la. A marcação independe do perfil e alimenta a lista de responsáveis pelos acordos (US18).
+- Grava uma linha `invited` no histórico (US11). Resposta `201` com o usuário.
+
+#### `POST /users/invites/accept`
+
+Sem login. Corpo `{"token": "…", "password": "…"}`. Define a senha (mínimo 8 caracteres) e muda a situação para `active`; a partir daí o usuário faz login normalmente. Token desconhecido, expirado ou de convite já aceito recebe `422`.
+
+### `GET /users/lawyers`
+
+Para a Equipe Operacional e o Administrador escolherem o advogado responsável por um acordo (US18). Lista os usuários **ativos** marcados como advogado, por nome, com `id`, `name` e `oab_number`.
+
+### `PATCH /users/{user_id}/status` (US08)
+
+Corpo `{"status": "inactive"}` ou `{"status": "active"}`. A mudança vale na hora (US08-CA01): o usuário inativo não faz login e as sessões que ele já tinha abertas passam a receber `401` (US08-CA02). Reativar devolve o acesso com a mesma senha (US08-CA03).
+
+- Usuário com convite pendente recebe `422`: ele ainda não tem acesso para inativar.
+- O Administrador não pode inativar o próprio acesso (`422`), para o escritório não ficar sem Administrador por engano.
+- `pending` no corpo recebe `422`: usuário pendente só nasce do convite.
+- Cada mudança grava uma linha `status_changed` no histórico; enviar a situação atual não grava nada.
+
+### `PATCH /users/{user_id}/role` (US09)
+
+Corpo `{"role": "admin" | "operator" | "client"}`. As permissões seguem o perfil novo já na próxima requisição, inclusive nas sessões abertas, porque o perfil é lido do banco a cada chamada (US09-CA01). Só o Administrador muda perfis (US09-CA02) e ele não pode mudar o próprio (`422`). Cada mudança grava uma linha `role_changed` no histórico; tirar o perfil Cliente apaga os vínculos com condomínios (ver abaixo).
+
+### `GET /users/{user_id}/history` (US11)
+
+Só para o Administrador (US11-CA02). Responde `{"logs": [...]}`, da ação mais recente para a mais antiga. Cada linha traz `created_at`, `action` (`invited`, `status_changed`, `role_changed` ou `condominiums_changed`), o autor em `actor` (`{id, name}`), `old_value` e `new_value` (US11-CA01), além de `added_condominiums` e `removed_condominiums`, preenchidas só nas mudanças de vínculo.
+
+### `PATCH /users/{user_id}/monthly-goal`
+
+Corpo `{"monthly_goal": "5000.00"}`, de zero para cima. Só o Administrador chama a rota, e o usuário alvo precisa ser da Equipe Operacional (`422` para os outros perfis). É o valor que o painel da Equipe Operacional mostra como meta ([Painéis financeiros](paineis-financeiros.md)).
+
+Esta meta duplica a meta mensal da [US36](metas.md), gravada em outra tabela e por mês (ver Pendências).
+
 ### Condomínios de um Cliente
 
 Um Cliente só deve ver dados dos condomínios vinculados a ele; sem nenhum vínculo, não vê nada (US10-CA02). Os vínculos ficam na tabela `user_condominiums`, e o filtro das consultas de acordos é aplicado pela US37. As duas rotas abaixo exigem um Administrador e respondem `200` com `[{"id": "…", "name": "…"}]`, ordenado por nome.
@@ -54,7 +101,17 @@ Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of
 | Troca de e-mail ou senha sem `current_password` | `422` | `Informe a senha atual para alterar o e-mail ou a senha.` |
 | `current_password` errada | `422` | `A senha atual está incorreta.` |
 | Nova senha com menos de 8 caracteres | `422` | `A senha precisa ter pelo menos 8 caracteres.` |
-| E-mail já usado por outro usuário | `409` | `Este e-mail já está em uso por outro usuário.` |
+| E-mail já usado por outro usuário (perfil ou convite) | `409` | `Este e-mail já está em uso por outro usuário.` |
+| Convite para Administrador | `422` | `Não é possível convidar outro Administrador.` |
+| Convite de advogado sem OAB | `422` | `Informe o número da OAB para marcar o usuário como advogado.` |
+| Convite com OAB de quem não é advogado | `422` | `O número da OAB só pode ser informado para advogados.` |
+| Aceite com token desconhecido, expirado ou já usado | `422` | `O convite é inválido ou já expirou.` |
+| Situação de usuário com convite pendente | `422` | `Usuário com convite pendente precisa aceitar o convite antes.` |
+| Administrador inativando o próprio acesso | `422` | `Você não pode inativar o seu próprio acesso.` |
+| Administrador mudando o próprio perfil | `422` | `Você não pode alterar o seu próprio perfil.` |
+| Meta mensal de quem não é da Equipe Operacional | `422` | `A meta financeira só pode ser configurada para usuários Operacionais.` |
+| Usuário inexistente (situação, perfil, histórico, meta) | `404` | `Usuário não encontrado.` |
+| Rotas de gestão sem ser Administrador | `403` | `Você não tem permissão para esta operação.` |
 | Vínculo de condomínios: lista com mais de 500 IDs, ID que não é UUID, `condominium_ids` ausente ou campo extra | `422` | erros de validação do FastAPI |
 | Vínculo de condomínios (`PUT` ou `GET`): usuário não é Cliente | `422` | `Somente usuários com perfil Cliente têm condomínios vinculados.` |
 | Vínculo de condomínios: condomínio inexistente | `422` | `Condomínios inexistentes na lista: <ids>.` |
@@ -76,4 +133,5 @@ Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of
 
 ## Pendências
 
+- **Meta mensal em dois lugares**: `users.monthly_goal` (`PATCH /users/{user_id}/monthly-goal`) e a tabela `goals` da [US36](metas.md). O painel da Equipe Operacional lê a primeira; o plano é ficar só com a da US36 (risco R1 do repositório `docs`).
 - **Limite de tentativas da senha atual**: como no login (ver as pendências em [Autenticação](auth.md)), a rota não limita tentativas erradas.
