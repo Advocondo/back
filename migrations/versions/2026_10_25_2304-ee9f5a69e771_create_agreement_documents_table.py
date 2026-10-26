@@ -1,7 +1,7 @@
 """create agreement documents table
 
 Revision ID: ee9f5a69e771
-Revises: aa421f707e95
+Revises: 762dfa9f2f6a
 Create Date: 2026-10-25 23:04:57.554831
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "ee9f5a69e771"
-down_revision: str | Sequence[str] | None = "aa421f707e95"
+down_revision: str | Sequence[str] | None = "762dfa9f2f6a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
