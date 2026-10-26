@@ -147,9 +147,7 @@ class TestCondominiumReport:
             jose,
             [(date(2026, 2, 1), date(2026, 2, 5)), (date(2026, 4, 10), None)],
         )
-        create_agreement_with_installments(
-            aurora, maria, [(date(2026, 2, 1), None)]
-        )
+        create_agreement_with_installments(aurora, maria, [(date(2026, 2, 1), None)])
         link_client(client_user, mirante)
 
         response = db_client.get(
@@ -181,6 +179,7 @@ class TestCondominiumReport:
         )
 
         assert response.status_code == 404
+
 
 class TestAgreementStatusFollowsInstallments:
     def test_response_shape_and_ordering(

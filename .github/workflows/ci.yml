@@ -56,11 +56,17 @@ jobs:
         run: uv run mypy
 
       - name: Testes com cobertura (pytest)
+        id: tests
         run: uv run pytest --cov-report=xml
 
       - name: Resumo da cobertura
-        if: always()
-        run: uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+        if: always() && steps.tests.outcome != 'skipped'
+        run: |
+          if [ -f .coverage ]; then
+            uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Cobertura indisponível: pytest não gerou dados de cobertura." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Publicar relatório de cobertura
         if: always()
