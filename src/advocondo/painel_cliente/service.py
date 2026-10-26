@@ -1,9 +1,14 @@
 import uuid
 from datetime import date
 
+from advocondo.acordos.errors import AgreementNotFoundError
 from advocondo.acordos.models import Agreement
 from advocondo.painel_cliente.repository import ClientPanelRepository
-from advocondo.painel_cliente.schemas import AgreementStanding, AgreementSummary
+from advocondo.painel_cliente.schemas import (
+    AgreementStanding,
+    AgreementSummary,
+    ClientInstallment,
+)
 from advocondo.parcelas.status import InstallmentStatus
 
 
@@ -45,3 +50,23 @@ class ClientPanelService:
         return sorted(
             summaries, key=lambda item: item.status != AgreementStanding.OVERDUE
         )
+
+    def list_unpaid_installments(
+        self, user_id: uuid.UUID, agreement_id: uuid.UUID, today: date
+    ) -> list[ClientInstallment]:
+        """Unpaid installments of an agreement the Client sees in the panel (#89).
+        Agreements of other condominiums and cancelled ones answer as unknown, so
+        the Client cannot tell whether they exist."""
+        agreement = self._agreements.get_agreement_of_client(user_id, agreement_id)
+        if agreement is None:
+            raise AgreementNotFoundError()
+        return [
+            ClientInstallment(
+                number=installment.number,
+                due_date=installment.due_date,
+                amount=installment.amount,
+                remaining_amount=installment.remaining_amount,
+                status=installment.status_on(today),
+            )
+            for installment in agreement.unpaid_installments
+        ]

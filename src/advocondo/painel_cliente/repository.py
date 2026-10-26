@@ -40,3 +40,10 @@ class ClientPanelRepository:
 
     def list_agreements_of_client(self, user_id: uuid.UUID) -> Sequence[Agreement]:
         return self._session.scalars(client_agreements_query(user_id)).all()
+
+    def get_agreement_of_client(
+        self, user_id: uuid.UUID, agreement_id: uuid.UUID
+    ) -> Agreement | None:
+        """The agreement, only if the Client could see it in the panel."""
+        query = client_agreements_query(user_id).where(Agreement.id == agreement_id)
+        return self._session.scalars(query).one_or_none()

@@ -158,6 +158,13 @@ class InstallmentService:
         self._session.commit()
         return installment
 
+    def get(self, installment_id: uuid.UUID) -> Installment:
+        """Uma parcela, com o acordo, o condomínio e o devedor (#89-CA01)."""
+        installment = self._installments.get(installment_id)
+        if installment is None:
+            raise InstallmentNotFoundError()
+        return installment
+
     def list_payments(self, installment_id: uuid.UUID) -> Sequence[InstallmentPayment]:
         """Pagamentos da parcela, na ordem em que foram registrados (US28-CA02)."""
         installment = self._installments.get(installment_id)
