@@ -1,3 +1,4 @@
+import enum
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -14,9 +15,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from advocondo.acordos.models import MONEY, Agreement
-from advocondo.common.models import TimestampsMixin, UuidPrimaryKeyMixin
+from advocondo.common.models import TimestampsMixin, UuidPrimaryKeyMixin, string_enum
 from advocondo.db import Base
 from advocondo.parcelas.status import InstallmentStatus, calculate_installment_status
+from advocondo.users.models import User
 
 # O número da NFS-e, a nota de serviço que o escritório emite, tem 15 dígitos
 # (ano com 4 dígitos e sequencial com 11, no padrão nacional e no de BH).
@@ -138,3 +140,36 @@ class InstallmentPayment(UuidPrimaryKeyMixin, Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.clock_timestamp()
     )
+
+
+class InstallmentChange(enum.StrEnum):
+    """Movimentações financeiras de uma parcela que ficam registradas (US31)."""
+
+    PAYMENT_RECORDED = "payment_recorded"
+    PAYMENT_CORRECTED = "payment_corrected"
+    PAYMENT_REVERSED = "payment_reversed"
+    DUE_DATE_EDITED = "due_date_edited"
+    AMOUNT_EDITED = "amount_edited"
+
+
+class InstallmentChangeLog(UuidPrimaryKeyMixin, Base):
+    """Uma movimentação financeira de parcela: quem fez, quando e o valor alterado
+    (US31-CA01). Como `agreement_edit_logs` (US19), os valores ficam como texto."""
+
+    __tablename__ = "installment_change_logs"
+
+    installment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("installments.id", ondelete="CASCADE"), index=True
+    )
+    changed_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    # Vem do Clock da aplicação, e não do banco, para ser testável com data fixa.
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    change: Mapped[InstallmentChange] = mapped_column(
+        string_enum(InstallmentChange, name="installment_change")
+    )
+    # Valor antes e depois: datas em AAAA-MM-DD e dinheiro com duas casas. A baixa
+    # não tem valor antigo, e o estorno não tem valor novo.
+    old_value: Mapped[str | None]
+    new_value: Mapped[str | None]
+
+    changed_by: Mapped[User] = relationship(lazy="joined")

@@ -8,7 +8,11 @@ from advocondo.documentos.models import AgreementDocument, AgreementPdf
 from advocondo.landing.models import LandingBlock, LandingImage
 from advocondo.metas.models import Goal
 from advocondo.notificacoes.models import Notification
-from advocondo.parcelas.models import Installment, InstallmentPayment
+from advocondo.parcelas.models import (
+    Installment,
+    InstallmentChangeLog,
+    InstallmentPayment,
+)
 from advocondo.users.models import User, UserAuditLog, UserCondominium
 
 __all__ = [
@@ -20,6 +24,7 @@ __all__ = [
     "Debtor",
     "Goal",
     "Installment",
+    "InstallmentChangeLog",
     "InstallmentPayment",
     "LandingBlock",
     "LandingImage",

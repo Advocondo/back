@@ -75,7 +75,7 @@ Os devedores de cada condomínio ficam em `/debtors`, com alerta de cadastro dup
 
 Os acordos com cada devedor ficam em `/agreements`. Veja [Acordos](docs/acordos.md).
 
-O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`, onde também ficam as faturas do mês (`GET /installments`) e a baixa de cada parcela, total ou parcial, com o histórico de pagamentos (`/installments/{id}/payment` e `/payments`), e a nota fiscal de cada parcela paga (`/installments/{id}/invoice`). Veja [Parcelas](docs/parcelas.md).
+O plano de parcelas de cada acordo é gerado no cadastro e editado em `/installments`, onde também ficam as faturas do mês (`GET /installments`) e a baixa de cada parcela, total ou parcial, com o histórico de pagamentos (`/installments/{id}/payment` e `/payments`), e a nota fiscal de cada parcela paga (`/installments/{id}/invoice`). O Administrador vê quem deu baixa, corrigiu, estornou ou editou cada parcela, e as alterações do acordo, em `/agreements/{id}/financial-history`. Veja [Parcelas](docs/parcelas.md).
 
 Quando uma parcela atrasa, o advogado responsável e os Administradores recebem uma notificação no sino, em `/notifications`, criada por um comando diário. Veja [Notificações](docs/notificacoes.md).
 

@@ -52,7 +52,9 @@ Quando o acordo é cancelado ([Acordos](acordos.md)), nenhuma parcela é apagada
 - não aceitam baixa nem edição (`422`, `Acordo cancelado não aceita esta operação.`);
 - continuam no plano do acordo, em `GET /agreements/{id}/installments`, junto com as pagas, e as pagas continuam na listagem do mês (US20-CA02). O plano mantém o `status` calculado de cada parcela (`open` ou `overdue`, no caso das sem pagamento): quem o exibe deve olhar o `status` do acordo para não mostrar como dívida cobrada o que está fora da cobrança.
 
-A correção da data e o estorno de uma baixa seguem permitidos ao Administrador mesmo depois do cancelamento: como não há como reativar o acordo, é o único jeito de consertar um pagamento lançado por engano. Uma parcela estornada nesse caso volta a ser uma parcela sem pagamento de acordo cancelado.
+A correção da data e o estorno de uma baixa seguem permitidos ao Administrador mesmo depois do cancelamento, para consertar um pagamento lançado por engano sem precisar reativar o acordo. Uma parcela estornada nesse caso volta a ser uma parcela sem pagamento de acordo cancelado.
+
+Quando o acordo é reativado (`POST /agreements/{id}/reactivate`, ver [Acordos](acordos.md)), as parcelas sem pagamento voltam à listagem do mês e ao painel do Cliente e aceitam baixa e edição de novo. O status continua calculado pela data: a que venceu no período cancelado volta como `overdue`.
 
 ## Pagamento parcial (US28)
 
@@ -73,6 +75,24 @@ A nota fiscal emitida para uma parcela paga fica registrada nela ([US29](https:/
 - A data de emissão não pode ser futura.
 - **Pendências (US29-CA02):** a lista de parcelas pagas que ainda não têm nota, da baixa mais antiga para a mais recente.
 - O estorno do pagamento não apaga a nota: ela já foi emitida. Uma parcela estornada sai da lista de pendências, porque não está mais paga.
+
+## Registro das alterações financeiras (US31)
+
+Cada movimentação financeira de uma parcela fica registrada em `installment_change_logs`, na mesma transação da mudança ([US31](https://advocondo.github.io/docs/historias/ep04-parcelas/#us31)):
+
+- **O que fica registrado (US31-CA01):** quem fez, quando (pelo relógio da aplicação) e o valor antes e depois, em texto, como no registro de alterações do acordo (US19): datas em `AAAA-MM-DD` e dinheiro com duas casas.
+
+| `change` | Quando | `old_value` → `new_value` |
+| --- | --- | --- |
+| `payment_recorded` | Baixa ou pagamento parcial | vazio → valor pago |
+| `payment_corrected` | Correção da data da baixa | data antiga → data nova |
+| `payment_reversed` | Estorno | soma estornada → vazio |
+| `amount_edited` | Edição do valor da parcela | valor antigo → valor novo |
+| `due_date_edited` | Edição do vencimento | data antiga → data nova |
+
+- Uma correção ou edição que não muda nada não é registrada. Na edição do valor, só a parcela editada é registrada; as seguintes, que absorvem a diferença, aparecem no plano.
+- **Histórico do acordo:** junta as movimentações das parcelas com as alterações do próprio acordo (`agreement_edited`, com o campo alterado em `field`), da mais recente para a mais antiga.
+- **Só o Administrador (US31-CA02):** o histórico é visível apenas para o perfil Administrador; a Equipe Operacional recebe `403`.
 
 ## Rotas
 
@@ -120,6 +140,16 @@ Devolve as parcelas do acordo, em ordem:
 ]
 ```
 
+### `GET /installments/{id}`
+
+Uma parcela pelo id ([#89](https://github.com/Advocondo/back/issues/89)), com os mesmos campos do plano e, como na listagem do mês, o condomínio e o devedor do acordo:
+
+```json
+{"id": "…", "agreement_id": "…", "number": 1, "due_date": "2026-01-31", "amount": "33.33", "condominium_amount": "30.00", "fee_amount": "3.33", "payment_date": null, "remaining_amount": "33.33", "invoice_number": null, "invoice_date": null, "status": "overdue", "condominium": {"id": "…", "name": "Residencial Mirante"}, "debtor": {"id": "…", "name": "José Simão", "unit": "Bloco B 304"}}
+```
+
+Parcela inexistente: `404`. O Cliente vê as parcelas pelo [Painel do Cliente](painel-cliente.md), sem honorários.
+
 ### `PATCH /installments/{id}`
 
 Edita o vencimento ou o valor de uma parcela **antes da baixa** (US17-CA03). Só os campos enviados mudam:
@@ -164,12 +194,39 @@ Histórico dos pagamentos da parcela, na ordem em que foram registrados:
 ]
 ```
 
+### `GET /agreements/{id}/financial-history`
+
+Histórico financeiro do acordo, da movimentação mais recente para a mais antiga. Só o Administrador. `installment_number` vem nas movimentações de parcela, e `field`, nas alterações do acordo:
+
+```json
+[
+  {
+    "changed_at": "2026-08-20T18:30:00Z",
+    "changed_by": {"id": "…", "name": "Sarah Lima"},
+    "change": "payment_recorded",
+    "installment_number": 4,
+    "field": null,
+    "old_value": null,
+    "new_value": "250.00"
+  },
+  {
+    "changed_at": "2026-08-12T13:05:00Z",
+    "changed_by": {"id": "…", "name": "Ana Souza"},
+    "change": "agreement_edited",
+    "installment_number": null,
+    "field": "total_amount",
+    "old_value": "5500.00",
+    "new_value": "5000.00"
+  }
+]
+```
+
 ## Respostas de erro
 
 | Situação | Status | `detail` |
 | --- | --- | --- |
 | Sem token, token desconhecido ou expirado | `401` | `Sua sessão expirou. Faça login novamente.` |
-| Usuário Cliente; Equipe Operacional corrigindo ou estornando uma baixa | `403` | `Você não tem permissão para esta operação.` |
+| Usuário Cliente; Equipe Operacional corrigindo ou estornando uma baixa, ou consultando o histórico financeiro | `403` | `Você não tem permissão para esta operação.` |
 | Acordo ou parcela inexistente | `404` | `Acordo não encontrado.` / `Parcela não encontrada.` |
 | Baixa ou edição de parcela de acordo cancelado | `422` | `Acordo cancelado não aceita esta operação.` |
 | Parcela já paga | `422` | `Parcela já paga não pode ser editada.` |
