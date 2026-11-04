@@ -48,6 +48,10 @@ Os usuários, fora o primeiro Administrador, entram por convite. As rotas de ges
 
 Sem login. Corpo `{"token": "…", "password": "…"}`. Define a senha (mínimo 8 caracteres) e muda a situação para `active`; a partir daí o usuário faz login normalmente. Token desconhecido, expirado ou de convite já aceito recebe `422`.
 
+### `GET /users`
+
+Só o Administrador (US07-CA02). Lista os usuários de qualquer perfil e situação, por nome, para a tela de gestão. Parâmetros opcionais: `search` (parte do nome ou do e-mail, sem diferenciar maiúsculas), `limit` (padrão 50, máximo 200) e `offset`. Cada usuário traz `id`, `name`, `email`, `role`, `status`, `is_lawyer` e `oab_number`.
+
 ### `GET /users/lawyers`
 
 Para a Equipe Operacional e o Administrador escolherem o advogado responsável por um acordo (US18). Lista os usuários **ativos** marcados como advogado, por nome, com `id`, `name` e `oab_number`.

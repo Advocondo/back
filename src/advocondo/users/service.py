@@ -284,6 +284,9 @@ class UserManagementService:
         self._audit_logs = audit_logs
         self._user_condominiums = user_condominiums
 
+    def search(self, text: str | None, limit: int, offset: int) -> Sequence[User]:
+        return self._users.search(text, limit, offset)
+
     def change_status(
         self, admin: User, target_user_id: uuid.UUID, new_status: UserStatus
     ) -> User:
