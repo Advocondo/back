@@ -238,6 +238,7 @@ class TestAgreementStatusFollowsInstallments:
         assert response.json() == [
             {
                 "id": str(late.id),
+                "condominium_id": str(mirante.id),
                 "condominium_name": "Residencial Mirante",
                 "debtor_id": str(jose.id),
                 "debtor_name": "José Simão",
@@ -248,6 +249,7 @@ class TestAgreementStatusFollowsInstallments:
             },
             {
                 "id": response.json()[1]["id"],
+                "condominium_id": str(aurora.id),
                 "condominium_name": "Edifício Aurora",
                 "debtor_id": str(maria.id),
                 "debtor_name": "Maria Souza",
@@ -330,6 +332,7 @@ def test_response_has_no_financial_fields(
     assert FORBIDDEN_FIELDS.isdisjoint(item)
     assert set(item) == {
         "id",
+        "condominium_id",
         "condominium_name",
         "debtor_id",
         "debtor_name",
@@ -405,6 +408,7 @@ class TestThroughTheRealRoutes:
         assert response.json() == [
             {
                 "id": registered.json()["id"],
+                "condominium_id": str(mirante.id),
                 "condominium_name": "Residencial Mirante",
                 "debtor_id": str(jose.id),
                 "debtor_name": "José Simão",

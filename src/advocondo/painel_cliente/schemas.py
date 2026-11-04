@@ -20,6 +20,8 @@ class AgreementSummary(BaseModel):
     entra aqui (US37-CA02), então um campo novo no acordo não vaza por padrão."""
 
     id: uuid.UUID
+    # Para o front baixar o relatório do condomínio (US39).
+    condominium_id: uuid.UUID
     condominium_name: str
     # Para o front abrir o histórico do morador (US38).
     debtor_id: uuid.UUID

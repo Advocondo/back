@@ -34,6 +34,7 @@ def summarize_agreement(agreement: Agreement, today: date) -> AgreementSummary:
     ]
     return AgreementSummary(
         id=agreement.id,
+        condominium_id=agreement.condominium.id,
         condominium_name=agreement.condominium.name,
         debtor_id=agreement.debtor.id,
         debtor_name=agreement.debtor.name,
