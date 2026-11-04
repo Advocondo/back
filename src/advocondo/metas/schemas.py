@@ -26,6 +26,18 @@ class GoalResponse(BaseModel):
     target_amount: Decimal
 
 
+class TeamMemberGoalResponse(BaseModel):
+    """Um colaborador no mês, para o Administrador (US36)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: uuid.UUID
+    user_name: str
+    target_amount: Decimal | None
+    achieved_amount: Decimal
+    attainment_percentage: Decimal | None
+
+
 class GoalProgressResponse(GoalResponse):
     """A meta do mês com o que já foi alcançado (US36)."""
 

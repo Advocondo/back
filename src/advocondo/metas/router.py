@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends, Path, Query
 
 from advocondo.auth.dependencies import CurrentUser
 from advocondo.metas.dependencies import get_goal_service
-from advocondo.metas.schemas import GoalProgressResponse, GoalRequest, GoalResponse
+from advocondo.metas.schemas import (
+    GoalProgressResponse,
+    GoalRequest,
+    GoalResponse,
+    TeamMemberGoalResponse,
+)
 from advocondo.metas.service import GoalService
 from advocondo.users.dependencies import require_admin
 
@@ -30,6 +35,18 @@ def define_goal(
 ) -> GoalResponse:
     goal = goal_service.define(user_id, year, month, request)
     return GoalResponse.model_validate(goal)
+
+
+@router.get("/goals", dependencies=[Depends(require_admin)])
+def list_team_goals(
+    goal_service: GoalServiceDependency,
+    year: Annotated[int, Query(ge=MIN_YEAR, le=MAX_YEAR)],
+    month: Annotated[int, Query(ge=1, le=12)],
+) -> list[TeamMemberGoalResponse]:
+    return [
+        TeamMemberGoalResponse.model_validate(member)
+        for member in goal_service.list_team(year, month)
+    ]
 
 
 @router.get("/goals/me")

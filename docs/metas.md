@@ -32,6 +32,14 @@ A meta do mês também aparece no painel da Equipe Operacional ([Painéis financ
 
 Só o **Administrador**. Corpo: `{"target_amount": "5000.00"}`. Define a meta do colaborador no mês, ou altera a que já existe. Resposta `200` com a meta (`id`, `user_id`, `year`, `month`, `target_amount`).
 
+### `GET /goals?year=2026&month=3`
+
+Só o **Administrador**. Lista todos os membros ativos da Equipe Operacional no mês, por nome, para definir e acompanhar as metas. Quem ainda não tem meta vem com `target_amount` e `attainment_percentage` vazios.
+
+```json
+[{"user_id": "…", "user_name": "Ana", "target_amount": "5000.00", "achieved_amount": "110.00", "attainment_percentage": "2.20"}]
+```
+
 ### `GET /goals/me?year=2026&month=3`
 
 Qualquer usuário logado. Devolve a meta do **próprio** usuário no mês. Ninguém vê a meta de outro colaborador (US36-CA02).
@@ -41,7 +49,7 @@ Qualquer usuário logado. Devolve a meta do **próprio** usuário no mês. Ningu
 | Situação | Status | `detail` |
 | --- | --- | --- |
 | Sem token, token desconhecido ou expirado | `401` | `Sua sessão expirou. Faça login novamente.` |
-| Quem define a meta não é Administrador | `403` | `Você não tem permissão para esta operação.` |
+| Quem define a meta ou lista as da equipe não é Administrador | `403` | `Você não tem permissão para esta operação.` |
 | Colaborador inexistente | `404` | `Colaborador não encontrado.` |
 | Sem meta no mês consultado | `404` | `Meta não encontrada.` |
 | O usuário não é da Equipe Operacional | `422` | `Só membros da Equipe Operacional podem ter meta.` |

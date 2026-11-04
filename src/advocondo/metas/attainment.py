@@ -1,6 +1,7 @@
 """Regras puras do atingimento da meta (US36)."""
 
 import calendar
+import uuid
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
@@ -18,6 +19,17 @@ class GoalProgress:
     goal: Goal
     achieved_amount: Decimal
     attainment_percentage: Decimal
+
+
+@dataclass(frozen=True)
+class TeamMemberGoal:
+    """Um colaborador no mês: a meta é vazia enquanto o Administrador não a define."""
+
+    user_id: uuid.UUID
+    user_name: str
+    target_amount: Decimal | None
+    achieved_amount: Decimal
+    attainment_percentage: Decimal | None
 
 
 def month_range(year: int, month: int) -> tuple[date, date]:
