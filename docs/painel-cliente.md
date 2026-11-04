@@ -12,6 +12,7 @@ Devolve a lista dos acordos **ativos** dos condomínios vinculados ao Cliente ([
 [
   {
     "id": "5f0c…",
+    "condominium_id": "c47a…",
     "condominium_name": "Residencial das Flores",
     "debtor_id": "8a1d…",
     "debtor_name": "Maria Souza",
@@ -25,6 +26,7 @@ Devolve a lista dos acordos **ativos** dos condomínios vinculados ao Cliente ([
 
 | Campo | Regra |
 | --- | --- |
+| `condominium_id` | Id do condomínio, para baixar o relatório em `GET /client-panel/condominiums/{id}/report`. |
 | `debtor_id` | Id do morador, para abrir o histórico dele em `GET /client-panel/debtors/{id}/history`. |
 | `status` | `atrasado` se ao menos uma parcela estiver atrasada; `em_dia` caso contrário (inclui acordo sem parcelas ou com tudo pago). |
 | `overdue_installments` | Quantidade de parcelas atrasadas. |

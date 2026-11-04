@@ -33,7 +33,7 @@ def make_agreement(
 ) -> Agreement:
     agreement = Agreement(
         id=uuid.uuid4(),
-        condominium=Condominium(name=condominium_name),
+        condominium=Condominium(id=uuid.uuid4(), name=condominium_name),
         debtor=Debtor(id=uuid.uuid4(), name=debtor_name, unit="Bloco B 304"),
     )
     agreement.installments = [
@@ -130,8 +130,11 @@ class TestSummarizeAgreement:
         assert summary.next_due_date == next_due_date
 
     def test_summary_names_the_condominium_and_the_debtor(self) -> None:
-        summary = summarize_agreement(make_agreement([]), TODAY)
+        agreement = make_agreement([])
 
+        summary = summarize_agreement(agreement, TODAY)
+
+        assert summary.condominium_id == agreement.condominium.id
         assert summary.condominium_name == "Mirante"
         assert summary.debtor_name == "José"
         assert summary.debtor_unit == "Bloco B 304"
