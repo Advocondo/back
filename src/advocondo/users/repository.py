@@ -58,6 +58,15 @@ class UserRepository:
             )
         )
 
+    def list_active_operators(self) -> list[User]:
+        return list(
+            self._session.scalars(
+                select(User)
+                .where(User.role == Role.OPERATOR, User.status == UserStatus.ACTIVE)
+                .order_by(User.name, User.id)
+            )
+        )
+
     def list_active_admins(self) -> list[User]:
         return list(
             self._session.scalars(
