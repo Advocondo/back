@@ -274,7 +274,7 @@ class TestInviteServiceRules:
         service, users, invites, sender, audit_logs = build_invite_service()
         admin = build_admin()
 
-        user = service.invite(
+        result = service.invite(
             admin,
             build_details(
                 email="Novo@Example.com",
@@ -284,6 +284,8 @@ class TestInviteServiceRules:
             ),
         )
 
+        user = result.user
+        assert result.email_sent is True
         assert user.email == "novo@example.com"
         assert user.name == "Novo Colaborador"
         assert user.status == UserStatus.PENDING
@@ -319,9 +321,10 @@ class TestInviteEmailFailure:
         service._email_sender = FailingEmailSender()
 
         with caplog.at_level(logging.ERROR):
-            invited = service.invite(build_admin(), build_details())
+            result = service.invite(build_admin(), build_details())
 
-        assert users.added == [invited]
+        assert result.email_sent is False
+        assert users.added == [result.user]
         assert len(invites.added) == 1
         assert "Falha ao enviar o e-mail de convite" in caplog.text
 

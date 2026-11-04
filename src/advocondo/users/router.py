@@ -17,6 +17,7 @@ from advocondo.users.dependencies import (
 from advocondo.users.schemas import (
     AcceptInviteRequest,
     FirstAdminRequest,
+    InviteResponse,
     InviteUserRequest,
     LawyerResponse,
     ProfileUpdateRequest,
@@ -31,6 +32,7 @@ from advocondo.users.schemas import (
 from advocondo.users.service import (
     AuditService,
     InviteDetails,
+    InviteResult,
     InviteService,
     ProfileChanges,
     ProfileService,
@@ -88,8 +90,8 @@ def invite_user(
     request: InviteUserRequest,
     current_admin: CurrentAdmin,
     invite_service: Annotated[InviteService, Depends(get_invite_service)],
-) -> UserResponse:
-    user = invite_service.invite(
+) -> InviteResponse:
+    result = invite_service.invite(
         current_admin,
         InviteDetails(
             email=request.email,
@@ -99,7 +101,16 @@ def invite_user(
             oab_number=request.oab_number,
         ),
     )
-    return UserResponse.model_validate(user)
+    return invite_response(result)
+
+
+@router.post("/users/{user_id}/invite/resend", tags=["users"])
+def resend_invite(
+    user_id: uuid.UUID,
+    current_admin: CurrentAdmin,
+    invite_service: Annotated[InviteService, Depends(get_invite_service)],
+) -> InviteResponse:
+    return invite_response(invite_service.resend(current_admin, user_id))
 
 
 @router.post("/users/invites/accept", tags=["users"])
@@ -202,3 +213,8 @@ def get_user_history(
     return UserAuditLogListResponse(
         logs=[UserAuditLogResponse.model_validate(log) for log in logs]
     )
+
+
+def invite_response(result: InviteResult) -> InviteResponse:
+    user = UserResponse.model_validate(result.user)
+    return InviteResponse(**user.model_dump(), invite_sent=result.email_sent)
