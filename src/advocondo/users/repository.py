@@ -90,9 +90,18 @@ class UserInviteRepository:
             select(UserInvite).where(UserInvite.token_hash == token_hash)
         )
 
+    def get_by_user(self, user_id: uuid.UUID) -> UserInvite | None:
+        return self._session.scalar(
+            select(UserInvite).where(UserInvite.user_id == user_id)
+        )
+
     def add(self, invite: UserInvite) -> None:
         self._session.add(invite)
         self._session.flush()
+
+    def add_pending(self, invite: UserInvite) -> None:
+        """Registra sem gravar: quem chama ainda preenche o token e a validade."""
+        self._session.add(invite)
 
     def delete(self, invite: UserInvite) -> None:
         self._session.delete(invite)

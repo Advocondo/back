@@ -42,7 +42,11 @@ Os usuários, fora o primeiro Administrador, entram por convite. As rotas de ges
 - `role`: `operator` ou `client`. Não se convida outro Administrador; para isso, convide e depois mude o perfil (US09).
 - `email` repetido, inclusive de convite pendente, recebe `409` (US07-CA03). É gravado em minúsculas.
 - `is_lawyer` e `oab_number` (US07-CA04): o advogado precisa da OAB (8 a 12 caracteres), e só o advogado pode tê-la. A marcação independe do perfil e alimenta a lista de responsáveis pelos acordos (US18).
-- Grava uma linha `invited` no histórico (US11). Resposta `201` com o usuário.
+- Grava uma linha `invited` no histórico (US11). Resposta `201` com o usuário e `invite_sent`: `false` quando o envio do e-mail falhou. O convite continua valendo, e o reenvio resolve.
+
+#### `POST /users/{user_id}/invite/resend`
+
+Só o Administrador. Gera um link novo para quem ainda não aceitou o convite, com a validade contada de novo, e o link anterior deixa de valer. Resposta `200` com o usuário e `invite_sent`. Grava outra linha `invited` no histórico, com quem reenviou. Usuário que já aceitou recebe `422`, e usuário inexistente, `404`.
 
 #### `POST /users/invites/accept`
 
@@ -104,10 +108,11 @@ Para filtrar dados do Cliente, use `UserCondominiumRepository.condominium_ids_of
 | Convite de advogado sem OAB | `422` | `Informe o número da OAB para marcar o usuário como advogado.` |
 | Convite com OAB de quem não é advogado | `422` | `O número da OAB só pode ser informado para advogados.` |
 | Aceite com token desconhecido, expirado ou já usado | `422` | `O convite é inválido ou já expirou.` |
+| Reenvio para quem já aceitou o convite | `422` | `Este usuário já aceitou o convite.` |
 | Situação de usuário com convite pendente | `422` | `Usuário com convite pendente precisa aceitar o convite antes.` |
 | Administrador inativando o próprio acesso | `422` | `Você não pode inativar o seu próprio acesso.` |
 | Administrador mudando o próprio perfil | `422` | `Você não pode alterar o seu próprio perfil.` |
-| Usuário inexistente (situação, perfil, histórico) | `404` | `Usuário não encontrado.` |
+| Usuário inexistente (situação, perfil, histórico, reenvio) | `404` | `Usuário não encontrado.` |
 | Rotas de gestão sem ser Administrador | `403` | `Você não tem permissão para esta operação.` |
 | Vínculo de condomínios: lista com mais de 500 IDs, ID que não é UUID, `condominium_ids` ausente ou campo extra | `422` | erros de validação do FastAPI |
 | Vínculo de condomínios (`PUT` ou `GET`): usuário não é Cliente | `422` | `Somente usuários com perfil Cliente têm condomínios vinculados.` |

@@ -27,6 +27,7 @@ from advocondo.users.errors import (
     PasswordTooShortError,
     TargetNotClientError,
     UnknownCondominiumsError,
+    UserIsNotPendingError,
     UserIsPendingError,
     UserNotFoundError,
     WrongCurrentPasswordError,
@@ -156,6 +157,13 @@ class InviteDetails:
     oab_number: str | None
 
 
+@dataclass(frozen=True)
+class InviteResult:
+    user: User
+    # Sem SMTP o convite continua valendo, e o reenvio resolve; a tela precisa saber.
+    email_sent: bool
+
+
 class InviteService:
     def __init__(
         self,
@@ -179,7 +187,7 @@ class InviteService:
         self._invite_link_duration = invite_link_duration
         self._frontend_url = frontend_url
 
-    def invite(self, invited_by: User, details: InviteDetails) -> User:
+    def invite(self, invited_by: User, details: InviteDetails) -> InviteResult:
         if details.role == Role.ADMIN:
             raise AdminRoleNotAllowedError()
         self._check_oab(details.is_lawyer, details.oab_number)
@@ -218,8 +226,36 @@ class InviteService:
 
         self._session.commit()
 
-        self._send_invite_email(invited, token)
-        return invited
+        return InviteResult(invited, self._send_invite_email(invited, token))
+
+    def resend(self, resent_by: User, user_id: uuid.UUID) -> InviteResult:
+        """Gera um link novo para quem ainda não aceitou. O link anterior deixa de valer."""
+        user = self._users.get_by_id(user_id)
+        if user is None:
+            raise UserNotFoundError()
+        if user.status != UserStatus.PENDING:
+            raise UserIsNotPendingError()
+
+        token = generate_opaque_token()
+        invite = self._invites.get_by_user(user.id)
+        if invite is None:
+            invite = UserInvite(user=user)
+            self._invites.add_pending(invite)
+        invite.invited_by = resent_by
+        invite.token_hash = hash_token(token)
+        invite.expires_at = self._clock.now() + self._invite_link_duration
+
+        log = UserAuditLog(
+            user=user,
+            actor=resent_by,
+            action=AuditAction.INVITED,
+            old_value=None,
+            new_value=user.role.value,
+        )
+        self._audit_logs.add(log)
+        self._session.commit()
+
+        return InviteResult(user, self._send_invite_email(user, token))
 
     def accept_invite(self, token: str, password: str) -> User:
         invite = self._invites.get_by_token_hash(hash_token(token))
@@ -243,7 +279,7 @@ class InviteService:
         if not is_lawyer and oab_number is not None:
             raise OabNumberNotAllowedError()
 
-    def _send_invite_email(self, user: User, token: str) -> None:
+    def _send_invite_email(self, user: User, token: str) -> bool:
         message = build_invite_email(
             user, self._invite_url(token), self._invite_link_duration
         )
@@ -251,6 +287,8 @@ class InviteService:
             self._email_sender.send(message)
         except Exception:
             logger.exception("Falha ao enviar o e-mail de convite")
+            return False
+        return True
 
     def _invite_url(self, token: str) -> str:
         base_url = self._frontend_url.rstrip("/")

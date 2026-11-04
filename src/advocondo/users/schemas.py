@@ -110,6 +110,12 @@ class UserResponse(BaseModel):
     oab_number: str | None
 
 
+class InviteResponse(UserResponse):
+    """O usuário convidado e se o e-mail com o link saiu."""
+
+    invite_sent: bool
+
+
 class LawyerResponse(BaseModel):
     """Dados mínimos para escolher o advogado responsável (US18)."""
 

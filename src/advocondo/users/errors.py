@@ -65,6 +65,10 @@ class UserIsPendingError(BusinessRuleError):
     message = "Usuário com convite pendente precisa aceitar o convite antes."
 
 
+class UserIsNotPendingError(BusinessRuleError):
+    message = "Este usuário já aceitou o convite."
+
+
 class TargetNotClientError(BusinessRuleError):
     message = "Somente usuários com perfil Cliente têm condomínios vinculados."
 
