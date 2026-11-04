@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     invite_link_minutes: int
 
     landing_image_max_kilobytes: int
+    # Tem valor padrão para o deploy não parar por falta dela: sem a chave, só o
+    # formulário de contato fica indisponível (docs/landing.md).
+    turnstile_secret_key: str | None = None
 
     smtp_host: str | None
     smtp_port: int
@@ -62,6 +65,7 @@ class Settings(BaseSettings):
         "sentry_dsn",
         "cors_allow_origin_regex",
         "setup_token",
+        "turnstile_secret_key",
         "smtp_host",
         "smtp_username",
         "smtp_password",

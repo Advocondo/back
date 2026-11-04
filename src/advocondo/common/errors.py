@@ -30,3 +30,7 @@ class ConflictError(AppError):
 
 class BusinessRuleError(AppError):
     message = "A operação não é permitida."
+
+
+class ServiceUnavailableError(AppError):
+    message = "O serviço está indisponível no momento. Tente novamente mais tarde."

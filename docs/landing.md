@@ -73,6 +73,26 @@ Só **Administrador**. Recebe uma ou mais seções, e cada seção enviada subst
 }
 ```
 
+### `POST /landing/contact`
+
+Pública. Recebe o formulário de contato e o envia por e-mail ao endereço `email` da seção `contact`, com o `Reply-To` de quem escreveu. Resposta `204`.
+
+```json
+{
+  "name": "Ana Souza",
+  "phone": "(61) 91234-5678",
+  "email": "ana@example.com",
+  "message": "Gostaria de falar sobre o meu condomínio.",
+  "website": "",
+  "captcha_token": "<token do Turnstile>"
+}
+```
+
+- `name`, `phone` e `email` são obrigatórios. `message` é opcional.
+- **Nada fica guardado no sistema**: a caixa de entrada do escritório é o registro, e a guarda dos dados é responsabilidade dele ([#87](https://github.com/Advocondo/back/issues/87)). Por isso, se o envio falhar, a resposta é um erro, para o visitante saber que a mensagem não saiu.
+- **`website` é um honeypot.** O front esconde o campo das pessoas, e só robôs o preenchem. Se vier preenchido, a resposta é `204` como em um envio real, mas nenhum e-mail sai.
+- **`captcha_token` é o token do [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/)**, conferido no servidor antes do envio.
+
 ### `POST /landing/images`
 
 Só **Administrador**. Recebe o arquivo no campo `file` (`multipart/form-data`). Resposta `201` com o `id` da imagem.
@@ -90,6 +110,9 @@ Só **Administrador**. Apaga uma imagem enviada mas nunca usada, por exemplo qua
 | Variável | Exemplo | Uso |
 | --- | --- | --- |
 | `LANDING_IMAGE_MAX_KILOBYTES` | `2048` | Tamanho máximo de cada imagem enviada |
+| `TURNSTILE_SECRET_KEY` | vazio | Chave secreta do Turnstile, conferida no formulário de contato |
+
+Sem `TURNSTILE_SECRET_KEY`, a API continua no ar e só o formulário muda: em `ENVIRONMENT=local` todo token é aceito, e nos demais ambientes o envio responde `503`. A chave vem do painel da Cloudflare, junto com a chave pública que o front usa.
 
 ## Respostas de erro
 
@@ -103,8 +126,10 @@ Só **Administrador**. Apaga uma imagem enviada mas nunca usada, por exemplo qua
 | Arquivo que não é PNG, JPEG nem WebP | `422` | `Envie uma imagem PNG, JPEG ou WebP.` |
 | Imagem maior que o limite | `422` | `A imagem passa de 2048 KB.` (com o valor configurado) |
 | Seção inválida ou desconhecida, seção enviada como `null` ou edição sem nenhuma seção | `422` | erros de validação do FastAPI |
+| Formulário de contato com captcha recusado | `422` | `Não foi possível confirmar o envio. Refaça a verificação e tente de novo.` |
+| Formulário de contato com campo inválido | `422` | erros de validação do FastAPI |
+| Formulário de contato sem como enviar: falha de e-mail, Turnstile fora do ar, chave não configurada ou página sem e-mail de contato | `503` | `Não foi possível enviar sua mensagem. Tente mais tarde ou fale conosco por telefone.` |
 
 ## Pendências
 
-- O destino dos envios do formulário de contato não está definido em nenhuma história ([#87](https://github.com/Advocondo/back/issues/87)).
 - O protótipo não tem a tela de edição do Administrador. A tela fica com o front ([front#4](https://github.com/Advocondo/front/issues/4)).

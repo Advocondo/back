@@ -25,6 +25,7 @@ MAX_PARAGRAPHS = 6
 MAX_REVIEWS = 8
 MAX_TEAM_MEMBERS = 12
 MAX_TEAM_HIGHLIGHTS = 6
+MAX_CAPTCHA_TOKEN_LENGTH = 2048
 
 Title = Annotated[
     str,
@@ -196,3 +197,17 @@ class LandingUpdateRequest(BaseModel):
 
 class LandingImageResponse(BaseModel):
     id: uuid.UUID
+
+
+class ContactMessageRequest(BaseModel):
+    """What a visitor sends through the contact form on the landing page."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Title
+    phone: Phone
+    email: EmailStr = Field(max_length=MAX_EMAIL_LENGTH)
+    message: Text | None = None
+    # Honeypot: the form hides this field from people, so only bots fill it in.
+    website: str = Field(default="", max_length=MAX_TITLE_LENGTH)
+    captcha_token: str = Field(default="", max_length=MAX_CAPTCHA_TOKEN_LENGTH)

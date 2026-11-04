@@ -1,4 +1,9 @@
-from advocondo.common.errors import BusinessRuleError, ConflictError, NotFoundError
+from advocondo.common.errors import (
+    BusinessRuleError,
+    ConflictError,
+    NotFoundError,
+    ServiceUnavailableError,
+)
 
 
 class LandingImageNotFoundError(NotFoundError):
@@ -20,3 +25,17 @@ class UnsupportedLandingImageError(BusinessRuleError):
 class LandingImageTooLargeError(BusinessRuleError):
     def __init__(self, max_kilobytes: int) -> None:
         super().__init__(f"A imagem passa de {max_kilobytes} KB.")
+
+
+class InvalidCaptchaError(BusinessRuleError):
+    message = (
+        "Não foi possível confirmar o envio. Refaça a verificação e tente de novo."
+    )
+
+
+class ContactFormUnavailableError(ServiceUnavailableError):
+    # The message was not saved anywhere, so the visitor needs to know it did not go out.
+    message = (
+        "Não foi possível enviar sua mensagem. "
+        "Tente mais tarde ou fale conosco por telefone."
+    )
