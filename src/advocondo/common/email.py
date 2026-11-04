@@ -17,6 +17,7 @@ class EmailMessage:
     to: str
     subject: str
     body: str
+    reply_to: str | None = None
 
 
 class EmailSender(Protocol):
@@ -46,6 +47,8 @@ class SmtpEmailSender:
         mime_message["From"] = self._sender
         mime_message["To"] = message.to
         mime_message["Subject"] = message.subject
+        if message.reply_to:
+            mime_message["Reply-To"] = message.reply_to
         mime_message.set_content(message.body)
 
         with smtplib.SMTP(self._host, self._port, timeout=SMTP_TIMEOUT_SECONDS) as smtp:

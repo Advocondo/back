@@ -3,9 +3,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Response, UploadFile, status
 
-from advocondo.landing.dependencies import get_landing_service
+from advocondo.landing.contact import ContactService
+from advocondo.landing.dependencies import get_contact_service, get_landing_service
 from advocondo.landing.models import ImageMediaType
 from advocondo.landing.schemas import (
+    ContactMessageRequest,
     LandingContent,
     LandingImageResponse,
     LandingUpdateRequest,
@@ -33,6 +35,14 @@ def update_landing(
     request: LandingUpdateRequest, landing_service: LandingServiceDependency
 ) -> LandingContent:
     return landing_service.update(request)
+
+
+@router.post("/contact", status_code=status.HTTP_204_NO_CONTENT)
+def send_contact_message(
+    request: ContactMessageRequest,
+    contact_service: Annotated[ContactService, Depends(get_contact_service)],
+) -> None:
+    contact_service.send(request)
 
 
 @router.post("/images", status_code=status.HTTP_201_CREATED, dependencies=admin_only)

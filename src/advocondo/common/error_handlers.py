@@ -8,6 +8,7 @@ from advocondo.common.errors import (
     ConflictError,
     NotFoundError,
     PermissionDeniedError,
+    ServiceUnavailableError,
 )
 
 STATUS_BY_ERROR: dict[type[AppError], int] = {
@@ -16,6 +17,7 @@ STATUS_BY_ERROR: dict[type[AppError], int] = {
     NotFoundError: status.HTTP_404_NOT_FOUND,
     ConflictError: status.HTTP_409_CONFLICT,
     BusinessRuleError: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    ServiceUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
 }
 
 

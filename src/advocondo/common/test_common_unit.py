@@ -22,6 +22,7 @@ from advocondo.common.errors import (
     ConflictError,
     NotFoundError,
     PermissionDeniedError,
+    ServiceUnavailableError,
 )
 from advocondo.common.money import format_brl
 from advocondo.common.normalization import comparable_text, keep_only_digits
@@ -114,6 +115,7 @@ class TestErrorHandlers:
             pytest.param(NotFoundError(), 404, id="not-found"),
             pytest.param(ConflictError(), 409, id="conflict"),
             pytest.param(BusinessRuleError(), 422, id="business-rule"),
+            pytest.param(ServiceUnavailableError(), 503, id="service-unavailable"),
             pytest.param(AppError(), 400, id="unmapped"),
         ],
     )
@@ -190,6 +192,21 @@ class TestEmail:
             "Assunto",
         )
         assert sent.get_content().strip() == "Corpo"
+        assert sent["Reply-To"] is None
+
+    def test_smtp_sender_sets_the_reply_to_address(
+        self, fake_smtp: type[FakeSmtp]
+    ) -> None:
+        message = EmailMessage(
+            to="ana@example.com",
+            subject="Assunto",
+            body="Corpo",
+            reply_to="bia@example.com",
+        )
+
+        build_smtp_sender().send(message)
+
+        assert fake_smtp.instances[0].sent[0]["Reply-To"] == "bia@example.com"
 
     def test_log_sender_writes_the_message_to_the_log(
         self,
