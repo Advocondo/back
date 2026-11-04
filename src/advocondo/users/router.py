@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from advocondo.auth.dependencies import CurrentSession, require_office_staff
 from advocondo.users.dependencies import (
@@ -38,6 +38,9 @@ from advocondo.users.service import (
     UserManagementService,
     UserService,
 )
+
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 200
 
 router = APIRouter()
 
@@ -106,6 +109,22 @@ def accept_invite(
 ) -> UserResponse:
     user = invite_service.accept_invite(request.token, request.password)
     return UserResponse.model_validate(user)
+
+
+@router.get("/users", tags=["users"])
+def search_users(
+    current_admin: CurrentAdmin,
+    user_management: Annotated[
+        UserManagementService, Depends(get_user_management_service)
+    ],
+    search: Annotated[
+        str | None, Query(description="Parte do nome ou do e-mail do usuário")
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[UserResponse]:
+    users = user_management.search(search, limit, offset)
+    return [UserResponse.model_validate(user) for user in users]
 
 
 @router.get(

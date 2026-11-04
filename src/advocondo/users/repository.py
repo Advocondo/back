@@ -1,9 +1,10 @@
 import uuid
 from collections.abc import Collection, Sequence
 
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, exists, or_, select
 from sqlalchemy.orm import Session
 
+from advocondo.common.search import LIKE_ESCAPE_CHARACTER, contains_pattern
 from advocondo.condominios.models import Condominium
 from advocondo.users.models import (
     Role,
@@ -33,6 +34,19 @@ class UserRepository:
 
     def is_any_registered(self) -> bool:
         return bool(self._session.scalar(select(exists().select_from(User))))
+
+    def search(self, text: str | None, limit: int, offset: int) -> Sequence[User]:
+        """Users whose name or e-mail contains `text`, ignoring case, by name."""
+        query = select(User).order_by(User.name, User.id)
+        if text:
+            pattern = contains_pattern(text)
+            query = query.where(
+                or_(
+                    User.name.ilike(pattern, escape=LIKE_ESCAPE_CHARACTER),
+                    User.email.ilike(pattern, escape=LIKE_ESCAPE_CHARACTER),
+                )
+            )
+        return self._session.scalars(query.limit(limit).offset(offset)).all()
 
     def list_active_lawyers(self) -> list[User]:
         # Mesma regra de User.can_be_responsible_lawyer, aplicada no banco.
