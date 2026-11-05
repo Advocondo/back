@@ -1,4 +1,8 @@
-from advocondo.common.errors import AuthenticationError, BusinessRuleError
+from advocondo.common.errors import (
+    AuthenticationError,
+    BusinessRuleError,
+    NotFoundError,
+)
 
 
 class InvalidCredentialsError(AuthenticationError):
@@ -8,6 +12,10 @@ class InvalidCredentialsError(AuthenticationError):
 
 class InvalidSessionError(AuthenticationError):
     message = "Sua sessão expirou. Faça login novamente."
+
+
+class UserSessionNotFoundError(NotFoundError):
+    message = "Sessão não encontrada."
 
 
 class InvalidPasswordResetLinkError(BusinessRuleError):

@@ -26,6 +26,17 @@ class AuthenticatedUser(BaseModel):
     role: Role
 
 
+class SessionResponse(BaseModel):
+    """Uma sessão ativa da própria pessoa (US06). Lista fechada: o hash do token não
+    entra aqui."""
+
+    id: uuid.UUID
+    user_agent: str | None
+    created_at: datetime
+    expires_at: datetime
+    is_current: bool
+
+
 class LoginResponse(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
