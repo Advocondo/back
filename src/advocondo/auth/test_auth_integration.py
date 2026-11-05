@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session
 import advocondo.common.clock
 import advocondo.db
 from advocondo.auth.cleanup import delete_expired
-from advocondo.auth.models import PasswordResetLink, UserSession
+from advocondo.auth.models import (
+    USER_AGENT_MAX_LENGTH,
+    PasswordResetLink,
+    UserSession,
+)
 from advocondo.common.email import EmailMessage, get_email_sender
 from advocondo.common.tokens import generate_opaque_token, hash_token
 from advocondo.config import Settings
@@ -763,3 +767,210 @@ class TestExpiredCleanup:
         assert count_sessions(db_session) == 0
         assert count_reset_links(db_session) == 0
         assert "1 sessões e 1 links de redefinição" in capsys.readouterr().out
+
+
+class TestListSessions:
+    def test_lists_only_the_users_active_sessions_and_marks_the_current_one(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US06"""
+        user = create_user(email="ana@example.com")
+        this_device = authenticate_as(user)
+        authenticate_as(user)
+        authenticate_as(create_user(email="bruno@example.com"))
+
+        response = db_client.get("/auth/sessions", headers=this_device)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 2
+        assert [item["is_current"] for item in body].count(True) == 1
+
+    def test_response_does_not_expose_the_token_hash(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers = authenticate_as(create_user())
+
+        item = db_client.get("/auth/sessions", headers=headers).json()[0]
+
+        assert set(item) == {
+            "id",
+            "user_agent",
+            "created_at",
+            "expires_at",
+            "is_current",
+        }
+
+    def test_expired_sessions_are_not_listed(
+        self,
+        db_client: TestClient,
+        db_session: Session,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+        clock: FrozenClock,
+    ) -> None:
+        user = create_user()
+        headers = authenticate_as(user)
+        db_session.add(
+            UserSession(
+                user=user,
+                token_hash=hash_token(generate_opaque_token()),
+                expires_at=clock.now() - timedelta(seconds=1),
+            )
+        )
+        db_session.commit()
+
+        assert len(db_client.get("/auth/sessions", headers=headers).json()) == 1
+
+    def test_login_records_the_user_agent(
+        self, db_client: TestClient, create_user: CreateUser
+    ) -> None:
+        create_user(email="ana@example.com")
+        login = db_client.post(
+            "/auth/login",
+            json={"email": "ana@example.com", "password": DEFAULT_PASSWORD},
+            headers={"User-Agent": "Navegador de Teste"},
+        )
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+        item = db_client.get("/auth/sessions", headers=headers).json()[0]
+
+        assert item["user_agent"] == "Navegador de Teste"
+        assert item["is_current"] is True
+
+    def test_a_long_user_agent_is_cut_to_fit_the_column(
+        self, db_client: TestClient, create_user: CreateUser
+    ) -> None:
+        create_user(email="ana@example.com")
+        login = db_client.post(
+            "/auth/login",
+            json={"email": "ana@example.com", "password": DEFAULT_PASSWORD},
+            headers={"User-Agent": "x" * 1000},
+        )
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+        assert login.status_code == 200
+        item = db_client.get("/auth/sessions", headers=headers).json()[0]
+        assert item["user_agent"] == "x" * USER_AGENT_MAX_LENGTH
+
+    def test_an_empty_user_agent_is_not_recorded(
+        self, db_client: TestClient, create_user: CreateUser
+    ) -> None:
+        create_user(email="ana@example.com")
+        login = db_client.post(
+            "/auth/login",
+            json={"email": "ana@example.com", "password": DEFAULT_PASSWORD},
+            headers={"User-Agent": ""},
+        )
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+        assert (
+            db_client.get("/auth/sessions", headers=headers).json()[0]["user_agent"]
+            is None
+        )
+
+    def test_listing_requires_a_valid_session(self, db_client: TestClient) -> None:
+        assert db_client.get("/auth/sessions").status_code == 401
+
+
+class TestEndOtherSessions:
+    def test_other_sessions_stop_working_and_this_one_keeps_working(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        """US06-CA01"""
+        user = create_user()
+        this_device = authenticate_as(user)
+        phone = authenticate_as(user)
+
+        response = db_client.delete("/auth/sessions/others", headers=this_device)
+
+        assert response.status_code == 204
+        assert db_client.get("/auth/me", headers=phone).status_code == 401
+        assert db_client.get("/auth/me", headers=this_device).status_code == 200
+
+    def test_sessions_of_other_users_are_not_affected(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        this_device = authenticate_as(create_user(email="ana@example.com"))
+        someone_else = authenticate_as(create_user(email="bruno@example.com"))
+
+        db_client.delete("/auth/sessions/others", headers=this_device)
+
+        assert db_client.get("/auth/me", headers=someone_else).status_code == 200
+
+    def test_requires_a_valid_session(self, db_client: TestClient) -> None:
+        assert db_client.delete("/auth/sessions/others").status_code == 401
+
+
+class TestEndOneSession:
+    def test_ends_only_the_chosen_session(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        user = create_user()
+        this_device = authenticate_as(user)
+        phone = authenticate_as(user)
+        laptop = authenticate_as(user)
+        phone_id = next(
+            item["id"]
+            for item in db_client.get("/auth/sessions", headers=phone).json()
+            if item["is_current"]
+        )
+
+        response = db_client.delete(f"/auth/sessions/{phone_id}", headers=this_device)
+
+        assert response.status_code == 204
+        assert db_client.get("/auth/me", headers=phone).status_code == 401
+        assert db_client.get("/auth/me", headers=laptop).status_code == 200
+        assert db_client.get("/auth/me", headers=this_device).status_code == 200
+
+    def test_someone_elses_session_answers_as_unknown_and_keeps_working(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        this_device = authenticate_as(create_user(email="ana@example.com"))
+        someone_else = authenticate_as(create_user(email="bruno@example.com"))
+        their_id = db_client.get("/auth/sessions", headers=someone_else).json()[0]["id"]
+
+        response = db_client.delete(f"/auth/sessions/{their_id}", headers=this_device)
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Sessão não encontrada."}
+        assert db_client.get("/auth/me", headers=someone_else).status_code == 200
+
+    def test_ending_the_current_session_works_as_logout(
+        self,
+        db_client: TestClient,
+        create_user: CreateUser,
+        authenticate_as: AuthenticateAs,
+    ) -> None:
+        headers = authenticate_as(create_user())
+        own_id = db_client.get("/auth/sessions", headers=headers).json()[0]["id"]
+
+        response = db_client.delete(f"/auth/sessions/{own_id}", headers=headers)
+
+        assert response.status_code == 204
+        assert db_client.get("/auth/me", headers=headers).status_code == 401
+
+    def test_requires_a_valid_session(self, db_client: TestClient) -> None:
+        response = db_client.delete(
+            "/auth/sessions/00000000-0000-0000-0000-000000000000"
+        )
+
+        assert response.status_code == 401

@@ -46,6 +46,32 @@ Devolve o usuário do token (mesmo formato de `user` acima). Serve para o front 
 
 Encerra a sessão do token enviado. Resposta `204`. As sessões do mesmo usuário em outros dispositivos continuam valendo.
 
+### `GET /auth/sessions`
+
+Lista as sessões ativas do próprio usuário, da mais recente para a mais antiga (US06):
+
+```json
+[
+  {
+    "id": "5f0c…",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0",
+    "created_at": "2026-11-05T12:00:00Z",
+    "expires_at": "2026-11-05T20:00:00Z",
+    "is_current": true
+  }
+]
+```
+
+`user_agent` é o cabeçalho enviado no login, cortado em 255 caracteres, e serve só para a pessoa reconhecer o aparelho. Fica `null` em sessões anteriores a esse campo e em clientes que não enviam o cabeçalho. `created_at` é o momento do login: o back não registra a última atividade da sessão. Sessões expiradas não aparecem.
+
+### `DELETE /auth/sessions/others`
+
+Encerra as outras sessões do usuário e mantém a do token enviado (US06-CA01). Resposta `204`.
+
+### `DELETE /auth/sessions/{session_id}`
+
+Encerra uma sessão do próprio usuário. Resposta `204`. Id desconhecido ou de outra pessoa responde `404`, com a mesma mensagem. Encerrar a sessão do token enviado funciona como `POST /auth/logout`.
+
 ### `DELETE /auth/sessions`
 
 Encerra todas as sessões do usuário, inclusive a do token enviado (US06-CA01). Resposta `204`. A partir daí, todos os dispositivos, inclusive o que pediu, recebem `401` na próxima requisição e precisam fazer login de novo.

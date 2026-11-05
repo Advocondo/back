@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, cast
 
@@ -24,6 +25,24 @@ class UserSessionRepository:
     def delete(self, user_session: UserSession) -> None:
         self._session.delete(user_session)
         self._session.flush()
+
+    def list_active_of_user(
+        self, user_id: uuid.UUID, now: datetime
+    ) -> Sequence[UserSession]:
+        return self._session.scalars(
+            select(UserSession)
+            .where(UserSession.user_id == user_id, UserSession.expires_at > now)
+            .order_by(UserSession.created_at.desc(), UserSession.id)
+        ).all()
+
+    def get_of_user(
+        self, session_id: uuid.UUID, user_id: uuid.UUID
+    ) -> UserSession | None:
+        return self._session.scalar(
+            select(UserSession).where(
+                UserSession.id == session_id, UserSession.user_id == user_id
+            )
+        )
 
     def delete_all_of_user(self, user_id: uuid.UUID) -> None:
         self._session.execute(delete(UserSession).where(UserSession.user_id == user_id))

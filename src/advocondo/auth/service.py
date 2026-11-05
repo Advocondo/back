@@ -1,4 +1,6 @@
 import logging
+import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
@@ -9,8 +11,13 @@ from advocondo.auth.errors import (
     InvalidCredentialsError,
     InvalidPasswordResetLinkError,
     InvalidSessionError,
+    UserSessionNotFoundError,
 )
-from advocondo.auth.models import PasswordResetLink, UserSession
+from advocondo.auth.models import (
+    USER_AGENT_MAX_LENGTH,
+    PasswordResetLink,
+    UserSession,
+)
 from advocondo.auth.repository import PasswordResetLinkRepository, UserSessionRepository
 from advocondo.common.clock import Clock
 from advocondo.common.email import EmailMessage, EmailSender
@@ -56,7 +63,14 @@ class AuthService:
         self._clock = clock
         self._session_durations = session_durations
 
-    def log_in(self, email: str, password: str, *, remember_me: bool) -> LoginResult:
+    def log_in(
+        self,
+        email: str,
+        password: str,
+        *,
+        remember_me: bool,
+        user_agent: str | None = None,
+    ) -> LoginResult:
         user = self._find_user_by_credentials(email, password)
         if not user.can_log_in:
             raise InvalidCredentialsError()
@@ -66,6 +80,8 @@ class AuthService:
             user=user,
             token_hash=hash_token(token),
             expires_at=self._clock.now() + self._session_duration(remember_me),
+            # O cabeçalho vem do cliente e não tem limite: guarda só o que cabe.
+            user_agent=user_agent[:USER_AGENT_MAX_LENGTH] if user_agent else None,
         )
         self._user_sessions.add(user_session)
         self._session.commit()
@@ -86,6 +102,23 @@ class AuthService:
     def end_all_sessions(self, user: User) -> None:
         """Logs the user out of every device, including the one making the request."""
         self._user_sessions.delete_all_of_user(user.id)
+        self._session.commit()
+
+    def list_sessions(self, user: User) -> Sequence[UserSession]:
+        return self._user_sessions.list_active_of_user(user.id, self._clock.now())
+
+    def end_session(self, user: User, session_id: uuid.UUID) -> None:
+        """Ends one of the user's own sessions. Someone else's answers as unknown, so
+        the id does not reveal that it exists (US06)."""
+        user_session = self._user_sessions.get_of_user(session_id, user.id)
+        if user_session is None:
+            raise UserSessionNotFoundError()
+        self._user_sessions.delete(user_session)
+        self._session.commit()
+
+    def end_other_sessions(self, user_session: UserSession) -> None:
+        """Logs the user out of every other device and keeps this one (US06-CA01)."""
+        self._user_sessions.delete_all_of_user_except(user_session)
         self._session.commit()
 
     def _find_user_by_credentials(self, email: str, password: str) -> User:

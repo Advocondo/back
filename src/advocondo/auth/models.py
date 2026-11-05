@@ -9,6 +9,7 @@ from advocondo.db import Base
 from advocondo.users.models import User
 
 TOKEN_HASH_LENGTH = 64
+USER_AGENT_MAX_LENGTH = 255
 
 
 class UserSession(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -21,6 +22,9 @@ class UserSession(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
     )
     token_hash: Mapped[str] = mapped_column(String(TOKEN_HASH_LENGTH), unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Para a pessoa reconhecer o aparelho na lista de sessões (US06). Vazio em sessões
+    # anteriores a este campo e em clientes que não enviam o cabeçalho.
+    user_agent: Mapped[str | None] = mapped_column(String(USER_AGENT_MAX_LENGTH))
 
     user: Mapped[User] = relationship()
 
