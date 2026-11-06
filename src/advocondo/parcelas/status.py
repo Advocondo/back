@@ -10,6 +10,14 @@ class InstallmentStatus(enum.StrEnum):
     OVERDUE = "overdue"
 
 
+# Como a situação aparece em arquivos que as pessoas leem, como o PDF e a planilha.
+INSTALLMENT_STATUS_LABELS = {
+    InstallmentStatus.OPEN: "Em aberto",
+    InstallmentStatus.PAID: "Pago",
+    InstallmentStatus.OVERDUE: "Atrasado",
+}
+
+
 def calculate_installment_status(
     due_date: date, payment_date: date | None, today: date
 ) -> InstallmentStatus:
