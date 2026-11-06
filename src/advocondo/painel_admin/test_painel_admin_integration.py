@@ -370,7 +370,7 @@ class TestExportReport:
 
         rows = export_rows(db_client, admin_headers, year=2026, month=3, status="open")
 
-        assert [(row[1], row[7]) for row in rows[1:]] == [("Rita", "open")]
+        assert [(row[1], row[7]) for row in rows[1:]] == [("Rita", "Em aberto")]
 
     def test_filters_by_condominium(
         self,
