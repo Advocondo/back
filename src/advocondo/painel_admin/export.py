@@ -8,7 +8,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from advocondo.parcelas.status import InstallmentStatus
+from advocondo.parcelas.status import INSTALLMENT_STATUS_LABELS, InstallmentStatus
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 HEADERS = (
@@ -64,7 +64,7 @@ def build_installment_workbook(rows: Sequence[ExportableInstallmentRow]) -> byte
                 row.installment_number,
                 row.due_date,
                 row.payment_date,
-                row.status.value,
+                INSTALLMENT_STATUS_LABELS[row.status],
                 row.amount,
                 row.fee_amount,
                 row.responsible_lawyer_name,

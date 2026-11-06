@@ -326,9 +326,9 @@ class TestExportReport:
         rows = export_rows(db_client, admin_headers, year=2026, month=2)
         assert rows[0][0] == "Condomínio"
         assert [(row[1], row[4], row[7]) for row in rows[1:]] == [
-            ("José", 1, "paid"),
-            ("José", 2, "paid"),
-            ("José", 3, "overdue"),
+            ("José", 1, "Pago"),
+            ("José", 2, "Pago"),
+            ("José", 3, "Atrasado"),
         ]
 
     @pytest.mark.parametrize(

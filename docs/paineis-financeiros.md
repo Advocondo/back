@@ -63,6 +63,7 @@ Indicadores de um mês (US34-CA02). `year` e `month` são obrigatórios; mês fo
 Planilha `.xlsx` (`acompanhamento_AAAA_MM.xlsx`) com as parcelas que vencem no mês, uma por linha: condomínio, devedor, unidade, acordo, número, vencimento, pagamento, status, valor, honorários e responsável.
 
 - **Filtros (US35-CA01):** `condominium_id`, `responsible_lawyer_id` e `status` (`open`, `overdue` ou `paid`), combináveis. O status é calculado na data de hoje.
+- **Status na planilha:** em português, como no PDF do acordo: `Em aberto`, `Pago` ou `Atrasado`.
 - **Formato (US35-CA02):** valores são números com formato `#,##0.00` e datas são datas com `dd/mm/yyyy`, então o Excel soma e ordena. Nomes e identificadores ficam sempre como texto: um nome que começa com `=` não vira fórmula.
 - Mês sem parcelas gera a planilha só com o cabeçalho.
 

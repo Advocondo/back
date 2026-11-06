@@ -19,14 +19,9 @@ from advocondo.common.pdf import (
     render_pdf,
 )
 from advocondo.condominios.models import Condominium
-from advocondo.parcelas.status import InstallmentStatus
+from advocondo.parcelas.status import INSTALLMENT_STATUS_LABELS
 
 AGREEMENT_STATUS_LABELS = {AgreementStatus.ACTIVE: "Ativo"}
-INSTALLMENT_STATUS_LABELS = {
-    InstallmentStatus.OPEN: "Em aberto",
-    InstallmentStatus.PAID: "Pago",
-    InstallmentStatus.OVERDUE: "Atrasado",
-}
 INSTALLMENT_HEADER = ("Nº", "Vencimento", "Valor", "Pagamento", "Situação")
 NUMERIC_CNPJ_LENGTH = 14
 
