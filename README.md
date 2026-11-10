@@ -110,6 +110,7 @@ src/advocondo/
 ├── config.py      # configurações lidas das variáveis de ambiente
 ├── db.py          # SQLAlchemy: Base dos modelos, engine e sessão
 ├── models.py      # importa todos os modelos (Alembic e testes)
+├── auditoria/     # trilha de auditoria única (ver docs/auditoria.md)
 ├── common/        # peças compartilhadas (relógio, e-mail, erros, PDF, armazenamento de arquivos)
 ├── documentos/    # PDF do acordo (ver docs/documentos.md)
 ├── health.py      # /health e /health/ready
@@ -152,6 +153,8 @@ Comissões, faturamento, indicadores e a exportação para Excel ficam em `/oper
 O conteúdo da landing page fica em `/landing`: o site lê as seções sem login, e o Administrador edita textos e fotos da equipe. Veja [Página institucional](docs/landing.md).
 
 O PDF de cada acordo é gerado e baixado em `/agreements/{id}/pdfs`, com as mesmas permissões do acordo. Veja [Documentos](docs/documentos.md).
+
+O Administrador vê numa lista só as ações de todos os acordos, parcelas e usuários em `GET /audit`, com filtros por autor, período e tipo. Veja [Trilha de auditoria](docs/auditoria.md).
 
 ### Migrations
 
